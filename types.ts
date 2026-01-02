@@ -26,7 +26,7 @@ export interface Employee {
   phone?: string;
   cargo: string;
   role: Role; // Rol para permisos
-  
+
   // Datos Personales Extendidos
   fechaNacimiento?: string; // ISO Date string
   nacionalidad?: string;
@@ -70,4 +70,19 @@ export interface ComparisonRecord {
     name: string;
     inF30: boolean;
   }[];
+}
+
+export interface DailyPayment {
+  id: string;
+  workerName: string;
+  workerId?: string;
+  amount: number;
+  siteId: number | string; // Supporting both for flexibility, though Site uses number
+  siteName: string;
+  description: string;
+  status: 'PENDING' | 'PAID';
+  createdAt: string;
+  paidAt?: string;
+  paidBy?: string; // Admin who marked as paid
+  monthPeriod: string; // YYYY-MM format to group reports
 }
