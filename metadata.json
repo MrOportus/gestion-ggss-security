@@ -1,0 +1,7 @@
+{
+  "name": "Gestión GGSS Security",
+  "description": "Sistema de gestión de personal de seguridad (MVP).",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}
