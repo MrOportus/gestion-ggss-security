@@ -6,3 +6,5 @@
 - [x] Integrate component into `TasksPage`
 - [x] **Deploy to Production**
 - [ ] Push to GitHub (Need Remote URL)
+- [x] Build completed
+
