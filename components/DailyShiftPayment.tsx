@@ -1,251 +1,510 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useAppStore } from '../store/useAppStore';
 import {
-    User, Calendar, DollarSign, MapPin, FileText, CheckCircle, Clock,
-    Plus, Search, Filter, Download
+    DollarSign, MapPin, FileText, CheckCircle,
+    Plus, Search, Download, Trash2, Moon, Sun, ChevronDown, Pencil, X as CloseIcon, Save
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import { DailyPayment } from '../types';
 
 export const DailyShiftPayment = () => {
     const {
         currentUser, employees, sites, dailyPayments,
-        fetchDailyPayments, addDailyPayment, markPaymentAsPaid, updateDailyPayment
+        fetchDailyPayments, addDailyPayment, markPaymentAsPaid, updateDailyPayment, deleteDailyPayment, bulkMarkAsPaid,
+        showNotification, showConfirmation
     } = useAppStore();
 
-    const [activeTab, setActiveTab] = useState<'create' | 'list' | 'reports'>('create'); // Default to create per spec? Or list? Spec says "Turnos Diarios" is creation.
+    const [activeTab, setActiveTab] = useState<'create' | 'list' | 'reports'>('create');
 
-    // Form State
+    // --- STAGED PAYMENTS STATE (For Preview) ---
+    const [stagedPayments, setStagedPayments] = useState<Omit<DailyPayment, 'id' | 'createdAt' | 'status'>[]>([]);
+
+    // --- FORM STATE ---
     const [selectedWorkerId, setSelectedWorkerId] = useState<string>('');
     const [manualWorkerName, setManualWorkerName] = useState('');
     const [amount, setAmount] = useState<number | ''>('');
     const [siteId, setSiteId] = useState<string>('');
-    const [description, setDescription] = useState('');
+    const [description] = useState('');
+    const [shiftDate, setShiftDate] = useState(new Date().toISOString().slice(0, 10)); // Default Today
+    const [paymentDate, setPaymentDate] = useState<string>(''); // Optional, defaults to shiftDate
+    const [isNightShift, setIsNightShift] = useState(false);
+
     const [isSubmitting, setIsSubmitting] = useState(false);
 
-    // Filter State
+    // --- EDIT STATE ---
+    const [editingPaymentId, setEditingPaymentId] = useState<string | null>(null);
+    const [editAmount, setEditAmount] = useState<number>(0);
+    const [editDescription, setEditDescription] = useState<string>('');
+    const [editShiftDate, setEditShiftDate] = useState<string>('');
+    const [editPaymentDate, setEditPaymentDate] = useState<string>('');
+
+    // --- SEARCH STATE ---
+    const [workerSearch, setWorkerSearch] = useState('');
+    const [siteSearch, setSiteSearch] = useState('');
+    const [showWorkerList, setShowWorkerList] = useState(false);
+    const [showSiteList, setShowSiteList] = useState(false);
+
+    // --- LIST FILTER STATE ---
     const [filterMonth, setFilterMonth] = useState(new Date().toISOString().slice(0, 7)); // YYYY-MM
-    const [searchTerm, setSearchTerm] = useState('');
+    const [listSearchTerm, setListSearchTerm] = useState('');
+
+    const todayStr = new Date().toISOString().slice(0, 10);
 
     useEffect(() => {
         fetchDailyPayments();
     }, []);
 
-    // --- COMPUTED DATA ---
-    const filteredPayments = useMemo(() => {
-        return dailyPayments.filter(p => {
-            const matchesMonth = p.monthPeriod === filterMonth;
-            const matchesSearch = p.workerName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                p.siteName.toLowerCase().includes(searchTerm.toLowerCase());
-            return matchesMonth && matchesSearch;
-        });
-    }, [dailyPayments, filterMonth, searchTerm]);
+    // --- COMPUTED HELPERS ---
+    const filteredWorkers = useMemo(() => {
+        if (!workerSearch) return employees.filter(e => e.isActive).slice(0, 10);
+        const lower = workerSearch.toLowerCase();
+        return employees.filter(e =>
+            e.isActive && (
+                e.firstName.toLowerCase().includes(lower) ||
+                e.lastNamePaterno.toLowerCase().includes(lower) ||
+                e.rut.toLowerCase().includes(lower)
+            )
+        ).slice(0, 10);
+    }, [employees, workerSearch]);
 
-    const reportData = useMemo(() => {
-        // Prepare data for export/report view
-        // Group by Month is handled by filterMonth already for the view
-        return filteredPayments.filter(p => p.status === 'PAID');
-    }, [filteredPayments]);
+    const filteredSites = useMemo(() => {
+        if (!siteSearch) return sites.filter(s => s.active);
+        const lower = siteSearch.toLowerCase();
+        return sites.filter(s => s.active && s.name.toLowerCase().includes(lower));
+    }, [sites, siteSearch]);
 
+    const quickAmounts = [35000, 40000, 45000, 50000];
 
     // --- HANDLERS ---
-    const handleCreate = async (e: React.FormEvent) => {
-        e.preventDefault();
+
+    const handleStagePayment = () => {
         if ((!selectedWorkerId && !manualWorkerName) || !amount || !siteId) {
-            alert("Complete los campos obligatorios");
+            showNotification("Complete Trabajador, Monto y Sucursal", "warning");
             return;
         }
 
+        const workerName = selectedWorkerId
+            ? (() => {
+                const emp = employees.find(e => e.id === selectedWorkerId);
+                return emp ? `${emp.firstName} ${emp.lastNamePaterno}` : 'Desconocido';
+            })()
+            : manualWorkerName;
+
+        const siteName = sites.find(s => String(s.id) === siteId)?.name || 'Desconocida';
+
+        const newStaged: Omit<DailyPayment, 'id' | 'createdAt' | 'status'> = {
+            workerName,
+            workerId: selectedWorkerId || undefined,
+            amount: Number(amount),
+            siteId,
+            siteName,
+            description,
+            monthPeriod: new Date().toISOString().slice(0, 7), // Just fallback, usage logic might override
+            shiftDate,
+            paymentDate: paymentDate || shiftDate, // Apply default logic
+            isNightShift
+        };
+
+        setStagedPayments([...stagedPayments, newStaged]);
+
+        // Reset fields for next entry, KEEP SITE and DATE usually same for bulk
+        setSelectedWorkerId('');
+        setManualWorkerName('');
+        setWorkerSearch('');
+    };
+
+    const handleRemoveStaged = (index: number) => {
+        const temp = [...stagedPayments];
+        temp.splice(index, 1);
+        setStagedPayments(temp);
+    };
+
+    const handleSaveAll = async () => {
+        if (stagedPayments.length === 0) return;
         setIsSubmitting(true);
         try {
-            const workerName = selectedWorkerId
-                ? (() => {
-                    const emp = employees.find(e => e.id === selectedWorkerId);
-                    return emp ? `${emp.firstName} ${emp.lastNamePaterno} ${emp.lastNameMaterno || ''}` : 'Desconocido';
-                })()
-                : manualWorkerName;
+            // Process sequentially
+            for (const payment of stagedPayments) {
+                const period = payment.shiftDate ? payment.shiftDate.slice(0, 7) : new Date().toISOString().slice(0, 7);
 
-            const siteName = sites.find(s => String(s.id) === siteId)?.name || 'Desconocida';
-
-            await addDailyPayment({
-                workerName,
-                workerId: selectedWorkerId || undefined,
-                amount: Number(amount),
-                siteId,
-                siteName,
-                description,
-                monthPeriod: new Date().toISOString().slice(0, 7)
-            });
-
-            // Reset Form and Switch Tab
-            setSelectedWorkerId('');
-            setManualWorkerName('');
-            setAmount('');
-            setSiteId('');
-            setDescription('');
-            setActiveTab('list'); // "Pasa automáticamente a la sección Pagar Turnos Extra"
-
+                await addDailyPayment({
+                    ...payment,
+                    monthPeriod: period
+                });
+            }
+            setStagedPayments([]);
+            setActiveTab('list');
+            showNotification("Turnos guardados correctamente", "success");
         } catch (error) {
-            alert("Error al crear el pago");
+            console.error(error);
+            showNotification("Error al guardar algunos turnos", "error");
         } finally {
             setIsSubmitting(false);
         }
     };
 
+    const handleDelete = async (id: string) => {
+        showConfirmation({
+            title: "Eliminar Registro",
+            message: "¿Seguro que desea eliminar este registro de pago?",
+            onConfirm: async () => {
+                try {
+                    await deleteDailyPayment(id);
+                    showNotification("Registro eliminado", "success");
+                } catch (error) {
+                    showNotification("Error al eliminar", "error");
+                }
+            }
+        });
+    };
+
+    const startEditing = (payment: DailyPayment) => {
+        setEditingPaymentId(payment.id);
+        setEditAmount(payment.amount);
+        setEditDescription(payment.description || '');
+        setEditShiftDate(payment.shiftDate || '');
+        setEditPaymentDate(payment.paymentDate || payment.shiftDate || '');
+    };
+
+    const cancelEditing = () => {
+        setEditingPaymentId(null);
+    };
+
+    const saveEdit = async (id: string) => {
+        try {
+            await updateDailyPayment(id, {
+                amount: editAmount,
+                description: editDescription,
+                shiftDate: editShiftDate,
+                paymentDate: editPaymentDate,
+                monthPeriod: editShiftDate.slice(0, 7) // Also update month period if date changes
+            });
+            setEditingPaymentId(null);
+            showNotification("Registro actualizado", "success");
+        } catch (error) {
+            showNotification("Error al actualizar", "error");
+        }
+    };
+
+    const handleBulkPayToday = async (isNight: boolean) => {
+        const todayPayments = dailyPayments.filter(p =>
+            p.shiftDate === todayStr &&
+            p.status === 'PENDING' &&
+            p.isNightShift === isNight
+        );
+
+        if (todayPayments.length === 0) {
+            showNotification(`No hay turnos de ${isNight ? 'NOCHE' : 'DÍA'} pendientes para hoy`, "info");
+            return;
+        }
+
+        const summary = todayPayments
+            .map(p => `• ${p.workerName} - ${p.siteName}`)
+            .join('\n');
+
+        showConfirmation({
+            title: "Pago Masivo",
+            message: `¿Marcar como PAGADOS ${todayPayments.length} turnos de ${isNight ? 'NOCHE' : 'DÍA'} de hoy?\n\nResumen:\n${summary}`,
+            onConfirm: async () => {
+                try {
+                    await bulkMarkAsPaid(todayPayments.map(p => p.id), currentUser?.email || 'admin');
+                    showNotification(`${todayPayments.length} turnos pagados correctamente`, "success");
+                } catch (error) {
+                    showNotification("Error al procesar el pago masivo", "error");
+                }
+            }
+        });
+    };
+
+    // --- FILTERED PAYMENTS LIST ---
+    const filteredPayments = useMemo(() => {
+        return dailyPayments.filter(p => {
+            const matchesMonth = p.monthPeriod === filterMonth;
+            const matchesSearch = p.workerName.toLowerCase().includes(listSearchTerm.toLowerCase()) ||
+                p.siteName.toLowerCase().includes(listSearchTerm.toLowerCase());
+            return matchesMonth && matchesSearch;
+        });
+    }, [dailyPayments, filterMonth, listSearchTerm]);
+
+    const reportData = useMemo(() => filteredPayments.filter(p => p.status === 'PAID'), [filteredPayments]);
+
+    // --- HELPERS ---
+    const formatDateForDisplay = (dateString?: string) => {
+        if (!dateString) return '-';
+        if (dateString.includes('T')) return new Date(dateString).toLocaleDateString();
+
+        const [year, month, day] = dateString.split('-');
+        return `${day}/${month}/${year}`;
+    };
+
     const handleExport = () => {
         const wb = XLSX.utils.book_new();
         const ws = XLSX.utils.json_to_sheet(reportData.map(p => ({
-            Fecha: new Date(p.createdAt).toLocaleDateString(),
+            FechaTurno: formatDateForDisplay(p.shiftDate) || new Date(p.createdAt).toLocaleDateString(),
+            FechaPago: formatDateForDisplay(p.paymentDate || p.shiftDate),
+            Tipo: p.isNightShift ? 'NOCHE' : 'DIA',
             Trabajador: p.workerName,
             Monto: p.amount,
             Sucursal: p.siteName,
             Detalle: p.description,
             Estado: p.status,
-            PagadoEl: p.paidAt ? new Date(p.paidAt).toLocaleDateString() : '-',
-            PagadoPor: p.paidBy || '-'
         })));
         XLSX.utils.book_append_sheet(wb, ws, "Pagos");
         XLSX.writeFile(wb, `Reporte_Pagos_${filterMonth}.xlsx`);
     };
 
-    if (currentUser?.role !== 'admin') {
-        return (
-            <div className="flex flex-col items-center justify-center h-64 text-slate-400">
-                <div className="bg-slate-100 p-4 rounded-full mb-3">
-                    <User size={32} />
-                </div>
-                <p className="font-medium">Acceso restringido a Administradores</p>
+    // --- RENDER HELPERS ---
+    const renderWorkerInput = () => (
+        <div className="relative">
+            <label className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-1 block">Trabajador</label>
+            <div className="relative">
+                <Search className="absolute left-3 top-2.5 text-slate-400" size={16} />
+                <input
+                    type="text"
+                    className="w-full pl-9 pr-4 py-2.5 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                    placeholder="Buscar por nombre o RUT..."
+                    value={workerSearch}
+                    onChange={(e) => { setWorkerSearch(e.target.value); setShowWorkerList(true); setSelectedWorkerId(''); setManualWorkerName(e.target.value); }}
+                    onFocus={() => setShowWorkerList(true)}
+                />
+                {selectedWorkerId && (
+                    <div className="absolute right-2 top-2 bg-blue-100 text-blue-700 text-xs px-2 py-1 rounded font-bold">
+                        Seleccionado
+                    </div>
+                )}
             </div>
-        );
-    }
+
+            {showWorkerList && workerSearch && !selectedWorkerId && (
+                <div className="absolute z-10 w-full bg-white border border-slate-200 mt-1 rounded-lg shadow-xl max-h-48 overflow-auto">
+                    {filteredWorkers.map(emp => (
+                        <div
+                            key={emp.id}
+                            className="px-4 py-2 hover:bg-blue-50 cursor-pointer text-sm border-b border-slate-50"
+                            onClick={() => {
+                                setSelectedWorkerId(emp.id);
+                                setWorkerSearch(`${emp.firstName} ${emp.lastNamePaterno}`);
+                                setManualWorkerName(`${emp.firstName} ${emp.lastNamePaterno}`);
+                                setShowWorkerList(false);
+                            }}
+                        >
+                            <div className="font-bold text-slate-700">{emp.firstName} {emp.lastNamePaterno}</div>
+                            <div className="text-xs text-slate-400">{emp.rut} - {emp.cargo}</div>
+                        </div>
+                    ))}
+                    {filteredWorkers.length === 0 && (
+                        <div className="px-4 py-2 text-xs text-slate-400 italic">No encontrado. Se usará el nombre ingresado como manual.</div>
+                    )}
+                </div>
+            )}
+        </div>
+    );
+
+    const renderSiteInput = () => (
+        <div className="relative">
+            <label className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-1 block">Sucursal / Obra</label>
+            <div className="relative">
+                <MapPin className="absolute left-3 top-2.5 text-slate-400" size={16} />
+                <input
+                    type="text"
+                    className="w-full pl-9 pr-8 py-2.5 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none cursor-pointer"
+                    placeholder="Seleccionar sucursal..."
+                    value={siteSearch || (sites.find(s => String(s.id) === siteId)?.name || '')}
+                    onChange={(e) => { setSiteSearch(e.target.value); setShowSiteList(true); setSiteId(''); }}
+                    onFocus={() => { setShowSiteList(true); setSiteSearch(''); }}
+                />
+                <ChevronDown className="absolute right-3 top-3 text-slate-400" size={14} />
+            </div>
+
+            {showSiteList && (
+                <div className="absolute z-10 w-full bg-white border border-slate-200 mt-1 rounded-lg shadow-xl max-h-48 overflow-auto">
+                    {filteredSites.map(site => (
+                        <div
+                            key={site.id}
+                            className="px-4 py-2 hover:bg-blue-50 cursor-pointer text-sm border-b border-slate-50"
+                            onClick={() => {
+                                setSiteId(String(site.id));
+                                setSiteSearch(site.name);
+                                setShowSiteList(false);
+                            }}
+                        >
+                            <div className="font-bold text-slate-700">{site.name}</div>
+                        </div>
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+
+    if (currentUser?.role !== 'admin') return <div className="p-8 text-center text-slate-400">Acceso Restringido</div>;
 
     return (
         <div className="space-y-6">
-            {/* --- HEADER & TABS --- */}
+            {/* TABS */}
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-slate-200 pb-4">
                 <div>
                     <h2 className="text-xl font-bold text-slate-800">Control de Turnos Diarios</h2>
-                    <p className="text-sm text-slate-500">Gestión de pagos extraordinarios y turnos diarios</p>
                 </div>
-
                 <div className="flex bg-slate-100 p-1 rounded-lg">
-                    <button
-                        onClick={() => setActiveTab('create')}
-                        className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${activeTab === 'create' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-                    >
-                        Ingreso Turno
-                    </button>
-                    <button
-                        onClick={() => setActiveTab('list')}
-                        className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${activeTab === 'list' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-                    >
-                        Pagar Turnos
-                    </button>
-                    <button
-                        onClick={() => setActiveTab('reports')}
-                        className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${activeTab === 'reports' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-                    >
-                        Reportes
-                    </button>
+                    {['create', 'list', 'reports'].map(tab => (
+                        <button
+                            key={tab}
+                            onClick={() => setActiveTab(tab as any)}
+                            className={`px-4 py-2 rounded-md text-xs font-bold uppercase tracking-widest transition-all ${activeTab === tab ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                        >
+                            {tab === 'create' ? 'Ingreso Masivo' : tab === 'list' ? 'Historial/Pagos' : 'Reportes'}
+                        </button>
+                    ))}
                 </div>
             </div>
 
-            {/* --- CONTENT CREATE --- */}
+            {/* CREATE / RECORD PAYMENTS */}
             {activeTab === 'create' && (
-                <div className="max-w-2xl mx-auto bg-white rounded-xl border border-slate-200 shadow-sm p-6">
-                    <h3 className="text-lg font-bold text-slate-800 mb-6 flex items-center gap-2">
-                        <Plus className="text-blue-500" size={20} />
-                        Nuevo Registro de Pago
-                    </h3>
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                    {/* FORM */}
+                    <div className="lg:col-span-1 space-y-6">
+                        <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-5">
+                            <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest flex items-center gap-2 mb-4">
+                                <Plus className="text-blue-500" size={16} /> Agregar Turno
+                            </h3>
 
-                    <form onSubmit={handleCreate} className="space-y-5">
-                        {/* Selector de Trabajador */}
-                        <div className="space-y-2">
-                            <label className="text-sm font-medium text-slate-700">Trabajador</label>
-                            <div className="flex gap-2">
-                                <select
-                                    className="flex-1 p-2.5 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none bg-slate-50"
-                                    value={selectedWorkerId}
-                                    onChange={(e) => { setSelectedWorkerId(e.target.value); setManualWorkerName(''); }}
-                                    disabled={!!manualWorkerName}
-                                >
-                                    <option value="">-- Seleccionar de la lista --</option>
-                                    {employees.filter(e => e.isActive).map(emp => (
-                                        <option key={emp.id} value={emp.id}>
-                                            {emp.firstName} {emp.lastNamePaterno} {emp.lastNameMaterno} - {emp.rut}
-                                        </option>
-                                    ))}
-                                </select>
-                            </div>
+                            {renderWorkerInput()}
+                            {renderSiteInput()}
 
-                            <div className="relative">
-                                <div className="absolute inset-0 flex items-center">
-                                    <div className="w-full border-t border-slate-200"></div>
-                                </div>
-                                <div className="relative flex justify-center text-xs uppercase">
-                                    <span className="bg-white px-2 text-slate-400">O ingresar manualmente</span>
-                                </div>
-                            </div>
-
-                            <input
-                                type="text"
-                                className="w-full p-2.5 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none disabled:bg-slate-100 disabled:text-slate-400"
-                                placeholder="Nombre completo (si no está en lista)"
-                                value={manualWorkerName}
-                                onChange={(e) => { setManualWorkerName(e.target.value); setSelectedWorkerId(''); }}
-                                disabled={!!selectedWorkerId}
-                            />
-                        </div>
-
-                        <div className="grid grid-cols-2 gap-4">
                             <div className="space-y-2">
-                                <label className="text-sm font-medium text-slate-700">Monto ($)</label>
-                                <input
-                                    type="number"
-                                    className="w-full p-2.5 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-                                    placeholder="Ej: 25000"
-                                    value={amount}
-                                    onChange={(e) => setAmount(Number(e.target.value))}
-                                    required
-                                />
-                            </div>
-                            <div className="space-y-2">
-                                <label className="text-sm font-medium text-slate-700">Sucursal</label>
-                                <select
-                                    className="w-full p-2.5 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-                                    value={siteId}
-                                    onChange={(e) => setSiteId(e.target.value)}
-                                    required
-                                >
-                                    <option value="">-- Seleccionar --</option>
-                                    {sites.filter(s => s.active).map(site => (
-                                        <option key={site.id} value={site.id}>{site.name}</option>
+                                <label className="text-xs font-bold text-slate-500 uppercase tracking-widest block">Monto a Pagar</label>
+                                <div className="flex flex-wrap gap-2 mb-2">
+                                    {quickAmounts.map(amt => (
+                                        <button
+                                            key={amt}
+                                            type="button"
+                                            onClick={() => setAmount(amt)}
+                                            className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition ${amount === amt ? 'bg-blue-600 text-white border-blue-600' : 'bg-slate-50 text-slate-600 border-slate-200 hover:border-blue-300'}`}
+                                        >
+                                            ${amt / 1000}k
+                                        </button>
                                     ))}
-                                </select>
+                                </div>
+                                <div className="relative">
+                                    <DollarSign className="absolute left-3 top-2.5 text-slate-400" size={16} />
+                                    <input
+                                        type="number"
+                                        className="w-full pl-9 pr-4 py-2.5 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none font-bold text-slate-700"
+                                        placeholder="Otro monto..."
+                                        value={amount}
+                                        onChange={(e) => setAmount(Number(e.target.value))}
+                                    />
+                                </div>
                             </div>
+
+                            <div className="grid grid-cols-2 gap-4">
+                                <div className="space-y-1">
+                                    <label className="text-xs font-bold text-slate-500 uppercase tracking-widest block">Fecha Turno</label>
+                                    <input
+                                        type="date"
+                                        className="w-full p-2 border border-slate-300 rounded-lg text-sm outline-none"
+                                        value={shiftDate}
+                                        onChange={(e) => setShiftDate(e.target.value)}
+                                    />
+                                </div>
+                                <div className="space-y-1">
+                                    <label className="text-xs font-bold text-slate-500 uppercase tracking-widest block">Fecha Pago</label>
+                                    <input
+                                        type="date"
+                                        className="w-full p-2 border border-slate-300 rounded-lg text-sm outline-none"
+                                        value={paymentDate}
+                                        onChange={(e) => setPaymentDate(e.target.value)}
+                                        placeholder="Mismo día si vacío"
+                                    />
+                                </div>
+                                <div className="space-y-1 pt-6 col-span-2">
+                                    <label className="flex items-center gap-2 cursor-pointer group">
+                                        <div className={`w-5 h-5 rounded border flex items-center justify-center transition ${isNightShift ? 'bg-indigo-600 border-indigo-600' : 'bg-white border-slate-300 text-transparent'}`}>
+                                            <CheckCircle size={14} className="text-white" />
+                                        </div>
+                                        <input type="checkbox" className="hidden" checked={isNightShift} onChange={(e) => setIsNightShift(e.target.checked)} />
+                                        <span className={`text-xs font-bold uppercase tracking-wider ${isNightShift ? 'text-indigo-600' : 'text-slate-500 group-hover:text-indigo-400'}`}>
+                                            Turno Noche {isNightShift && <Moon size={12} className="inline ml-1" />}
+                                        </span>
+                                    </label>
+                                </div>
+                            </div>
+
+                            <button
+                                onClick={handleStagePayment}
+                                className="w-full py-3 bg-slate-900 text-white font-bold rounded-xl shadow-lg hover:bg-black transition-transform active:scale-95"
+                            >
+                                Agregar a la Lista
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* PREVIEW LIST */}
+                    <div className="lg:col-span-2 flex flex-col h-full bg-slate-50/50 rounded-xl border border-slate-200 overflow-hidden">
+                        <div className="p-4 border-b border-slate-200 bg-white flex justify-between items-center">
+                            <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest">
+                                Pre-visualización ({stagedPayments.length})
+                            </h3>
+                            {stagedPayments.length > 0 && (
+                                <div className="text-right">
+                                    <span className="text-xs text-slate-500 mr-2">Total:</span>
+                                    <span className="text-lg font-black text-emerald-600">
+                                        ${stagedPayments.reduce((acc, curr) => acc + curr.amount, 0).toLocaleString()}
+                                    </span>
+                                </div>
+                            )}
                         </div>
 
-                        <div className="space-y-2">
-                            <label className="text-sm font-medium text-slate-700">Descripción / Motivo</label>
-                            <textarea
-                                className="w-full p-2.5 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none h-24 resize-none"
-                                placeholder="Detalles del turno realizado..."
-                                value={description}
-                                onChange={(e) => setDescription(e.target.value)}
-                            />
+                        <div className="flex-1 overflow-auto p-4 space-y-3">
+                            {stagedPayments.length === 0 ? (
+                                <div className="h-48 flex flex-col items-center justify-center text-slate-300 border-2 border-dashed border-slate-200 rounded-xl m-4">
+                                    <FileText size={48} className="mb-2" />
+                                    <p className="text-xs font-bold uppercase">Lista Vacía</p>
+                                </div>
+                            ) : (
+                                stagedPayments.map((p, idx) => (
+                                    <div key={idx} className="bg-white p-3 rounded-xl border border-slate-100 shadow-sm flex items-center gap-4 group hover:border-blue-200 transition">
+                                        <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-xs font-bold text-slate-500">
+                                            {idx + 1}
+                                        </div>
+                                        <div className="flex-1 min-w-0">
+                                            <div className="font-bold text-slate-800 truncate">{p.workerName}</div>
+                                            <div className="text-xs text-slate-500 flex items-center gap-2">
+                                                <span>{p.siteName}</span>
+                                                <span className="text-slate-300">|</span>
+                                                <span>{formatDateForDisplay(p.shiftDate)}</span>
+                                                <span className="text-slate-300">|</span>
+                                                <span className="text-emerald-600 font-bold">Pago: {formatDateForDisplay(p.paymentDate)}</span>
+                                                {p.isNightShift && <span className="text-[10px] bg-indigo-50 text-indigo-700 px-1.5 rounded border border-indigo-100 font-bold">NOCHE</span>}
+                                            </div>
+                                        </div>
+                                        <div className="text-right">
+                                            <div className="font-mono font-bold text-slate-700">${p.amount.toLocaleString()}</div>
+                                        </div>
+                                        <button
+                                            onClick={() => handleRemoveStaged(idx)}
+                                            className="p-2 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition"
+                                        >
+                                            <Trash2 size={16} />
+                                        </button>
+                                    </div>
+                                ))
+                            )}
                         </div>
 
-                        <button
-                            type="submit"
-                            disabled={isSubmitting}
-                            className="w-full py-3 bg-blue-600 text-white font-bold rounded-lg shadow-md hover:bg-blue-700 transition disabled:opacity-50"
-                        >
-                            {isSubmitting ? 'Guardando...' : 'Guardar y Pendiente de Pago'}
-                        </button>
-                    </form>
+                        <div className="p-4 bg-white border-t border-slate-200">
+                            <button
+                                onClick={handleSaveAll}
+                                disabled={stagedPayments.length === 0 || isSubmitting}
+                                className="w-full py-4 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-black uppercase tracking-widest rounded-xl shadow-xl shadow-emerald-100 transition-all active:scale-[0.98]"
+                            >
+                                {isSubmitting ? 'Procesando...' : `Confirmar y Cargar ${stagedPayments.length} Turnos`}
+                            </button>
+                        </div>
+                    </div>
                 </div>
             )}
 
-            {/* --- CONTENT LIST & REPORTS --- */}
+            {/* LIST & REPORTS */}
             {(activeTab === 'list' || activeTab === 'reports') && (
                 <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
                     {/* Toolbar */}
@@ -254,30 +513,42 @@ export const DailyShiftPayment = () => {
                             <Search size={16} className="text-slate-400" />
                             <input
                                 type="text"
-                                placeholder="Buscar trabajador o sucursal..."
+                                placeholder="Filtrar por nombre o sucursal..."
                                 className="text-sm outline-none w-full md:w-64"
-                                value={searchTerm}
-                                onChange={(e) => setSearchTerm(e.target.value)}
+                                value={listSearchTerm}
+                                onChange={(e) => setListSearchTerm(e.target.value)}
                             />
                         </div>
 
-                        <div className="flex items-center gap-3">
-                            <div className="flex items-center gap-2">
-                                <Filter size={16} className="text-slate-400" />
-                                <input
-                                    type="month"
-                                    className="text-sm border border-slate-200 rounded-lg px-2 py-1.5 outline-none"
-                                    value={filterMonth}
-                                    onChange={(e) => setFilterMonth(e.target.value)}
-                                />
-                            </div>
-
+                        <div className="flex flex-wrap items-center gap-3">
+                            <input
+                                type="month"
+                                className="text-sm border border-slate-200 rounded-lg px-2 py-1.5 outline-none font-medium text-slate-600"
+                                value={filterMonth}
+                                onChange={(e) => setFilterMonth(e.target.value)}
+                            />
+                            {activeTab === 'list' && (
+                                <>
+                                    <button
+                                        onClick={() => handleBulkPayToday(false)}
+                                        className="flex items-center gap-2 px-3 py-2 bg-amber-500 text-white text-[10px] font-black uppercase tracking-wider rounded-lg hover:bg-amber-600 transition shadow-sm"
+                                    >
+                                        <Sun size={14} /> Pagar Día Hoy
+                                    </button>
+                                    <button
+                                        onClick={() => handleBulkPayToday(true)}
+                                        className="flex items-center gap-2 px-3 py-2 bg-indigo-600 text-white text-[10px] font-black uppercase tracking-wider rounded-lg hover:bg-indigo-700 transition shadow-sm"
+                                    >
+                                        <Moon size={14} /> Pagar Noche Hoy
+                                    </button>
+                                </>
+                            )}
                             {activeTab === 'reports' && (
                                 <button
                                     onClick={handleExport}
                                     className="flex items-center gap-2 px-3 py-2 bg-emerald-600 text-white text-xs font-bold rounded-lg hover:bg-emerald-700 transition"
                                 >
-                                    <Download size={14} /> Exportar Excel
+                                    <Download size={14} /> Exportar
                                 </button>
                             )}
                         </div>
@@ -288,69 +559,124 @@ export const DailyShiftPayment = () => {
                         <table className="w-full text-left border-collapse">
                             <thead>
                                 <tr className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wider border-b border-slate-100">
-                                    <th className="px-6 py-4 font-semibold">Fecha</th>
+                                    <th className="px-6 py-4 font-semibold">Fecha Turno</th>
+                                    <th className="px-6 py-4 font-semibold">Fecha Pago</th>
+                                    <th className="px-6 py-4 font-semibold text-center">Tipo</th>
                                     <th className="px-6 py-4 font-semibold">Trabajador</th>
                                     <th className="px-6 py-4 font-semibold">Sucursal</th>
-                                    <th className="px-6 py-4 font-semibold">Monto</th>
-                                    <th className="px-6 py-4 font-semibold">Descripción</th>
+                                    <th className="px-6 py-4 font-semibold text-right">Monto</th>
                                     <th className="px-6 py-4 font-semibold text-center">Estado</th>
                                     <th className="px-6 py-4 font-semibold text-right">Acciones</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-100">
-                                {filteredPayments.length === 0 ? (
-                                    <tr>
-                                        <td colSpan={7} className="px-6 py-12 text-center text-slate-400 text-sm">
-                                            No se encontraron pagos para este periodo/búsqueda.
-                                        </td>
-                                    </tr>
-                                ) : (
-                                    filteredPayments.map((payment) => (
-                                        <tr key={payment.id} className="hover:bg-slate-50 transition-colors">
-                                            <td className="px-6 py-4 text-xs text-slate-500">
-                                                {new Date(payment.createdAt).toLocaleDateString()}
-                                                <div className="text-[10px] text-slate-400">{new Date(payment.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
+                                {filteredPayments.map((payment) => {
+                                    const isEditing = editingPaymentId === payment.id;
+                                    const isPaid = payment.status === 'PAID';
+                                    const isPaymentToday = (payment.paymentDate || payment.shiftDate) === todayStr;
+
+                                    let rowStyle = {};
+                                    if (isPaid) {
+                                        rowStyle = { backgroundColor: 'rgba(16, 185, 129, 0.05)' }; // Emerald-50/50 approach
+                                    } else if (isPaymentToday) {
+                                        rowStyle = { backgroundColor: '#eaca70' };
+                                    } else {
+                                        rowStyle = { backgroundColor: '#becffa' };
+                                    }
+
+                                    return (
+                                        <tr key={payment.id} style={rowStyle} className="hover:bg-opacity-80 transition-colors border-b border-white/20">
+                                            <td className="px-6 py-4 text-xs font-bold text-slate-600">
+                                                {isEditing ? (
+                                                    <input
+                                                        type="date"
+                                                        className="w-full p-1 border border-blue-500 rounded text-xs outline-none"
+                                                        value={editShiftDate}
+                                                        onChange={(e) => setEditShiftDate(e.target.value)}
+                                                    />
+                                                ) : (
+                                                    formatDateForDisplay(payment.shiftDate) || new Date(payment.createdAt).toLocaleDateString()
+                                                )}
+                                            </td>
+                                            <td className="px-6 py-4 text-xs font-bold text-slate-600">
+                                                {isEditing ? (
+                                                    <input
+                                                        type="date"
+                                                        className="w-full p-1 border border-blue-500 rounded text-xs outline-none"
+                                                        value={editPaymentDate}
+                                                        onChange={(e) => setEditPaymentDate(e.target.value)}
+                                                    />
+                                                ) : (
+                                                    formatDateForDisplay(payment.paymentDate || payment.shiftDate)
+                                                )}
+                                            </td>
+                                            <td className="px-6 py-4 text-center">
+                                                {payment.isNightShift ? (
+                                                    <Moon size={14} className="text-indigo-600 inline" />
+                                                ) : (
+                                                    <Sun size={14} className="text-amber-500 inline" />
+                                                )}
                                             </td>
                                             <td className="px-6 py-4">
                                                 <div className="text-sm font-medium text-slate-800">{payment.workerName}</div>
-                                                {payment.workerId && <span className="text-[10px] bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded border border-blue-100">Registrado</span>}
-                                                {!payment.workerId && <span className="text-[10px] bg-amber-50 text-amber-600 px-1.5 py-0.5 rounded border border-amber-100">Manual</span>}
+                                                {!payment.workerId && <span className="text-[10px] text-amber-500 italic">Manual</span>}
                                             </td>
-                                            <td className="px-6 py-4 text-sm text-slate-600">{payment.siteName}</td>
-                                            <td className="px-6 py-4 font-mono text-sm font-bold text-slate-700">
-                                                ${payment.amount.toLocaleString()}
-                                            </td>
-                                            <td className="px-6 py-4 text-sm text-slate-500 max-w-xs truncate" title={payment.description}>
-                                                {payment.description}
+                                            <td className="px-6 py-4 text-xs text-slate-500">{payment.siteName}</td>
+                                            <td className="px-6 py-4 text-right font-mono text-sm font-bold text-slate-700">
+                                                {isEditing ? (
+                                                    <input
+                                                        type="number"
+                                                        className="w-24 p-1 border border-blue-500 rounded text-right outline-none"
+                                                        value={editAmount}
+                                                        onChange={(e) => setEditAmount(Number(e.target.value))}
+                                                        autoFocus
+                                                    />
+                                                ) : (
+                                                    `$${payment.amount.toLocaleString()}`
+                                                )}
                                             </td>
                                             <td className="px-6 py-4 text-center">
-                                                <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold border ${payment.status === 'PAID'
-                                                        ? 'bg-emerald-50 text-emerald-600 border-emerald-100'
-                                                        : 'bg-yellow-50 text-yellow-600 border-yellow-100'
+                                                <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${payment.status === 'PAID'
+                                                    ? 'bg-emerald-100 text-emerald-700 border border-emerald-200'
+                                                    : 'bg-yellow-100 text-yellow-700 border border-yellow-200'
                                                     }`}>
-                                                    {payment.status === 'PAID' ? <CheckCircle size={12} /> : <Clock size={12} />}
-                                                    {payment.status === 'PAID' ? 'PAGADO' : 'PENDIENTE'}
+                                                    {payment.status === 'PAID' ? 'Pagado' : 'Pendiente'}
                                                 </span>
                                             </td>
                                             <td className="px-6 py-4 text-right">
-                                                {payment.status === 'PENDING' && (
-                                                    <button
-                                                        onClick={() => markPaymentAsPaid(payment.id, currentUser?.email || 'admin')}
-                                                        className="text-xs bg-slate-800 text-white px-3 py-1.5 rounded-lg hover:bg-slate-700 transition shadow-sm font-medium"
-                                                    >
-                                                        Pagar
-                                                    </button>
-                                                )}
-                                                {payment.status === 'PAID' && (
-                                                    <div className="text-[10px] text-slate-400 text-right">
-                                                        <div>{new Date(payment.paidAt!).toLocaleDateString()}</div>
-                                                        <div className="truncate max-w-[80px]">{payment.paidBy}</div>
-                                                    </div>
-                                                )}
+                                                <div className="flex items-center justify-end gap-2">
+                                                    {isEditing ? (
+                                                        <>
+                                                            <button onClick={() => saveEdit(payment.id)} className="p-1.5 text-emerald-600 hover:bg-emerald-100 rounded-lg transition" title="Guardar">
+                                                                <Save size={16} />
+                                                            </button>
+                                                            <button onClick={cancelEditing} className="p-1.5 text-slate-400 hover:bg-slate-200 rounded-lg transition" title="Cancelar">
+                                                                <CloseIcon size={16} />
+                                                            </button>
+                                                        </>
+                                                    ) : (
+                                                        <>
+                                                            {!isPaid && (
+                                                                <button
+                                                                    onClick={() => markPaymentAsPaid(payment.id, currentUser?.email || 'admin')}
+                                                                    className="text-[10px] bg-slate-800 text-white px-2 py-1 rounded hover:bg-slate-700 shadow-sm transition-all font-bold"
+                                                                >
+                                                                    PAGAR
+                                                                </button>
+                                                            )}
+                                                            <button onClick={() => startEditing(payment)} className="p-1.5 text-blue-500 hover:bg-blue-50 rounded-lg transition" title="Editar">
+                                                                <Pencil size={16} />
+                                                            </button>
+                                                            <button onClick={() => handleDelete(payment.id)} className="p-1.5 text-rose-500 hover:bg-rose-50 rounded-lg transition" title="Eliminar">
+                                                                <Trash2 size={16} />
+                                                            </button>
+                                                        </>
+                                                    )}
+                                                </div>
                                             </td>
                                         </tr>
-                                    ))
-                                )}
+                                    );
+                                })}
                             </tbody>
                         </table>
                     </div>
@@ -358,4 +684,4 @@ export const DailyShiftPayment = () => {
             )}
         </div>
     );
-}
+};

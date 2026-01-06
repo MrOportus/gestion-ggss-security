@@ -1,19 +1,18 @@
 
-import React, { useState, useRef } from 'react';
+import React, { useState } from 'react';
 import { useAppStore } from '../store/useAppStore';
 import {
   ClipboardList, Copy, CheckCircle, FileText, Send,
-  Clock, UserPlus, FileSearch, Upload, AlertCircle, Loader2, Table as TableIcon,
-  History, Calendar, Users as UsersIcon, ChevronRight, X, Eye, Sparkles, DollarSign
+  Clock, UserPlus, FileSearch, Upload, Loader2, Table as TableIcon,
+  History, Calendar, Users as UsersIcon, ChevronRight, X, Sparkles
 } from 'lucide-react';
-import { DailyShiftPayment } from '../components/DailyShiftPayment';
 import SmartAutofill from '../components/SmartAutofill';
 import { GoogleGenAI } from "@google/genai";
 import { ComparisonRecord } from '../types';
 
 const TasksPage: React.FC = () => {
-  const { employees, sites, f30History, saveF30Comparison } = useAppStore();
-  const [activeTask, setActiveTask] = useState<'info_reemplazo' | 'comparar_f30' | 'smart_autofill' | 'pago_turnos' | null>(null);
+  const { employees, sites, f30History, saveF30Comparison, showNotification } = useAppStore();
+  const [activeTask, setActiveTask] = useState<'info_reemplazo' | 'comparar_f30' | 'smart_autofill' | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [viewingRecord, setViewingRecord] = useState<ComparisonRecord | null>(null);
 
@@ -31,7 +30,6 @@ const TasksPage: React.FC = () => {
   const [f30FileBase64, setF30FileBase64] = useState<string | null>(null);
   const [f30FileName, setF30FileName] = useState<string>('');
   const [rawPlanillaText, setRawPlanillaText] = useState('');
-  const [f30AnalysisResult, setF30AnalysisResult] = useState<{ rut: string, name: string }[]>([]);
   const [finalComparison, setFinalComparison] = useState<{ rut: string, name: string, inF30: boolean }[]>([]);
   const [periodo, setPeriodo] = useState('');
 
@@ -102,7 +100,7 @@ Documentos que se adjuntan.
 
   const processF30Comparison = async () => {
     if (!f30FileBase64 || !rawPlanillaText) {
-      alert("Por favor suba el archivo F30 y pegue el listado de la planilla.");
+      showNotification("Por favor suba el archivo F30 y pegue el listado de la planilla.", "warning");
       return;
     }
 
@@ -112,7 +110,7 @@ Documentos que se adjuntan.
       const apiKey = (import.meta as any).env?.VITE_API_KEY;
 
       if (!apiKey) {
-        alert("Falta la API KEY de Gemini. Configure VITE_API_KEY en su archivo .env");
+        showNotification("Falta la API KEY de Gemini.", "error");
         setIsProcessing(false);
         return;
       }
@@ -136,7 +134,6 @@ Documentos que se adjuntan.
       });
 
       const f30Workers = JSON.parse(response.text || "[]") as { rut: string, name: string }[];
-      setF30AnalysisResult(f30Workers);
 
       const lines = rawPlanillaText.split('\n').filter(l => l.trim() !== '');
       const uniquePlanilla: { rut: string, name: string }[] = [];
@@ -176,7 +173,7 @@ Documentos que se adjuntan.
 
     } catch (error) {
       console.error("Error procesando comparación:", error);
-      alert("Error al procesar el documento. Verifique su API Key y el formato del archivo.");
+      showNotification("Error al procesar el documento.", "error");
     } finally {
       setIsProcessing(false);
     }
@@ -238,7 +235,6 @@ Documentos que se adjuntan.
     { id: 'info_reemplazo', title: 'Info Reemplazo', icon: <UserPlus className="text-blue-500" />, desc: 'Generar solicitud formal de reemplazo para Banco Falabella.' },
     { id: 'comparar_f30', title: 'Comparar F30-1', icon: <FileSearch className="text-emerald-500" />, desc: 'Cruce masivo de RUTs entre F30 y planilla Excel.' },
     { id: 'smart_autofill', title: 'Auto-llenado Inteligente', icon: <Sparkles className="text-amber-500" />, desc: 'Extracción de datos con IA para formularios web.' },
-    { id: 'pago_turnos', title: 'Pago de Turnos', icon: <DollarSign className="text-emerald-500" />, desc: 'Gestión y pago de turnos extras y diarios.' },
     { id: 'responder_solicitud', title: 'Responder Solicitud', icon: <Send className="text-slate-300" />, desc: 'Próximamente...', disabled: true },
     { id: 'tarea_4', title: 'Bitácora Diaria', icon: <Clock className="text-slate-300" />, desc: 'Próximamente...', disabled: true },
   ];
@@ -269,13 +265,6 @@ Documentos que se adjuntan.
         </div>
       ) : activeTask === 'smart_autofill' ? (
         <SmartAutofill onBack={() => setActiveTask(null)} />
-      ) : activeTask === 'pago_turnos' ? (
-        <div className="animate-in slide-in-from-bottom-4 duration-300 space-y-6">
-          <div className="flex items-center gap-4 border-b border-slate-200 pb-4">
-            <button onClick={() => setActiveTask(null)} className="text-sm font-bold text-blue-600 hover:text-blue-800">← Volver al menú</button>
-          </div>
-          <DailyShiftPayment />
-        </div>
       ) : activeTask === 'info_reemplazo' ? (
         <div className="animate-in slide-in-from-bottom-4 duration-300 space-y-6">
           <div className="flex items-center gap-4 border-b border-slate-200 pb-4">

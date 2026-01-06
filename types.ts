@@ -41,6 +41,18 @@ export interface Employee {
   fechaTerminoContrato?: string; // ISO Date string
   isActive: boolean;
   currentSiteId?: number;
+
+  // Tallas y Equipo (EPP)
+  tallePantalon?: string;
+  talleCamisa?: string;
+  talleChaqueta?: string;
+  tallePolar?: string;
+  talleGeologo?: string;
+  talleCalzado?: string;
+
+  // Otros
+  bancoInfo?: string;
+  contactoFamiliar?: string;
 }
 
 export interface AttendanceLog {
@@ -85,4 +97,20 @@ export interface DailyPayment {
   paidAt?: string;
   paidBy?: string; // Admin who marked as paid
   monthPeriod: string; // YYYY-MM format to group reports
+  shiftDate?: string; // Fecha del turno (YYYY-MM-DD)
+  paymentDate?: string; // Fecha del pago (YYYY-MM-DD)
+  isNightShift?: boolean; // Turno nocturno
+}
+
+export interface AppNotification {
+  id: string;
+  message: string;
+  type: 'success' | 'error' | 'info' | 'warning' | 'coming-soon';
+}
+
+export interface AppConfirmation {
+  title: string;
+  message: string;
+  onConfirm: () => void;
+  onCancel?: () => void;
 }

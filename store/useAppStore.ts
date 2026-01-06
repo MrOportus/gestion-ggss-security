@@ -1,14 +1,13 @@
 
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
-import { User, Employee, Site, AttendanceLog, Document, ComparisonRecord, DailyPayment } from '../types';
+import { User, Employee, Site, AttendanceLog, Document, ComparisonRecord, DailyPayment, AppNotification, AppConfirmation } from '../types';
 import { db, auth, secondaryAuth } from '../lib/firebase';
 import {
   signInWithEmailAndPassword,
   signOut,
   onAuthStateChanged,
-  createUserWithEmailAndPassword,
-  updateProfile
+  createUserWithEmailAndPassword
 } from 'firebase/auth';
 import {
   collection,
@@ -29,6 +28,8 @@ interface AppState {
   documents: Document[];
   f30History: ComparisonRecord[];
   dailyPayments: DailyPayment[]; // NEW
+  notifications: AppNotification[];
+  confirmation: AppConfirmation | null;
   isLoading: boolean;
 
   // Auth Actions
@@ -64,6 +65,14 @@ interface AppState {
   addDailyPayment: (payment: Omit<DailyPayment, 'id' | 'createdAt' | 'status'>) => Promise<void>;
   updateDailyPayment: (id: string, data: Partial<DailyPayment>) => Promise<void>;
   markPaymentAsPaid: (id: string, paidBy: string) => Promise<void>;
+  deleteDailyPayment: (id: string) => Promise<void>;
+  bulkMarkAsPaid: (ids: string[], paidBy: string) => Promise<void>;
+
+  // UI Actions
+  showNotification: (message: string, type: AppNotification['type']) => void;
+  hideNotification: (id: string) => void;
+  showConfirmation: (config: AppConfirmation) => void;
+  hideConfirmation: () => void;
 }
 
 export const useAppStore = create<AppState>()(
@@ -77,6 +86,8 @@ export const useAppStore = create<AppState>()(
 
       f30History: [],
       dailyPayments: [],
+      notifications: [],
+      confirmation: null,
       isLoading: false,
 
       initializeAuthListener: () => {
@@ -183,8 +194,6 @@ export const useAppStore = create<AppState>()(
           const newEmployee: Employee = {
             ...employeeData,
             id: newUid,
-            role: 'worker', // Por defecto todos son workers, salvo que se cambie en BD
-            isActive: true
           };
 
           // 3. Guardar en Firestore usando el UID como ID del documento
@@ -201,9 +210,9 @@ export const useAppStore = create<AppState>()(
         } catch (error: any) {
           console.error("Error creando empleado:", error);
           if (error.code === 'auth/email-already-in-use') {
-            alert("El correo electrónico ya está registrado.");
+            get().showNotification("El correo electrónico ya está registrado.", "warning");
           } else {
-            alert("Error al crear el usuario: " + error.message);
+            get().showNotification("Error al crear el usuario: " + error.message, "error");
           }
         } finally {
           set({ isLoading: false });
@@ -425,11 +434,11 @@ export const useAppStore = create<AppState>()(
         set({ isLoading: true });
         try {
           const newPayment: DailyPayment = {
-            ...paymentData,
             id: "dp_" + Date.now(),
             status: 'PENDING',
             createdAt: new Date().toISOString(),
-            monthPeriod: new Date().toISOString().slice(0, 7)
+            monthPeriod: new Date().toISOString().slice(0, 7), // Default, can be overridden by spread below
+            ...paymentData,
           };
 
           const docRef = doc(db, "TurnosDiarios", newPayment.id);
@@ -444,7 +453,7 @@ export const useAppStore = create<AppState>()(
         }
       },
 
-      updateDailyPayment: async (id, data) => {
+      updateDailyPayment: async (id: string, data: Partial<DailyPayment>) => {
         set(state => ({
           dailyPayments: state.dailyPayments.map(p => p.id === id ? { ...p, ...data } : p)
         }));
@@ -468,6 +477,66 @@ export const useAppStore = create<AppState>()(
         } catch (error) {
           console.error("Error marking payment as paid:", error);
         }
+      },
+
+      deleteDailyPayment: async (id) => {
+        set(state => ({
+          dailyPayments: state.dailyPayments.filter(p => p.id !== id)
+        }));
+        try {
+          const docRef = doc(db, "TurnosDiarios", id);
+          await deleteDoc(docRef);
+        } catch (error) {
+          console.error("Error deleting daily payment:", error);
+        }
+      },
+
+      bulkMarkAsPaid: async (ids, paidBy) => {
+        const paidAt = new Date().toISOString();
+        const batch = writeBatch(db);
+
+        set(state => ({
+          dailyPayments: state.dailyPayments.map(p =>
+            ids.includes(p.id) ? { ...p, status: 'PAID', paidAt, paidBy } : p
+          )
+        }));
+
+        try {
+          ids.forEach(id => {
+            const docRef = doc(db, "TurnosDiarios", id);
+            batch.update(docRef, { status: 'PAID', paidAt, paidBy });
+          });
+          await batch.commit();
+        } catch (error) {
+          console.error("Error in bulk marking as paid:", error);
+          throw error;
+        }
+      },
+
+      // --- UI ACTIONS ---
+      showNotification: (message, type) => {
+        const id = "notif_" + Date.now();
+        set(state => ({
+          notifications: [...state.notifications, { id, message, type }]
+        }));
+        // Auto-hide after 4 seconds
+        setTimeout(() => {
+          get().hideNotification(id);
+        }, 4000);
+      },
+
+      hideNotification: (id) => {
+        set(state => ({
+          notifications: state.notifications.filter(n => n.id !== id)
+        }));
+      },
+
+      showConfirmation: (config) => {
+        set({ confirmation: config });
+      },
+
+      hideConfirmation: () => {
+        set({ confirmation: null });
       }
     }),
     {
@@ -476,7 +545,8 @@ export const useAppStore = create<AppState>()(
       partialize: (state) => ({
         employees: state.employees,
         sites: state.sites,
-        currentUser: state.currentUser
+        currentUser: state.currentUser,
+        f30History: state.f30History,
       }),
     }
   )

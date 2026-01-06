@@ -163,81 +163,77 @@ const SmartAutofill: React.FC<{ onBack: () => void }> = ({ onBack }) => {
 
     // --- SCRIPT GENERATION LOGIC ---
     const generateScript = () => {
-        const script = `
-      (function() {
-        const data = ${JSON.stringify(extractedData)};
-        console.log('🚀 Iniciando Auto-llenado Inteligente...', data);
-
-        function setNativeValue(element, value) {
-          const valueSetter = Object.getOwnPropertyDescriptor(element, 'value').set;
-          const prototype = Object.getPrototypeOf(element);
-          const prototypeValueSetter = Object.getOwnPropertyDescriptor(prototype, 'value').set;
-          
-          if (valueSetter && valueSetter !== prototypeValueSetter) {
-            prototypeValueSetter.call(element, value);
-          } else {
-            valueSetter.call(element, value);
-          }
-          
-          element.dispatchEvent(new Event('input', { bubbles: true }));
-          element.dispatchEvent(new Event('change', { bubbles: true }));
-        }
-
-        const findAndFill = (priorityId, keywords, value) => {
-          if (!value) return;
-
-          // Prioridad 1: ID Específico
-          const elById = document.getElementById(priorityId);
-          if (elById) {
-            console.log(\`✅ Campo encontrado por ID: \${priorityId}\`);
-            setNativeValue(elById, value);
-            return;
-          }
-
-          // Prioridad 2: Busqueda Heurística
-          const inputs = Array.from(document.querySelectorAll('input, select, textarea'));
-          const target = inputs.find(input => {
-             const attr = (input.name + input.id + input.placeholder + (input.labels?.[0]?.innerText || '')).toLowerCase();
-             return keywords.some(k => attr.includes(k));
-          });
-
-          if (target) {
-             console.log(\`✨ Campo encontrado por coincidencia (\${keywords[0]}): \`, target);
-             setNativeValue(target, value);
-          } else {
-             console.warn(\`⚠️ No se encontró campo para: \${keywords[0]}\`);
-          }
+        // Prepare data safe for injection
+        const safeData = {
+            nombre: extractedData.nombre || '',
+            rut: extractedData.rut || '',
+            edad: (extractedData.edad || '').replace(/\D/g, ''), // Extract number
+            fecha: extractedData.fechaNacimiento || '',
+            sexoValue: (extractedData.sexo || '').toLowerCase() === 'masculino' ? 'male' :
+                (extractedData.sexo || '').toLowerCase() === 'femenino' ? 'female' : ''
         };
 
-        // Llenado de campos
-        findAndFill('service_request_response_name', ['nombre', 'name', 'nombres'], data.nombre);
-        findAndFill('service_request_response_national_identification', ['rut', 'identification', 'dni'], data.rut);
-        findAndFill('dummy_age_id', ['edad', 'age', 'años'], data.edad);
-        findAndFill('dummy_birth_id', ['nacimiento', 'birth', 'fec_nac'], data.fechaNacimiento);
+        const script = `
+(function() {
+  const data = ${JSON.stringify(safeData)};
 
-        // Llenado de Sexo (Radio Buttons)
-        if (data.sexo) {
-            const maleId = 'service_request_response_gender_male';
-            const femaleId = 'service_request_response_gender_female';
-            const targetId = data.sexo.toLowerCase() === 'masculino' ? maleId : femaleId;
-            const radio = document.getElementById(targetId);
-            
-            if (radio) {
-                radio.click(); // Click suele ser mejor para radios que value
-                console.log(\`✅ Radio seleccionado: \${targetId}\`);
-            } else {
-                 // Fallback búsqueda texto
-                 const radios = Array.from(document.querySelectorAll('input[type="radio"]'));
-                 const targetRadio = radios.find(r => {
-                     const label = r.labels?.[0]?.innerText || '';
-                     return label.toLowerCase().includes(data.sexo.toLowerCase() === 'masculino' ? 'masculino' : 'femenino');
-                 });
-                 if (targetRadio) targetRadio.click();
-            }
+  const findAndFill = (keywords, value) => {
+    if (!value) return false;
+    // Intentar primero por ID exacto si el keyword parece un ID
+    for (const kw of keywords) {
+      const el = document.getElementById(kw);
+      if (el) {
+        if (el.type === 'radio' || el.type === 'checkbox') {
+          el.checked = true;
+        } else {
+          el.value = value;
         }
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+        el.dispatchEvent(new Event('change', { bubbles: true }));
+        return true;
+      }
+    }
 
-        alert('✨ Auto-llenado completado!');
-      })();
+    // Si no funcionó por ID, buscar por atributos
+    const inputs = document.querySelectorAll('input:not([type="hidden"]), select, textarea');
+    for (const input of inputs) {
+      const name = (input.name || '').toLowerCase();
+      const id = (input.id || '').toLowerCase();
+      const placeholder = (input.placeholder || '').toLowerCase();
+      const labelText = (input.labels?.[0]?.innerText || '').toLowerCase();
+      
+      if (keywords.some(k => name.includes(k) || id.includes(k) || placeholder.includes(k) || labelText.includes(k))) {
+        if (input.type === 'radio' || input.type === 'checkbox') {
+           if (input.value.toLowerCase().includes(value.toLowerCase()) || labelText.includes(value.toLowerCase())) {
+             input.checked = true;
+           }
+        } else {
+          input.value = value;
+        }
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+        return true;
+      }
+    }
+    return false;
+  };
+
+  console.log('Smart Fill: Procesando campos...');
+
+  // Llenado de cada campo de forma independiente
+  findAndFill(['service_request_response_name', 'nombre', 'name', 'completo'], data.nombre);
+  findAndFill(['service_request_response_national_identification', 'rut', 'identification', 'documento'], data.rut);
+  findAndFill(['service_request_response_age', 'edad', 'age', 'años'], data.edad);
+  findAndFill(['service_request_response_birth_date', 'fecha', 'birth', 'nacimiento', 'fec_nac'], data.fecha);
+  
+  if (data.sexoValue === 'male') {
+    findAndFill(['service_request_response_gender_male', 'gender_male', 'sexo_masculino'], 'male');
+  } else if (data.sexoValue === 'female') {
+    findAndFill(['service_request_response_gender_female', 'gender_female', 'sexo_femenino'], 'female');
+  }
+
+  alert('¡Auto-llenado finalizado! Revisa los campos de Edad y Fecha.');
+})();
     `;
 
         navigator.clipboard.writeText(script);
