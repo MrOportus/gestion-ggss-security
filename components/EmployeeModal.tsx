@@ -204,6 +204,12 @@ const EmployeeModal: React.FC<EmployeeModalProps> = ({ employee, onClose }) => {
                 <DataField label="RUT / ID" value={editData.rut} name="rut" />
                 <DataField label="Nacimiento" value={isEditing ? editData.fechaNacimiento?.split('T')[0] : (editData.fechaNacimiento ? new Date(editData.fechaNacimiento).toLocaleDateString() : 'N/A')} name="fechaNacimiento" type="date" />
                 <DataField label="Nacionalidad" value={editData.nacionalidad} name="nacionalidad" />
+                {editData.tempPasswordLog && (
+                  <div className="flex flex-col space-y-1 bg-yellow-50 p-1.5 rounded-lg border border-yellow-100">
+                    <span className="text-[10px] font-bold text-yellow-600 uppercase tracking-widest">Contraseña Temporal</span>
+                    <span className="text-slate-900 font-mono font-bold text-sm tracking-widest">{editData.tempPasswordLog}</span>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -292,6 +298,17 @@ const EmployeeModal: React.FC<EmployeeModalProps> = ({ employee, onClose }) => {
                       </span>
                       {editData.fechaVencimientoOS10 && new Date(editData.fechaVencimientoOS10) < new Date() && <AlertCircle size={14} className="text-red-500" />}
                     </div>
+                  )}
+                </div>
+
+                <div className="flex flex-col space-y-1">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Inicio Contrato</span>
+                  {isEditing ? (
+                    <input type="date" name="fechaInicioContrato" value={editData.fechaInicioContrato?.split('T')[0]} onChange={handleInputChange} className="bg-blue-50/50 border-b-2 border-blue-200 p-1.5 text-sm font-medium focus:border-blue-500 outline-none transition-colors" />
+                  ) : (
+                    <span className="text-slate-900 font-bold text-sm">
+                      {editData.fechaInicioContrato ? new Date(editData.fechaInicioContrato).toLocaleDateString() : 'No registrada'}
+                    </span>
                   )}
                 </div>
 

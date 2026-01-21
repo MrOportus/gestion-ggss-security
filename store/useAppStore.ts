@@ -1,7 +1,7 @@
 
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
-import { User, Employee, Site, AttendanceLog, Document, ComparisonRecord, DailyPayment, AppNotification, AppConfirmation } from '../types';
+import { User, Employee, Site, AttendanceLog, Document, ComparisonRecord, DailyPayment, AppNotification, AppConfirmation, ContractRecord } from '../types';
 import { db, auth, secondaryAuth } from '../lib/firebase';
 import {
   signInWithEmailAndPassword,
@@ -27,6 +27,7 @@ interface AppState {
   attendanceLogs: AttendanceLog[];
   documents: Document[];
   f30History: ComparisonRecord[];
+  contractHistory: ContractRecord[];
   dailyPayments: DailyPayment[]; // NEW
   notifications: AppNotification[];
   confirmation: AppConfirmation | null;
@@ -52,6 +53,7 @@ interface AppState {
 
   bulkAddEmployees: (employees: any[]) => Promise<void>; // Actualizado tipo
   saveF30Comparison: (record: Omit<ComparisonRecord, 'id' | 'timestamp'>) => void;
+  saveContractRecord: (record: Omit<ContractRecord, 'id' | 'timestamp'>) => void;
 
   // Site Actions
   addSite: (site: Omit<Site, 'id'>) => Promise<void>;
@@ -85,6 +87,7 @@ export const useAppStore = create<AppState>()(
       documents: [],
 
       f30History: [],
+      contractHistory: [],
       dailyPayments: [],
       notifications: [],
       confirmation: null,
@@ -194,6 +197,7 @@ export const useAppStore = create<AppState>()(
           const newEmployee: Employee = {
             ...employeeData,
             id: newUid,
+            tempPasswordLog: password // Guardar la contraseña temporal ingresada
           };
 
           // 3. Guardar en Firestore usando el UID como ID del documento
@@ -336,6 +340,11 @@ export const useAppStore = create<AppState>()(
         set(state => ({ f30History: [newRecord, ...state.f30History].slice(0, 12) }));
       },
 
+      saveContractRecord: (record) => {
+        const newRecord = { ...record, id: Date.now(), timestamp: new Date().toISOString() };
+        set(state => ({ contractHistory: [newRecord, ...state.contractHistory].slice(0, 15) }));
+      },
+
       // --- SITE ACTIONS (Igual que antes pero con v9) ---
       addSite: async (site) => {
         const tempId = Date.now();
@@ -436,10 +445,13 @@ export const useAppStore = create<AppState>()(
           const newPayment: DailyPayment = {
             id: "dp_" + Date.now(),
             status: 'PENDING',
-            createdAt: new Date().toISOString(),
-            monthPeriod: new Date().toISOString().slice(0, 7), // Default, can be overridden by spread below
             ...paymentData,
+            createdAt: new Date().toISOString(),
           };
+
+          if (!newPayment.monthPeriod) {
+            newPayment.monthPeriod = new Date().toISOString().slice(0, 7);
+          }
 
           const docRef = doc(db, "TurnosDiarios", newPayment.id);
           await setDoc(docRef, newPayment);
@@ -547,6 +559,7 @@ export const useAppStore = create<AppState>()(
         sites: state.sites,
         currentUser: state.currentUser,
         f30History: state.f30History,
+        contractHistory: state.contractHistory,
       }),
     }
   )

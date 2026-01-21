@@ -1,18 +1,20 @@
 
-import React, { useState } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useAppStore } from '../store/useAppStore';
 import {
   ClipboardList, Copy, CheckCircle, FileText, Send,
   Clock, UserPlus, FileSearch, Upload, Loader2, Table as TableIcon,
-  History, Calendar, Users as UsersIcon, ChevronRight, X, Sparkles
+  History, Calendar, Users as UsersIcon, ChevronRight, X, Sparkles, Search, MapPin,
+  Briefcase, DollarSign, Download
 } from 'lucide-react';
 import SmartAutofill from '../components/SmartAutofill';
 import { GoogleGenAI } from "@google/genai";
+import * as XLSX from 'xlsx';
 import { ComparisonRecord } from '../types';
 
 const TasksPage: React.FC = () => {
-  const { employees, sites, f30History, saveF30Comparison, showNotification } = useAppStore();
-  const [activeTask, setActiveTask] = useState<'info_reemplazo' | 'comparar_f30' | 'smart_autofill' | null>(null);
+  const { employees, sites, f30History, contractHistory, saveF30Comparison, saveContractRecord, showNotification } = useAppStore();
+  const [activeTask, setActiveTask] = useState<'info_reemplazo' | 'comparar_f30' | 'smart_autofill' | 'generar_contrato' | 'plataforma_falabella' | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [viewingRecord, setViewingRecord] = useState<ComparisonRecord | null>(null);
 
@@ -24,7 +26,50 @@ const TasksPage: React.FC = () => {
     motivo: '',
     sucursalId: ''
   });
+  const [siteSearch, setSiteSearch] = useState('');
+  const [actualSearch, setActualSearch] = useState('');
+  const [replacementSearch, setReplacementSearch] = useState('');
+  const [showSiteList, setShowSiteList] = useState(false);
+  const [showActualList, setShowActualList] = useState(false);
+  const [showReplacementList, setShowReplacementList] = useState(false);
+  const [showInactive, setShowInactive] = useState(true);
   const [copied, setCopied] = useState(false);
+
+  // --- ESTADOS GENERAR CONTRATO ---
+  const [contratoData, setContratoData] = useState({
+    empleadoId: '',
+    sucursalId: '',
+    fechaInicio: '',
+    fechaTermino: '',
+    horarioA: '08:30 AM a 18:30 PM',
+    horarioB: '18:00 PM a 09:00 AM',
+    tipoContrato: 'Falabella Part-Time',
+    sueldo: '529000'
+  });
+  const [contratoEmpSearch, setContratoEmpSearch] = useState('');
+  const [contratoSiteSearch, setContratoSiteSearch] = useState('');
+  const [showContratoEmpList, setShowContratoEmpList] = useState(false);
+  const [showContratoSiteList, setShowContratoSiteList] = useState(false);
+  const [showInactiveContrato, setShowInactiveContrato] = useState(true);
+
+  // Refs para cierre al hacer click fuera
+  const siteRef = useRef<HTMLDivElement>(null);
+  const actualRef = useRef<HTMLDivElement>(null);
+  const replacementRef = useRef<HTMLDivElement>(null);
+  const contratoEmpRef = useRef<HTMLDivElement>(null);
+  const contratoSiteRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (siteRef.current && !siteRef.current.contains(event.target as Node)) setShowSiteList(false);
+      if (actualRef.current && !actualRef.current.contains(event.target as Node)) setShowActualList(false);
+      if (replacementRef.current && !replacementRef.current.contains(event.target as Node)) setShowReplacementList(false);
+      if (contratoEmpRef.current && !contratoEmpRef.current.contains(event.target as Node)) setShowContratoEmpList(false);
+      if (contratoSiteRef.current && !contratoSiteRef.current.contains(event.target as Node)) setShowContratoSiteList(false);
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   // --- ESTADOS COMPARAR F30 ---
   const [f30FileBase64, setF30FileBase64] = useState<string | null>(null);
@@ -33,10 +78,120 @@ const TasksPage: React.FC = () => {
   const [finalComparison, setFinalComparison] = useState<{ rut: string, name: string, inF30: boolean }[]>([]);
   const [periodo, setPeriodo] = useState('');
 
+  // --- ESTADOS PLATAFORMA FALABELLA ---
+  const [falabellaFiles, setFalabellaFiles] = useState<{ active?: File, platform?: File }>({});
+  const [falabellaResults, setFalabellaResults] = useState<{
+    matches: { rut: string, name: string, matchType: string }[],
+    onlyActive: { rut: string, name: string }[],
+    onlyPlatform: { rut: string, name: string }[],
+    manualReview: { active: { rut: string, name: string }, platform: { rut: string, name: string }, reason: string }[]
+  } | null>(null);
+
   // --- LOGICA INFO REEMPLAZO ---
   const currentEmp = employees.find(e => String(e.id) === reemplazoData.empleadoActualId);
   const replacementEmp = employees.find(e => String(e.id) === reemplazoData.empleadoReemplazoId);
   const sucursal = sites.find(s => String(s.id) === reemplazoData.sucursalId);
+
+  const filteredSitesTasks = useMemo(() => {
+    const lower = siteSearch.toLowerCase();
+    return sites.filter(s => s.name.toLowerCase().includes(lower));
+  }, [sites, siteSearch]);
+
+  const filteredActual = useMemo(() => {
+    const lower = actualSearch.toLowerCase();
+    return employees.filter(e =>
+      e.isActive && (e.firstName.toLowerCase().includes(lower) || e.lastNamePaterno.toLowerCase().includes(lower) || e.rut.toLowerCase().includes(lower))
+    );
+  }, [employees, actualSearch]);
+
+  const filteredReplacement = useMemo(() => {
+    const lower = replacementSearch.toLowerCase();
+    return employees.filter(e => {
+      const matchesSearch = e.firstName.toLowerCase().includes(lower) || e.lastNamePaterno.toLowerCase().includes(lower) || e.rut.toLowerCase().includes(lower);
+      const matchesStatus = showInactive ? true : e.isActive;
+      return matchesSearch && matchesStatus;
+    });
+  }, [employees, replacementSearch, showInactive]);
+
+  // --- LOGICA GENERAR CONTRATO ---
+  const filteredContratoEmp = useMemo(() => {
+    const lower = contratoEmpSearch.toLowerCase();
+    return employees.filter(e => {
+      const matchesSearch = e.firstName.toLowerCase().includes(lower) || e.lastNamePaterno.toLowerCase().includes(lower) || e.rut.toLowerCase().includes(lower);
+      const matchesStatus = showInactiveContrato ? true : e.isActive;
+      return matchesSearch && matchesStatus;
+    });
+  }, [employees, contratoEmpSearch, showInactiveContrato]);
+
+  const filteredContratoSites = useMemo(() => {
+    const lower = contratoSiteSearch.toLowerCase();
+    return sites.filter(s => s.name.toLowerCase().includes(lower));
+  }, [sites, contratoSiteSearch]);
+
+  const contratoEmp = employees.find(e => String(e.id) === contratoData.empleadoId);
+  const contratoSite = sites.find(s => String(s.id) === contratoData.sucursalId);
+
+  const handleGenerateContract = async () => {
+    if (!contratoEmp || !contratoSite || !contratoData.fechaInicio) {
+      showNotification("Por favor seleccione un colaborador, una sucursal y la fecha de inicio.", "warning");
+      return;
+    }
+
+    setIsProcessing(true);
+    try {
+      const payload = {
+        tipo_contrato: contratoData.tipoContrato,
+        Nombre: `${contratoEmp.firstName} ${contratoEmp.lastNamePaterno} ${contratoEmp.lastNameMaterno || ''}`.trim(),
+        rut: contratoEmp.rut,
+        fecha_nacimiento: contratoEmp.fechaNacimiento || '',
+        nacionalidad: contratoEmp.nacionalidad || '',
+        estado_civil: contratoEmp.estadoCivil || '',
+        telefono: contratoEmp.phone || '',
+        salud: contratoEmp.salud || '',
+        afp: contratoEmp.afp || '',
+        sucursal: contratoSite.name,
+        direccion_sucursal: contratoSite.address,
+        Horario_A: contratoData.horarioA,
+        Horario_B: contratoData.horarioB,
+        Sueldo: contratoData.sueldo || contratoEmp.sueldoLiquido || 0,
+        Fecha_inicio: contratoData.fechaInicio,
+        Fecha_termino: contratoData.fechaTermino
+      };
+
+      // Nota: URL del webhook de n8n. Debería configurarse en .env
+      const webhookUrl = (import.meta as any).env?.VITE_N8N_CONTRACT_WEBHOOK_URL || 'https://n8n.webhook.com/generar-contrato';
+
+      const response = await fetch(webhookUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
+
+      if (!response.ok) throw new Error('Error al enviar al webhook');
+
+      const result = await response.json();
+      const downloadUrl = result.url || result.download_url || result.link || '';
+
+      if (downloadUrl) {
+        saveContractRecord({
+          workerName: `${contratoEmp.firstName} ${contratoEmp.lastNamePaterno}`,
+          siteName: contratoSite.name,
+          downloadUrl: downloadUrl
+        });
+        showNotification("¡Contrato generado exitosamente! Iniciando descarga...", "success");
+        window.open(downloadUrl, '_blank');
+      } else {
+        showNotification("Contrato generado, pero no se recibió link de descarga.", "warning");
+      }
+    } catch (error) {
+      console.error("Error generating contract:", error);
+      showNotification("Error de conexión con el servidor de automatización.", "error");
+    } finally {
+      setIsProcessing(false);
+    }
+  };
 
   const formatDateForText = (dateStr: string) => {
     if (!dateStr) return '[Día ingresado]';
@@ -45,42 +200,26 @@ const TasksPage: React.FC = () => {
   };
 
   const generatedReemplazoText = `Estimados.
-
 Banco Falabella
-
 PRESENTE
 
-                  Junto con saludar y según requerimiento, solicitó autorización para reemplazar al gg.ss el ${formatDateForText(reemplazoData.diaReemplazo)}, motivo: ${reemplazoData.motivo || '[Motivo Ingresado]'}. 
-
-
+Junto con saludar y según requerimiento, solicito autorización para reemplazar al gg.ss el ${formatDateForText(reemplazoData.diaReemplazo)}, motivo: ${reemplazoData.motivo || '[Motivo Ingresado]'}.
 
 Sucursal ${sucursal?.name || '[Sucursal Ingresada]'}
 
-actualmente:  
-
+Actualmente:  
 ${currentEmp ? `${currentEmp.firstName} ${currentEmp.lastNamePaterno}` : '[Nombre colaborador 1]'}
+Rut: ${currentEmp?.rut || '[Rut_colaborador 1]'}
 
-Rut:  ${currentEmp?.rut || '[Rut_colaborador 1]'}
-
-
-concurre en su reemplazo: 
-
+Concurre en su reemplazo: 
 ${replacementEmp ? `${replacementEmp.firstName} ${replacementEmp.lastNamePaterno}` : '[Nombre colaborador 2]'}  
-
-Rut:  ${replacementEmp?.rut || '[Rut_colaborador 2]'}
-
-
+Rut: ${replacementEmp?.rut || '[Rut_colaborador 2]'}
 
 Documentos que se adjuntan.
 
-
-
 1.- Contrato de Trabajo.
-
 2.- Sol. Credencial.
-
 3.- Seguro de Vida.
-
 4.- Cédula de identidad.`;
 
   // --- LOGICA COMPARAR F30 ---
@@ -231,9 +370,259 @@ Documentos que se adjuntan.
     }
   };
 
+  // --- LOGICA PLATAFORMA FALABELLA ---
+  const handleFalabellaFileChange = (type: 'active' | 'platform', e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      setFalabellaFiles(prev => ({ ...prev, [type]: e.target.files![0] }));
+    }
+  };
+
+  const cleanRut = (rut: any) => {
+    if (!rut) return '';
+    // Solo números y K, todo a minúsculas
+    return String(rut).toLowerCase().replace(/[^0-9k]/g, '');
+  };
+
+  const cleanName = (name: any) => {
+    if (!name) return '';
+    // MAYÚSCULAS, eliminar tildes, solo alfanumérico básico y un solo espacio
+    return String(name).toUpperCase()
+      .normalize("NFD").replace(/[\u0300-\u036f]/g, "") // Sin tildes
+      .replace(/[^A-Z0-9\s]/g, '') // Solo letras, números y espacios
+      .trim().replace(/\s+/g, ' ');
+  };
+
+  const processFalabellaComparison = async () => {
+    if (!falabellaFiles.active || !falabellaFiles.platform) {
+      showNotification("Por favor suba ambos archivos Excel.", "warning");
+      return;
+    }
+
+    setIsProcessing(true);
+    try {
+      const readExcel = (file: File): Promise<any[]> => {
+        return new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = (e) => {
+            try {
+              const data = e.target?.result;
+              const workbook = XLSX.read(data, { type: 'binary' });
+              const sheetName = workbook.SheetNames[0];
+              const sheet = workbook.Sheets[sheetName];
+              const json = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+              resolve(json as any[]);
+            } catch (err) {
+              reject(err);
+            }
+          };
+          reader.onerror = reject;
+          reader.readAsBinaryString(file);
+        });
+      };
+
+      const [activeData, platformData] = await Promise.all([
+        readExcel(falabellaFiles.active!),
+        readExcel(falabellaFiles.platform!)
+      ]);
+
+      // --- Helper to parse RUT consistently ---
+      const formatDisplayRut = (body: string, dv: string) => {
+        const b = body.trim();
+        const d = dv.trim();
+        if (!d) return b;
+        if (b.includes('-')) return b;
+        return `${b}-${d}`;
+      };
+
+      // --- Process RAW lists ---
+      const rawActive = activeData.slice(1).map(row => {
+        if (!row[0]) return null;
+        const pBody = String(row[0]).trim();
+        const pDv = String(row[1] || '').trim();
+        const pName = String(row[2] || '').trim();
+        if (pBody.toLowerCase().includes('rut')) return null;
+
+        const displayRut = formatDisplayRut(pBody, pDv);
+        return {
+          rut: displayRut,
+          cleanRut: cleanRut(displayRut),
+          name: pName,
+          cleanName: cleanName(pName),
+          raw: row
+        };
+      }).filter((item): item is any => item !== null && item.cleanRut.length > 4);
+
+      const rawPlatform = platformData.slice(1).map((row, idx) => {
+        if (!row[0]) return null;
+        const pRut = String(row[0]).trim();
+        const pName = String(row[1] || '').trim();
+        if (pRut.toLowerCase().includes('rut')) return null;
+
+        return {
+          id: `plat-${idx}`,
+          rut: pRut,
+          cleanRut: cleanRut(pRut),
+          name: pName,
+          cleanName: cleanName(pName),
+          raw: row
+        };
+      }).filter((item): item is any => item !== null && item.cleanRut.length > 4);
+
+      // --- DEDUPLICATE lists by cleanRut to satisfy "NO DUPLICADOS" requirement ---
+      const activeList: any[] = [];
+      const activeSeen = new Set();
+      rawActive.forEach(item => {
+        if (!activeSeen.has(item.cleanRut)) {
+          activeList.push(item);
+          activeSeen.add(item.cleanRut);
+        }
+      });
+
+      const platformList: any[] = [];
+      const platformSeen = new Set();
+      rawPlatform.forEach(item => {
+        if (!platformSeen.has(item.cleanRut)) {
+          platformList.push(item);
+          platformSeen.add(item.cleanRut);
+        }
+      });
+
+      const matches: any[] = [];
+      const pendingActive: any[] = [];
+      const matchedPlatformIds = new Set<string>();
+      const matchedActiveRuts = new Set<string>();
+
+      // Logic:
+      // 1. Exact RUT matches
+      activeList.forEach(activeItem => {
+        const matchIndex = platformList.findIndex(p => !matchedPlatformIds.has(p.id) && p.cleanRut === activeItem.cleanRut);
+        if (matchIndex !== -1) {
+          const match = platformList[matchIndex];
+          matches.push({ rut: activeItem.rut, name: activeItem.name, matchType: 'RUT' });
+          matchedPlatformIds.add(match.id);
+          matchedActiveRuts.add(activeItem.cleanRut);
+        }
+      });
+
+      // 2. Exact Name matches
+      activeList.forEach(activeItem => {
+        if (matchedActiveRuts.has(activeItem.cleanRut)) return;
+        const matchIndex = platformList.findIndex(p => !matchedPlatformIds.has(p.id) && p.cleanName === activeItem.cleanName);
+        if (matchIndex !== -1) {
+          const match = platformList[matchIndex];
+          matches.push({ rut: activeItem.rut, name: activeItem.name, matchType: 'NOMBRE' });
+          matchedPlatformIds.add(match.id);
+          matchedActiveRuts.add(activeItem.cleanRut);
+        } else {
+          pendingActive.push(activeItem);
+        }
+      });
+
+      // 3. Similarity Check (Manual Review)
+      const manualReview: any[] = [];
+      const onlyActive: any[] = [];
+      const getRutBase = (r: string) => r.replace(/[^0-9]/g, '');
+      const getWords = (n: string) => n.split(' ').filter(w => w.length > 2);
+
+      pendingActive.forEach(a => {
+        const aBase = getRutBase(a.cleanRut);
+        const aWords = getWords(a.cleanName);
+
+        const simIndex = platformList.findIndex(p => {
+          if (matchedPlatformIds.has(p.id)) return false;
+
+          const pBase = getRutBase(p.cleanRut);
+          const pWords = getWords(p.cleanName);
+
+          // Checks: Same RUT Base OR similar names (2+ words in common)
+          if (aBase === pBase && aBase.length > 5) return true;
+          const commonWords = aWords.filter(w => pWords.includes(w));
+          if (commonWords.length >= 2) return true;
+
+          return false;
+        });
+
+        if (simIndex !== -1) {
+          const p = platformList[simIndex];
+          manualReview.push({
+            active: { rut: a.rut, name: a.name },
+            platform: { rut: p.rut, name: p.name },
+            reason: getRutBase(a.cleanRut) === getRutBase(p.cleanRut) ? 'RUT Similar' : 'Nombre Similar'
+          });
+          matchedPlatformIds.add(p.id);
+        } else {
+          onlyActive.push({ rut: a.rut, name: a.name });
+        }
+      });
+
+      const onlyPlatform = platformList
+        .filter(p => !matchedPlatformIds.has(p.id))
+        .map(p => ({ rut: p.rut, name: p.name }));
+
+      setFalabellaResults({ matches, onlyActive, onlyPlatform, manualReview });
+      showNotification("Cruce completado. Revise 'Revisión Manual' para posibles aciertos.", "success");
+    } catch (error) {
+      console.error("Error processing Falabella comparison:", error);
+      showNotification("Error al procesar los archivos. Verifique formato.", "error");
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const exportFalabellaToExcel = () => {
+    if (!falabellaResults) return;
+
+    const wb = XLSX.utils.book_new();
+
+    const matchesWS = XLSX.utils.json_to_sheet(falabellaResults.matches.map(m => ({
+      'RUT': m.rut,
+      'Nombre': m.name,
+      'Tipo Match': m.matchType
+    })));
+    XLSX.utils.book_append_sheet(wb, matchesWS, "COINCIDENCIAS");
+
+    const onlyActiveWS = XLSX.utils.json_to_sheet(falabellaResults.onlyActive.map(m => ({
+      'RUT': m.rut,
+      'Nombre': m.name
+    })));
+    XLSX.utils.book_append_sheet(wb, onlyActiveWS, "SOLO EN ACTIVOS PLATAFORMA");
+
+    const onlyPlatformWS = XLSX.utils.json_to_sheet(falabellaResults.onlyPlatform.map(m => ({
+      'RUT': m.rut,
+      'Nombre': m.name
+    })));
+    XLSX.utils.book_append_sheet(wb, onlyPlatformWS, "SOLO EN PLANILLA COBROS");
+
+    if (falabellaResults.manualReview.length > 0) {
+      const manualWS = XLSX.utils.json_to_sheet(falabellaResults.manualReview.map(m => ({
+        'Nombre Activos': m.active.name,
+        'RUT Activos': m.active.rut,
+        'Nombre Planilla': m.platform.name,
+        'RUT Planilla': m.platform.rut,
+        'Motivo Duda': m.reason
+      })));
+      XLSX.utils.book_append_sheet(wb, manualWS, "REVISION MANUAL");
+    }
+
+    XLSX.writeFile(wb, `Dia14_Falabella_${new Date().toISOString().split('T')[0]}.xlsx`);
+  };
+
+  const exportF30ComparisonToExcel = (data: any[], periodoTitle: string) => {
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.json_to_sheet(data.map(item => ({
+      'RUT': item.rut,
+      'Nombre': item.name,
+      'En F30': item.inF30 ? 'SÍ' : 'NO'
+    })));
+    XLSX.utils.book_append_sheet(wb, ws, "Resultado Cruce");
+    XLSX.writeFile(wb, `Cruce_F30_${periodoTitle || 'SinPeríodo'}.xlsx`);
+  };
+
   const tasks = [
     { id: 'info_reemplazo', title: 'Info Reemplazo', icon: <UserPlus className="text-blue-500" />, desc: 'Generar solicitud formal de reemplazo para Banco Falabella.' },
+    { id: 'generar_contrato', title: 'Generar Contrato', icon: <FileText className="text-violet-500" />, desc: 'Generar contrato de trabajo con envío automático a n8n.' },
     { id: 'comparar_f30', title: 'Comparar F30-1', icon: <FileSearch className="text-emerald-500" />, desc: 'Cruce masivo de RUTs entre F30 y planilla Excel.' },
+    { id: 'plataforma_falabella', title: 'Dia 14 Falabella', icon: <UsersIcon className="text-green-600" />, desc: 'Cruce de activos en plataforma vs planilla de cobros.' },
     { id: 'smart_autofill', title: 'Auto-llenado Inteligente', icon: <Sparkles className="text-amber-500" />, desc: 'Extracción de datos con IA para formularios web.' },
     { id: 'responder_solicitud', title: 'Responder Solicitud', icon: <Send className="text-slate-300" />, desc: 'Próximamente...', disabled: true },
     { id: 'tarea_4', title: 'Bitácora Diaria', icon: <Clock className="text-slate-300" />, desc: 'Próximamente...', disabled: true },
@@ -265,6 +654,494 @@ Documentos que se adjuntan.
         </div>
       ) : activeTask === 'smart_autofill' ? (
         <SmartAutofill onBack={() => setActiveTask(null)} />
+      ) : activeTask === 'generar_contrato' ? (
+        <div className="animate-in slide-in-from-bottom-4 duration-300 space-y-6">
+          <div className="flex items-center gap-4 border-b border-slate-200 pb-4">
+            <button onClick={() => setActiveTask(null)} className="text-sm font-bold text-blue-600 hover:text-blue-800">← Volver al menú</button>
+            <h2 className="text-xl font-bold text-slate-800">Tarea: Generar Contrato</h2>
+          </div>
+
+          <div className="bg-white p-8 rounded-2xl border border-slate-200 shadow-sm space-y-8">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+
+              {/* BUSQUEDA COLABORADOR */}
+              <div className="flex flex-col space-y-1 relative" ref={contratoEmpRef} style={{ zIndex: showContratoEmpList ? 100 : 1 }}>
+                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider flex justify-between items-center">
+                  Colaborador
+                  <button
+                    onClick={() => setShowInactiveContrato(!showInactiveContrato)}
+                    className={`text-[9px] px-1.5 py-0.5 rounded transition ${showInactiveContrato ? 'bg-violet-100 text-violet-700 font-bold' : 'bg-slate-100 text-slate-500'}`}
+                  >
+                    {showInactiveContrato ? 'Viendo Todos' : 'Viendo Activos'}
+                  </button>
+                </label>
+                <div className="relative">
+                  <Search className="absolute left-3 top-2.5 text-slate-400" size={14} />
+                  <input
+                    type="text"
+                    placeholder="Buscar por nombre o RUT..."
+                    className="w-full pl-9 pr-4 py-2 text-sm border-b-2 border-slate-100 focus:border-violet-500 outline-none bg-slate-50 rounded-t-lg transition-colors cursor-pointer"
+                    value={contratoEmpSearch || (contratoEmp ? `${contratoEmp.firstName} ${contratoEmp.lastNamePaterno}` : '')}
+                    onFocus={() => { setShowContratoEmpList(true); setContratoEmpSearch(''); }}
+                    onClick={() => { setShowContratoEmpList(true); setContratoEmpSearch(''); }}
+                    onChange={(e) => { setContratoEmpSearch(e.target.value); setShowContratoEmpList(true); }}
+                  />
+                </div>
+                {showContratoEmpList && (
+                  <div className="absolute top-full left-0 w-full bg-white border border-slate-200 rounded-b-lg shadow-2xl max-h-60 overflow-auto z-[110]">
+                    {filteredContratoEmp.map(e => (
+                      <div
+                        key={e.id}
+                        className="px-4 py-2 hover:bg-violet-50 cursor-pointer border-b border-slate-50"
+                        onClick={() => {
+                          setContratoData({ ...contratoData, empleadoId: String(e.id), sueldo: String(e.sueldoLiquido || '') });
+                          setContratoEmpSearch(`${e.firstName} ${e.lastNamePaterno}`);
+                          setShowContratoEmpList(false);
+                        }}
+                      >
+                        <div className="text-sm font-bold text-slate-700">
+                          {e.firstName} {e.lastNamePaterno}
+                          {!e.isActive && <span className="ml-2 text-[9px] text-rose-500 uppercase font-black">Inactivo</span>}
+                        </div>
+                        <div className="text-[10px] text-slate-400 font-mono">{e.rut}</div>
+                      </div>
+                    ))}
+                    {filteredContratoEmp.length === 0 && <div className="p-4 text-xs text-slate-400 italic text-center">No se encontraron resultados</div>}
+                  </div>
+                )}
+              </div>
+
+              {/* BUSQUEDA SUCURSAL */}
+              <div className="flex flex-col space-y-1 relative" ref={contratoSiteRef} style={{ zIndex: showContratoSiteList ? 100 : 1 }}>
+                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Sucursal / Instalación</label>
+                <div className="relative">
+                  <MapPin className="absolute left-3 top-2.5 text-slate-400" size={14} />
+                  <input
+                    type="text"
+                    placeholder="Buscar sucursal..."
+                    className="w-full pl-9 pr-4 py-2 text-sm border-b-2 border-slate-100 focus:border-violet-500 outline-none bg-slate-50 rounded-t-lg transition-colors cursor-pointer"
+                    value={contratoSiteSearch || (contratoSite?.name || '')}
+                    onFocus={() => { setShowContratoSiteList(true); setContratoSiteSearch(''); }}
+                    onClick={() => { setShowContratoSiteList(true); setContratoSiteSearch(''); }}
+                    onChange={(e) => { setContratoSiteSearch(e.target.value); setShowContratoSiteList(true); }}
+                  />
+                </div>
+                {showContratoSiteList && (
+                  <div className="absolute top-full left-0 w-full bg-white border border-slate-200 rounded-b-lg shadow-2xl max-h-60 overflow-auto z-[110]">
+                    {filteredContratoSites.map(s => (
+                      <div
+                        key={s.id}
+                        className="px-4 py-2 hover:bg-violet-50 cursor-pointer text-sm border-b border-slate-50 font-medium text-slate-700"
+                        onClick={() => {
+                          setContratoData({ ...contratoData, sucursalId: String(s.id) });
+                          setContratoSiteSearch(s.name);
+                          setShowContratoSiteList(false);
+                        }}
+                      >
+                        {s.name}
+                      </div>
+                    ))}
+                    {filteredContratoSites.length === 0 && <div className="p-4 text-xs text-slate-400 italic text-center">No se encontraron resultados</div>}
+                  </div>
+                )}
+              </div>
+
+              {/* TIPO CONTRATO */}
+              <div className="flex flex-col space-y-1">
+                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Tipo de Contrato</label>
+                <div className="relative">
+                  <Briefcase className="absolute left-3 top-2.5 text-slate-400" size={14} />
+                  <select
+                    className="w-full pl-9 pr-4 py-2 text-sm border-b-2 border-slate-100 focus:border-violet-500 outline-none bg-slate-50 rounded-t-lg transition-colors appearance-none"
+                    value={contratoData.tipoContrato}
+                    onChange={(e) => setContratoData({ ...contratoData, tipoContrato: e.target.value })}
+                  >
+                    <option value="Falabella Part-Time">Falabella Part-Time</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* FECHAS */}
+              <div className="flex flex-col space-y-1">
+                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Fecha Inicio</label>
+                <div className="relative">
+                  <Calendar className="absolute left-3 top-2.5 text-slate-400" size={14} />
+                  <input
+                    type="date"
+                    className="w-full pl-9 pr-4 py-2 text-sm border-b-2 border-slate-100 focus:border-violet-500 outline-none bg-slate-50 rounded-t-lg transition-colors"
+                    value={contratoData.fechaInicio}
+                    onChange={(e) => setContratoData({ ...contratoData, fechaInicio: e.target.value })}
+                  />
+                </div>
+              </div>
+
+              <div className="flex flex-col space-y-1">
+                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Fecha Término (Opcional)</label>
+                <div className="relative">
+                  <Calendar className="absolute left-3 top-2.5 text-slate-400" size={14} />
+                  <input
+                    type="date"
+                    className="w-full pl-9 pr-4 py-2 text-sm border-b-2 border-slate-100 focus:border-violet-500 outline-none bg-slate-50 rounded-t-lg transition-colors"
+                    value={contratoData.fechaTermino}
+                    onChange={(e) => setContratoData({ ...contratoData, fechaTermino: e.target.value })}
+                  />
+                </div>
+              </div>
+
+              {/* SUELDO */}
+              <div className="flex flex-col space-y-1">
+                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Sueldo Líquido</label>
+                <div className="relative">
+                  <DollarSign className="absolute left-3 top-2.5 text-slate-400" size={14} />
+                  <input
+                    type="number"
+                    placeholder="Monto líquido..."
+                    className="w-full pl-9 pr-4 py-2 text-sm border-b-2 border-slate-100 focus:border-violet-500 outline-none bg-slate-50 rounded-t-lg transition-colors"
+                    value={contratoData.sueldo}
+                    onChange={(e) => setContratoData({ ...contratoData, sueldo: e.target.value })}
+                  />
+                </div>
+              </div>
+
+              {/* HORARIOS */}
+              <div className="flex flex-col space-y-1">
+                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Horario A (Diurno)</label>
+                <div className="relative">
+                  <Clock className="absolute left-3 top-2.5 text-slate-400" size={14} />
+                  <input
+                    type="text"
+                    className="w-full pl-9 pr-4 py-2 text-sm border-b-2 border-slate-100 focus:border-violet-500 outline-none bg-slate-50 rounded-t-lg transition-colors"
+                    value={contratoData.horarioA}
+                    onChange={(e) => setContratoData({ ...contratoData, horarioA: e.target.value })}
+                  />
+                </div>
+              </div>
+
+              <div className="flex flex-col space-y-1">
+                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Horario B (Nocturno)</label>
+                <div className="relative">
+                  <Clock className="absolute left-3 top-2.5 text-slate-400" size={14} />
+                  <input
+                    type="text"
+                    className="w-full pl-9 pr-4 py-2 text-sm border-b-2 border-slate-100 focus:border-violet-500 outline-none bg-slate-50 rounded-t-lg transition-colors"
+                    value={contratoData.horarioB}
+                    onChange={(e) => setContratoData({ ...contratoData, horarioB: e.target.value })}
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="flex justify-end pt-4">
+              <button
+                disabled={isProcessing}
+                onClick={handleGenerateContract}
+                className="flex items-center gap-3 px-12 py-4 bg-violet-600 hover:bg-violet-700 text-white rounded-xl font-black uppercase tracking-widest text-sm transition shadow-xl shadow-violet-100 disabled:opacity-50 active:scale-95"
+              >
+                {isProcessing ? <Loader2 className="animate-spin" /> : <Send size={18} />}
+                {isProcessing ? 'Enviando...' : 'Generar y Enviar Contrato'}
+              </button>
+            </div>
+          </div>
+
+          {/* HISTORIAL DE CONTRATOS */}
+          <div className="space-y-6">
+            <div className="flex items-center gap-3 border-b border-slate-200 pb-4">
+              <History className="text-slate-400" />
+              <h2 className="text-xl font-bold text-slate-800">Últimos Contratos Generados (Máx 15)</h2>
+            </div>
+
+            {contractHistory.length === 0 ? (
+              <div className="bg-slate-50 border-2 border-dashed border-slate-200 rounded-2xl p-12 text-center">
+                <FileText size={48} className="text-slate-200 mx-auto mb-4" />
+                <p className="text-sm font-bold text-slate-400 uppercase tracking-widest">Aún no hay contratos registrados</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {contractHistory.map((record) => (
+                  <div
+                    key={record.id}
+                    className="bg-white p-5 rounded-xl border border-slate-100 shadow-sm hover:border-violet-300 transition-all group flex flex-col"
+                  >
+                    <div className="flex justify-between items-start mb-3">
+                      <div className="p-2 bg-violet-50 rounded-lg group-hover:bg-violet-100 transition-colors">
+                        <FileText size={20} className="text-violet-600" />
+                      </div>
+                      <span className="text-[10px] font-bold text-slate-400 bg-slate-50 px-2 py-1 rounded-full uppercase">ID #{record.id.toString().slice(-4)}</span>
+                    </div>
+
+                    <h4 className="font-bold text-slate-800 mb-1 line-clamp-1">{record.workerName}</h4>
+                    <p className="text-xs text-slate-500 font-medium mb-4 flex items-center gap-1">
+                      <MapPin size={12} className="text-slate-400" /> {record.siteName}
+                    </p>
+
+                    <div className="space-y-2 mt-auto">
+                      <div className="flex items-center gap-2 text-[10px] text-slate-500 font-medium">
+                        <Calendar size={12} className="text-slate-400" />
+                        {new Date(record.timestamp).toLocaleString('es-CL', { dateStyle: 'medium', timeStyle: 'short' })}
+                      </div>
+                    </div>
+
+                    <a
+                      href={record.downloadUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="mt-4 pt-3 border-t border-slate-50 flex items-center justify-between text-violet-600 font-bold text-xs uppercase tracking-widest hover:text-violet-800 transition-colors"
+                    >
+                      Descargar PDF <ChevronRight size={14} />
+                    </a>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      ) : activeTask === 'plataforma_falabella' ? (
+        <div className="animate-in slide-in-from-bottom-4 duration-300 space-y-6">
+          <div className="flex items-center gap-4 border-b border-slate-200 pb-4">
+            <button onClick={() => setActiveTask(null)} className="text-sm font-bold text-blue-600 hover:text-blue-800">← Volver al menú</button>
+            <h2 className="text-xl font-bold text-slate-800">Dia 14 Falabella</h2>
+          </div>
+
+          <div className="bg-white p-8 rounded-2xl border border-slate-200 shadow-sm space-y-8">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+
+              {/* DROPZONE ACTIVOS */}
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <label className="text-sm font-black text-slate-700 uppercase tracking-widest">1. Lista de Activos en plataforma</label>
+                  <span className="text-[10px] text-slate-400 font-bold">A, B (RUT) + C (Nombre)</span>
+                </div>
+                <div
+                  className={`relative border-2 border-dashed rounded-2xl p-10 text-center transition-all group ${falabellaFiles.active ? 'border-emerald-400 bg-emerald-50/50' : 'border-slate-200 hover:border-blue-400 hover:bg-slate-50'}`}
+                >
+                  <input
+                    type="file"
+                    accept=".xlsx, .xls"
+                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                    onChange={(e) => handleFalabellaFileChange('active', e)}
+                  />
+                  <div className="flex flex-col items-center gap-3">
+                    <div className={`w-12 h-12 rounded-xl flex items-center justify-center transition-colors ${falabellaFiles.active ? 'bg-emerald-100 text-emerald-600' : 'bg-slate-100 text-slate-400 group-hover:bg-blue-100 group-hover:text-blue-500'}`}>
+                      <Upload size={24} />
+                    </div>
+                    {falabellaFiles.active ? (
+                      <div className="space-y-1">
+                        <p className="text-sm font-bold text-emerald-700 line-clamp-1">{falabellaFiles.active.name}</p>
+                        <p className="text-[10px] text-emerald-500 font-medium">Archivo listo para procesar</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-1">
+                        <p className="text-sm font-bold text-slate-600">Suelte la lista de activos en plataforma</p>
+                        <p className="text-xs text-slate-400">Formato .xlsx o .xls</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* DROPZONE PLATAFORMA */}
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <label className="text-sm font-black text-slate-700 uppercase tracking-widest">2. nombres Planilla cobros</label>
+                  <span className="text-[10px] text-slate-400 font-bold">A (RUT) + B (Nombre)</span>
+                </div>
+                <div
+                  className={`relative border-2 border-dashed rounded-2xl p-10 text-center transition-all group ${falabellaFiles.platform ? 'border-emerald-400 bg-emerald-50/50' : 'border-slate-200 hover:border-blue-400 hover:bg-slate-50'}`}
+                >
+                  <input
+                    type="file"
+                    accept=".xlsx, .xls"
+                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                    onChange={(e) => handleFalabellaFileChange('platform', e)}
+                  />
+                  <div className="flex flex-col items-center gap-3">
+                    <div className={`w-12 h-12 rounded-xl flex items-center justify-center transition-colors ${falabellaFiles.platform ? 'bg-emerald-100 text-emerald-600' : 'bg-slate-100 text-slate-400 group-hover:bg-blue-100 group-hover:text-blue-500'}`}>
+                      <Upload size={24} />
+                    </div>
+                    {falabellaFiles.platform ? (
+                      <div className="space-y-1">
+                        <p className="text-sm font-bold text-emerald-700 line-clamp-1">{falabellaFiles.platform.name}</p>
+                        <p className="text-[10px] text-emerald-500 font-medium">Archivo listo para procesar</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-1">
+                        <p className="text-sm font-bold text-slate-600">Suelte nombres Planilla cobros</p>
+                        <p className="text-xs text-slate-400">Formato .xlsx o .xls</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex flex-col items-center gap-4 pt-4">
+              <button
+                onClick={processFalabellaComparison}
+                disabled={isProcessing || !falabellaFiles.active || !falabellaFiles.platform}
+                className="flex items-center gap-4 px-16 py-4 bg-slate-900 hover:bg-black text-white rounded-2xl font-black uppercase tracking-widest text-sm transition-all shadow-xl disabled:opacity-30 disabled:cursor-not-allowed group"
+              >
+                {isProcessing ? <Loader2 className="animate-spin" /> : <Sparkles className="group-hover:rotate-12 transition-transform" size={20} />}
+                {isProcessing ? 'Procesando Datos...' : 'Iniciar Cruce Inteligente'}
+              </button>
+
+              {falabellaResults && (
+                <button
+                  onClick={exportFalabellaToExcel}
+                  className="flex items-center gap-2 text-emerald-600 font-bold text-xs uppercase tracking-widest hover:text-emerald-700 transition-colors"
+                >
+                  <FileText size={16} /> Exportar Resultado a Excel
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* RESULTADOS */}
+          {falabellaResults && (
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+              {/* 1. COINCIDENCIAS */}
+              <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col h-[600px] animate-in fade-in slide-in-from-bottom-2">
+                <div className="bg-emerald-500 p-4 border-b border-emerald-600">
+                  <div className="flex justify-between items-center text-white">
+                    <h3 className="font-black uppercase tracking-widest text-xs flex items-center gap-2">
+                      <CheckCircle size={16} /> Coincidencias ({falabellaResults.matches.length})
+                    </h3>
+                  </div>
+                </div>
+                <div className="overflow-auto flex-1">
+                  <table className="w-full text-xs">
+                    <thead className="bg-slate-50 sticky top-0 z-20">
+                      <tr>
+                        <th className="p-3 text-left text-slate-500 font-bold uppercase tracking-wider">Colaborador</th>
+                        <th className="p-3 text-right text-slate-500 font-bold uppercase tracking-wider">Tipo</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {falabellaResults.matches.map((m, i) => (
+                        <tr key={i} className="hover:bg-slate-50 transition-colors">
+                          <td className="p-3">
+                            <div className="font-bold text-slate-800">{m.name}</div>
+                            <div className="font-mono text-[10px] text-slate-400">{m.rut}</div>
+                          </td>
+                          <td className="p-3 text-right">
+                            <span className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-tighter ${m.matchType === 'RUT' ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-blue-700'}`}>
+                              {m.matchType}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* 2. SOLO EN ACTIVOS */}
+              <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col h-[600px] animate-in fade-in slide-in-from-bottom-4">
+                <div className="bg-rose-500 p-4 border-b border-rose-600">
+                  <h3 className="text-white font-black uppercase tracking-widest text-xs flex items-center gap-2">
+                    <UserPlus size={16} /> Solo en Activos ({falabellaResults.onlyActive.length})
+                  </h3>
+                </div>
+                <div className="overflow-auto flex-1">
+                  <table className="w-full text-xs">
+                    <thead className="bg-slate-50 sticky top-0 z-20">
+                      <tr>
+                        <th className="p-3 text-left text-slate-500 font-bold uppercase tracking-wider">Desactivar de plataforma</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {falabellaResults.onlyActive.map((m, i) => (
+                        <tr key={i} className="hover:bg-rose-50/30 transition-colors">
+                          <td className="p-3">
+                            <div className="font-bold text-slate-800">{m.name}</div>
+                            <div className="font-mono text-[10px] text-slate-400">{m.rut}</div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* 3. SOLO EN FALABELLA */}
+              <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col h-[600px] animate-in fade-in slide-in-from-bottom-6">
+                <div className="bg-blue-500 p-4 border-b border-blue-600">
+                  <h3 className="font-black uppercase tracking-widest text-xs flex items-center gap-2">
+                    <FileText size={16} /> Solo en Planilla ({falabellaResults.onlyPlatform.length})
+                  </h3>
+                </div>
+                <div className="overflow-auto flex-1">
+                  <table className="w-full text-xs">
+                    <thead className="bg-slate-50 sticky top-0 z-20">
+                      <tr>
+                        <th className="p-3 text-left text-slate-500 font-bold uppercase tracking-wider">Activar o Agregar en Plataforma</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {falabellaResults.onlyPlatform.map((m, i) => (
+                        <tr key={i} className="hover:bg-blue-50/30 transition-colors">
+                          <td className="p-3">
+                            <div className="font-bold text-slate-800">{m.name}</div>
+                            <div className="font-mono text-[10px] text-slate-400">{m.rut}</div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+            </div>
+          )}
+
+          {/* 4. REVISIÓN MANUAL */}
+          {falabellaResults && falabellaResults.manualReview.length > 0 && (
+            <div className="animate-in fade-in slide-in-from-top-4 duration-500">
+              <div className="bg-amber-50 border-2 border-amber-200 rounded-2xl overflow-hidden shadow-xl">
+                <div className="bg-amber-500 p-4 flex justify-between items-center text-white">
+                  <h3 className="font-black uppercase tracking-widest text-xs flex items-center gap-2">
+                    <Sparkles size={16} /> Revisión Manual ({falabellaResults.manualReview.length})
+                  </h3>
+                  <span className="text-[10px] font-bold bg-amber-600 px-2 py-1 rounded-lg">POSIBLES COINCIDENCIAS</span>
+                </div>
+                <div className="p-1">
+                  <table className="w-full text-xs">
+                    <thead className="bg-amber-100/50 text-amber-900 font-bold uppercase tracking-wider text-[10px]">
+                      <tr>
+                        <th className="p-3 text-left">Datos en Activos</th>
+                        <th className="p-3 text-center">→</th>
+                        <th className="p-3 text-left">Datos en Planilla</th>
+                        <th className="p-3 text-right">Razón</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-amber-100">
+                      {falabellaResults.manualReview.map((item, i) => (
+                        <tr key={i} className="hover:bg-white/50 transition-colors">
+                          <td className="p-3">
+                            <div className="font-bold text-slate-800">{item.active.name}</div>
+                            <div className="font-mono text-[10px] text-slate-500">{item.active.rut}</div>
+                          </td>
+                          <td className="p-3 text-center text-amber-400 font-black">
+                            <ChevronRight size={14} />
+                          </td>
+                          <td className="p-3 text-left">
+                            <div className="font-bold text-slate-800">{item.platform.name}</div>
+                            <div className="font-mono text-[10px] text-slate-500">{item.platform.rut}</div>
+                          </td>
+                          <td className="p-3 text-right">
+                            <span className="px-2 py-1 bg-amber-100 text-amber-700 rounded-md font-black text-[9px] uppercase">
+                              {item.reason}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
       ) : activeTask === 'info_reemplazo' ? (
         <div className="animate-in slide-in-from-bottom-4 duration-300 space-y-6">
           <div className="flex items-center gap-4 border-b border-slate-200 pb-4">
@@ -275,16 +1152,40 @@ Documentos que se adjuntan.
             <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-6">
               <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest mb-4">Parámetros del Reemplazo</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="flex flex-col space-y-1">
+
+                {/* SUCURSAL */}
+                <div className="flex flex-col space-y-1 relative" ref={siteRef} style={{ zIndex: showSiteList ? 100 : 1 }}>
                   <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Sucursal / Instalación</label>
-                  <select
-                    className="w-full border-b-2 border-slate-100 focus:border-blue-500 p-2.5 text-sm outline-none bg-slate-50 rounded-t-lg transition-colors cursor-pointer"
-                    value={reemplazoData.sucursalId}
-                    onChange={(e) => setReemplazoData({ ...reemplazoData, sucursalId: e.target.value })}
-                  >
-                    <option value="">Seleccione Sucursal</option>
-                    {sites.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                  </select>
+                  <div className="relative">
+                    <MapPin className="absolute left-3 top-2.5 text-slate-400" size={14} />
+                    <input
+                      type="text"
+                      placeholder="Buscar sucursal..."
+                      className="w-full pl-9 pr-4 py-2 text-sm border-b-2 border-slate-100 focus:border-blue-500 outline-none bg-slate-50 rounded-t-lg transition-colors cursor-pointer"
+                      value={siteSearch || (sucursal?.name || '')}
+                      onFocus={() => { setShowSiteList(true); setSiteSearch(''); }}
+                      onClick={() => { setShowSiteList(true); setSiteSearch(''); }}
+                      onChange={(e) => { setSiteSearch(e.target.value); setShowSiteList(true); }}
+                    />
+                  </div>
+                  {showSiteList && (
+                    <div className="absolute top-full left-0 w-full bg-white border border-slate-200 rounded-b-lg shadow-2xl max-h-60 overflow-auto z-[110]">
+                      {filteredSitesTasks.map(s => (
+                        <div
+                          key={s.id}
+                          className="px-4 py-2 hover:bg-blue-50 cursor-pointer text-sm border-b border-slate-50 font-medium text-slate-700"
+                          onClick={() => {
+                            setReemplazoData({ ...reemplazoData, sucursalId: String(s.id) });
+                            setSiteSearch(s.name);
+                            setShowSiteList(false);
+                          }}
+                        >
+                          {s.name}
+                        </div>
+                      ))}
+                      {filteredSitesTasks.length === 0 && <div className="p-4 text-xs text-slate-400 italic text-center">No se encontraron resultados</div>}
+                    </div>
+                  )}
                 </div>
 
                 <div className="flex flex-col space-y-1">
@@ -298,42 +1199,111 @@ Documentos que se adjuntan.
                     onClick={(e) => {
                       try {
                         e.currentTarget.showPicker?.();
-                      } catch (err) {
-                        // Silently fail if blocked by browser policy in cross-origin iframes
-                      }
+                      } catch (err) { }
                     }}
                     onChange={(e) => setReemplazoData({ ...reemplazoData, diaReemplazo: e.target.value })}
                   />
                 </div>
 
-                <div className="flex flex-col space-y-1">
+                {/* COLABORADOR ACTUAL */}
+                <div className="flex flex-col space-y-1 relative" ref={actualRef} style={{ zIndex: showActualList ? 100 : 1 }}>
                   <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Colaborador Actual (GG.SS)</label>
-                  <select
-                    className="w-full border-b-2 border-slate-100 focus:border-blue-500 p-2.5 text-sm outline-none bg-slate-50 rounded-t-lg transition-colors"
-                    value={reemplazoData.empleadoActualId}
-                    onChange={(e) => setReemplazoData({ ...reemplazoData, empleadoActualId: e.target.value })}
-                  >
-                    <option value="">Buscar colaborador...</option>
-                    {employees.filter(e => e.isActive).map(e => <option key={e.id} value={e.id}>{e.firstName} {e.lastNamePaterno}</option>)}
-                  </select>
+                  <div className="relative">
+                    <Search className="absolute left-3 top-2.5 text-slate-400" size={14} />
+                    <input
+                      type="text"
+                      placeholder="Buscar por nombre o RUT..."
+                      className="w-full pl-9 pr-4 py-2 text-sm border-b-2 border-slate-100 focus:border-blue-500 outline-none bg-slate-50 rounded-t-lg transition-colors cursor-pointer"
+                      value={actualSearch || (currentEmp ? `${currentEmp.firstName} ${currentEmp.lastNamePaterno}` : '')}
+                      onFocus={() => { setShowActualList(true); setActualSearch(''); }}
+                      onClick={() => { setShowActualList(true); setActualSearch(''); }}
+                      onChange={(e) => { setActualSearch(e.target.value); setShowActualList(true); }}
+                    />
+                  </div>
+                  {showActualList && (
+                    <div className="absolute top-full left-0 w-full bg-white border border-slate-200 rounded-b-lg shadow-2xl max-h-60 overflow-auto z-[110]">
+                      {filteredActual.map(e => (
+                        <div
+                          key={e.id}
+                          className="px-4 py-2 hover:bg-blue-50 cursor-pointer border-b border-slate-50"
+                          onClick={() => {
+                            setReemplazoData({ ...reemplazoData, empleadoActualId: String(e.id) });
+                            setActualSearch(`${e.firstName} ${e.lastNamePaterno}`);
+                            setShowActualList(false);
+                          }}
+                        >
+                          <div className="text-sm font-bold text-slate-700">{e.firstName} {e.lastNamePaterno}</div>
+                          <div className="text-[10px] text-slate-400 font-mono">{e.rut}</div>
+                        </div>
+                      ))}
+                      {filteredActual.length === 0 && <div className="p-4 text-xs text-slate-400 italic text-center">No se encontraron resultados</div>}
+                    </div>
+                  )}
                 </div>
 
-                <div className="flex flex-col space-y-1">
-                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Colaborador Reemplazo</label>
-                  <select
-                    className="w-full border-b-2 border-slate-100 focus:border-blue-500 p-2.5 text-sm outline-none bg-slate-50 rounded-t-lg transition-colors"
-                    value={reemplazoData.empleadoReemplazoId}
-                    onChange={(e) => setReemplazoData({ ...reemplazoData, empleadoReemplazoId: e.target.value })}
-                  >
-                    <option value="">Buscar colaborador...</option>
-                    {employees.filter(e => e.isActive).map(e => <option key={e.id} value={e.id}>{e.firstName} {e.lastNamePaterno}</option>)}
-                  </select>
+                {/* COLABORADOR REEMPLAZO */}
+                <div className="flex flex-col space-y-1 relative" ref={replacementRef} style={{ zIndex: showReplacementList ? 100 : 1 }}>
+                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider flex justify-between items-center">
+                    Colaborador Reemplazo
+                    <button
+                      onClick={() => setShowInactive(!showInactive)}
+                      className={`text-[9px] px-1.5 py-0.5 rounded transition ${showInactive ? 'bg-blue-100 text-blue-700 font-bold' : 'bg-slate-100 text-slate-500'}`}
+                    >
+                      {showInactive ? 'Viendo Todos' : 'Viendo Activos'}
+                    </button>
+                  </label>
+                  <div className="relative">
+                    <Search className="absolute left-3 top-2.5 text-slate-400" size={14} />
+                    <input
+                      type="text"
+                      placeholder="Buscar por nombre o RUT..."
+                      className="w-full pl-9 pr-4 py-2 text-sm border-b-2 border-slate-100 focus:border-blue-500 outline-none bg-slate-50 rounded-t-lg transition-colors cursor-pointer"
+                      value={replacementSearch || (replacementEmp ? `${replacementEmp.firstName} ${replacementEmp.lastNamePaterno}` : '')}
+                      onFocus={() => { setShowReplacementList(true); setReplacementSearch(''); }}
+                      onClick={() => { setShowReplacementList(true); setReplacementSearch(''); }}
+                      onChange={(e) => { setReplacementSearch(e.target.value); setShowReplacementList(true); }}
+                    />
+                  </div>
+                  {showReplacementList && (
+                    <div className="absolute top-full left-0 w-full bg-white border border-slate-200 rounded-b-lg shadow-2xl max-h-60 overflow-auto z-[110]">
+                      {filteredReplacement.map(e => (
+                        <div
+                          key={e.id}
+                          className="px-4 py-2 hover:bg-blue-50 cursor-pointer border-b border-slate-50"
+                          onClick={() => {
+                            setReemplazoData({ ...reemplazoData, empleadoReemplazoId: String(e.id) });
+                            setReplacementSearch(`${e.firstName} ${e.lastNamePaterno}`);
+                            setShowReplacementList(false);
+                          }}
+                        >
+                          <div className="text-sm font-bold text-slate-700">
+                            {e.firstName} {e.lastNamePaterno}
+                            {!e.isActive && <span className="ml-2 text-[9px] text-rose-500 uppercase font-black">Inactivo</span>}
+                          </div>
+                          <div className="text-[10px] text-slate-400 font-mono">{e.rut}</div>
+                        </div>
+                      ))}
+                      {filteredReplacement.length === 0 && <div className="p-4 text-xs text-slate-400 italic text-center">No se encontraron resultados</div>}
+                    </div>
+                  )}
                 </div>
 
                 <div className="flex flex-col space-y-1 md:col-span-2">
-                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Motivo del Reemplazo</label>
+                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">Motivo del Reemplazo</label>
+                  <div className="flex flex-wrap gap-2 mb-3">
+                    {['Mejora Servicio', 'Condiciones de salud', 'Motivos Personales', 'Licencia'].map((m) => (
+                      <button
+                        key={m}
+                        type="button"
+                        onClick={() => setReemplazoData({ ...reemplazoData, motivo: m })}
+                        className={`px-3 py-1 rounded-full text-[10px] font-bold border transition ${reemplazoData.motivo === m ? 'bg-blue-600 text-white border-blue-600 shadow-md' : 'bg-white text-slate-600 border-slate-200 hover:border-blue-300'}`}
+                      >
+                        {m}
+                      </button>
+                    ))}
+                  </div>
                   <input
-                    placeholder="Ej: Licencia Médica, Vacaciones, Permiso Particular..."
+                    placeholder="O escriba otro motivo..."
                     className="w-full border-b-2 border-slate-100 focus:border-blue-500 p-2.5 text-sm outline-none bg-slate-50 rounded-t-lg transition-colors"
                     value={reemplazoData.motivo}
                     onChange={(e) => setReemplazoData({ ...reemplazoData, motivo: e.target.value })}
@@ -362,7 +1332,7 @@ Documentos que se adjuntan.
             </div>
           </div>
         </div>
-      ) : (
+      ) : activeTask === 'comparar_f30' ? (
         <div className="animate-in slide-in-from-bottom-4 duration-300 space-y-12">
           {/* SECCION COMPARACION ACTUAL */}
           <div className="space-y-6">
@@ -419,7 +1389,7 @@ Documentos que se adjuntan.
                   </h3>
                   <textarea
                     placeholder="Pegue aquí el listado de RUT y Nombres desde Excel..."
-                    className="w-full h-48 bg-slate-50 border border-slate-200 rounded-xl p-4 text-xs font-mono focus:ring-2 focus:ring-blue-500 outline-none transition"
+                    className="w-full h-48 bg-slate-50 border border-slate-200 rounded-xl p-4 text-xs font-mono focus:ring-2 focus:ring-blue-50 outline-none transition"
                     value={rawPlanillaText}
                     onChange={(e) => setRawPlanillaText(e.target.value)}
                   />
@@ -559,6 +1529,45 @@ Documentos que se adjuntan.
             )}
           </div>
         </div>
+      ) : (
+        <div className="animate-in slide-in-from-bottom-4 duration-300 space-y-6">
+          <h2 className="text-xl font-bold text-slate-800">Selecciona una tarea para comenzar</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <button
+              onClick={() => setActiveTask('plataforma_falabella')}
+              className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm text-left hover:border-blue-300 transition-all hover:shadow-md group flex flex-col"
+            >
+              <div className="flex justify-between items-start mb-3">
+                <div className="p-3 bg-slate-50 rounded-lg group-hover:bg-blue-50 transition-colors">
+                  <FileText size={24} className="text-slate-400 group-hover:text-blue-600" />
+                </div>
+                <span className="text-[10px] font-bold text-slate-400 bg-slate-50 px-2 py-1 rounded-full uppercase">Nuevo</span>
+              </div>
+              <h3 className="font-bold text-slate-800 mb-1">Dia 14 Falabella</h3>
+              <p className="text-sm text-slate-500">Cruce de activos en plataforma vs planilla de cobros.</p>
+              <div className="mt-4 pt-3 border-t border-slate-50 flex items-center justify-between text-blue-600 font-bold text-xs uppercase tracking-widest opacity-0 group-hover:opacity-100 transition-opacity">
+                Iniciar Tarea <ChevronRight size={14} />
+              </div>
+            </button>
+
+            <button
+              onClick={() => setActiveTask('comparar_f30')}
+              className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm text-left hover:border-blue-300 transition-all hover:shadow-md group flex flex-col"
+            >
+              <div className="flex justify-between items-start mb-3">
+                <div className="p-3 bg-slate-50 rounded-lg group-hover:bg-blue-50 transition-colors">
+                  <FileSearch size={24} className="text-slate-400 group-hover:text-blue-600" />
+                </div>
+                <span className="text-[10px] font-bold text-slate-400 bg-slate-50 px-2 py-1 rounded-full uppercase">Nuevo</span>
+              </div>
+              <h3 className="font-bold text-slate-800 mb-1">Cruce F30-1 vs Planilla</h3>
+              <p className="text-sm text-slate-500">Compara trabajadores de un F30-1 con una planilla de Excel.</p>
+              <div className="mt-4 pt-3 border-t border-slate-50 flex items-center justify-between text-blue-600 font-bold text-xs uppercase tracking-widest opacity-0 group-hover:opacity-100 transition-opacity">
+                Iniciar Tarea <ChevronRight size={14} />
+              </div>
+            </button>
+          </div>
+        </div>
       )}
 
       {/* MODAL PARA VER REGISTRO HISTÓRICO */}
@@ -619,6 +1628,12 @@ Documentos que se adjuntan.
                   >
                     {copied ? <CheckCircle size={18} /> : <Copy size={18} />}
                     {copied ? '¡Copiado!' : 'Copiar como Tabla'}
+                  </button>
+                  <button
+                    onClick={() => exportF30ComparisonToExcel(viewingRecord.data, viewingRecord.periodo)}
+                    className="w-full flex items-center justify-center gap-3 py-4 mt-3 rounded-xl font-black uppercase text-xs tracking-widest transition transform active:scale-95 shadow-xl bg-emerald-600 text-white hover:bg-emerald-700 shadow-emerald-200"
+                  >
+                    <Download size={18} /> Exportar a Excel
                   </button>
                 </div>
 

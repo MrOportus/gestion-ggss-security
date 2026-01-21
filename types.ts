@@ -1,5 +1,5 @@
 
-export type Role = 'admin' | 'worker';
+export type Role = 'admin' | 'supervisor' | 'worker';
 
 export interface User {
   uid: string;
@@ -38,6 +38,7 @@ export interface Employee {
   // Datos Laborales
   sueldoLiquido?: number; // Nuevo campo
   fechaVencimientoOS10?: string; // ISO Date string
+  fechaInicioContrato?: string; // ISO Date string
   fechaTerminoContrato?: string; // ISO Date string
   isActive: boolean;
   currentSiteId?: number;
@@ -53,6 +54,7 @@ export interface Employee {
   // Otros
   bancoInfo?: string;
   contactoFamiliar?: string;
+  tempPasswordLog?: string; // Nuevo campo para auditoría de contraseña temporal
 }
 
 export interface AttendanceLog {
@@ -113,4 +115,12 @@ export interface AppConfirmation {
   message: string;
   onConfirm: () => void;
   onCancel?: () => void;
+}
+
+export interface ContractRecord {
+  id: number;
+  timestamp: string;
+  workerName: string;
+  siteName: string;
+  downloadUrl: string;
 }

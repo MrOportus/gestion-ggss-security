@@ -197,6 +197,10 @@ const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({ onClose }) => {
                   <input type="date" name="fechaVencimientoOS10" onChange={handleChange} className={inputClass} />
                 </div>
                 <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Inicio Contrato</label>
+                  <input type="date" name="fechaInicioContrato" onChange={handleChange} className={inputClass} />
+                </div>
+                <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">Término Contrato</label>
                   <input type="date" name="fechaTerminoContrato" onChange={handleChange} className={inputClass} />
                 </div>
@@ -206,6 +210,7 @@ const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({ onClose }) => {
                   <label className="block text-sm font-medium text-slate-700 mb-1">Rol Sistema</label>
                   <select name="role" onChange={handleChange} className={inputClass} defaultValue="worker">
                     <option value="worker">Guardia / Operativo</option>
+                    <option value="supervisor">Supervisor</option>
                     <option value="admin">Administrador</option>
                   </select>
                 </div>
