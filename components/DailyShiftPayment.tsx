@@ -222,9 +222,15 @@ export const DailyShiftPayment = () => {
             const matchesMonth = p.monthPeriod === filterMonth;
             const matchesSearch = p.workerName.toLowerCase().includes(listSearchTerm.toLowerCase()) ||
                 p.siteName.toLowerCase().includes(listSearchTerm.toLowerCase());
+
+            // Filtro por rol
+            if (currentUser?.role === 'supervisor') {
+                return matchesMonth && matchesSearch && p.createdBy === currentUser.uid;
+            }
+
             return matchesMonth && matchesSearch;
         });
-    }, [dailyPayments, filterMonth, listSearchTerm]);
+    }, [dailyPayments, filterMonth, listSearchTerm, currentUser]);
 
     const reportData = useMemo(() => filteredPayments.filter(p => p.status === 'PAID'), [filteredPayments]);
 
@@ -335,7 +341,7 @@ export const DailyShiftPayment = () => {
         </div>
     );
 
-    if (currentUser?.role !== 'admin') return <div className="p-8 text-center text-slate-400">Acceso Restringido</div>;
+    if (currentUser?.role !== 'admin' && currentUser?.role !== 'supervisor') return <div className="p-8 text-center text-slate-400">Acceso Restringido</div>;
 
     return (
         <div className="space-y-6">
@@ -345,7 +351,10 @@ export const DailyShiftPayment = () => {
                     <h2 className="text-xl font-bold text-slate-800">Control de Turnos Diarios</h2>
                 </div>
                 <div className="flex bg-slate-100 p-1 rounded-lg">
-                    {['create', 'list', 'reports'].map(tab => (
+                    {['create', 'list', 'reports'].filter(tab => {
+                        if (tab === 'reports') return currentUser?.role === 'admin';
+                        return true;
+                    }).map(tab => (
                         <button
                             key={tab}
                             onClick={() => setActiveTab(tab as any)}
@@ -505,7 +514,7 @@ export const DailyShiftPayment = () => {
             )}
 
             {/* LIST & REPORTS */}
-            {(activeTab === 'list' || activeTab === 'reports') && (
+            {(activeTab === 'list' || (activeTab === 'reports' && currentUser?.role === 'admin')) && (
                 <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
                     {/* Toolbar */}
                     <div className="p-4 border-b border-slate-100 bg-slate-50 flex flex-wrap gap-4 justify-between items-center">
@@ -527,7 +536,7 @@ export const DailyShiftPayment = () => {
                                 value={filterMonth}
                                 onChange={(e) => setFilterMonth(e.target.value)}
                             />
-                            {activeTab === 'list' && (
+                            {activeTab === 'list' && currentUser?.role === 'admin' && (
                                 <>
                                     <button
                                         onClick={() => handleBulkPayToday(false)}
@@ -566,6 +575,7 @@ export const DailyShiftPayment = () => {
                                     <th className="px-6 py-4 font-semibold">Sucursal</th>
                                     <th className="px-6 py-4 font-semibold text-right">Monto</th>
                                     <th className="px-6 py-4 font-semibold text-center">Estado</th>
+                                    {currentUser?.role === 'admin' && <th className="px-6 py-4 font-semibold">Responsable</th>}
                                     <th className="px-6 py-4 font-semibold text-right">Acciones</th>
                                 </tr>
                             </thead>
@@ -643,6 +653,11 @@ export const DailyShiftPayment = () => {
                                                     {payment.status === 'PAID' ? 'Pagado' : 'Pendiente'}
                                                 </span>
                                             </td>
+                                            {currentUser?.role === 'admin' && (
+                                                <td className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase">
+                                                    {payment.createdByName?.split('@')[0] || 'Admin'}
+                                                </td>
+                                            )}
                                             <td className="px-6 py-4 text-right">
                                                 <div className="flex items-center justify-end gap-2">
                                                     {isEditing ? (
@@ -656,7 +671,7 @@ export const DailyShiftPayment = () => {
                                                         </>
                                                     ) : (
                                                         <>
-                                                            {!isPaid && (
+                                                            {!isPaid && currentUser?.role === 'admin' && (
                                                                 <button
                                                                     onClick={() => markPaymentAsPaid(payment.id, currentUser?.email || 'admin')}
                                                                     className="text-[10px] bg-slate-800 text-white px-2 py-1 rounded hover:bg-slate-700 shadow-sm transition-all font-bold"
@@ -667,9 +682,11 @@ export const DailyShiftPayment = () => {
                                                             <button onClick={() => startEditing(payment)} className="p-1.5 text-blue-500 hover:bg-blue-50 rounded-lg transition" title="Editar">
                                                                 <Pencil size={16} />
                                                             </button>
-                                                            <button onClick={() => handleDelete(payment.id)} className="p-1.5 text-rose-500 hover:bg-rose-50 rounded-lg transition" title="Eliminar">
-                                                                <Trash2 size={16} />
-                                                            </button>
+                                                            {currentUser?.role === 'admin' && (
+                                                                <button onClick={() => handleDelete(payment.id)} className="p-1.5 text-rose-500 hover:bg-rose-50 rounded-lg transition" title="Eliminar">
+                                                                    <Trash2 size={16} />
+                                                                </button>
+                                                            )}
                                                         </>
                                                     )}
                                                 </div>

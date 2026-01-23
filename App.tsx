@@ -10,10 +10,11 @@ import WorkerAttendance from './pages/WorkerAttendance';
 import { LogOut, LayoutDashboard, Users, Clock, MapPin, ClipboardList, RefreshCw, Menu, X, ChevronRight, Loader2, DollarSign } from 'lucide-react';
 import { DailyShiftPayment } from './components/DailyShiftPayment';
 import { GlobalOverlay } from './components/GlobalOverlay';
+import SupervisorManagement from './pages/SupervisorManagement';
 
 const App: React.FC = () => {
   const { currentUser, logout, fetchInitialData, isLoading, initializeAuthListener } = useAppStore();
-  const [currentView, setCurrentView] = useState<'dashboard' | 'employees' | 'tasks' | 'sites' | 'payments'>('dashboard');
+  const [currentView, setCurrentView] = useState<'dashboard' | 'employees' | 'tasks' | 'sites' | 'payments' | 'supervisor_mgmt'>('dashboard');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [authInitialized, setAuthInitialized] = useState(false);
   const [showAsistenciaTooltip, setShowAsistenciaTooltip] = useState(false);
@@ -83,10 +84,12 @@ const App: React.FC = () => {
             <span className="font-medium">Dashboard</span>
           </button>
 
-          <button onClick={() => setCurrentView('employees')} className={navItemClass('employees')}>
-            <Users size={20} />
-            <span className="font-medium">Empleados</span>
-          </button>
+          {currentUser.role === 'admin' && (
+            <button onClick={() => setCurrentView('employees')} className={navItemClass('employees')}>
+              <Users size={20} />
+              <span className="font-medium">Empleados</span>
+            </button>
+          )}
 
           <button onClick={() => setCurrentView('sites')} className={navItemClass('sites')}>
             <MapPin size={20} />
@@ -129,13 +132,30 @@ const App: React.FC = () => {
               </div>
             )}
           </div>
+
+          {currentUser.role === 'admin' && (
+            <>
+              <div className="mx-4 my-4 border-t border-slate-100 flex items-center justify-center">
+                <span className="bg-white px-2 -mt-3 text-[10px] font-black text-slate-300 uppercase tracking-[0.2em]">Gestión Supervisores</span>
+              </div>
+
+              <button onClick={() => setCurrentView('supervisor_mgmt')} className={navItemClass('supervisor_mgmt')}>
+                <ClipboardList size={20} />
+                <span className="font-medium">Gestión Supervisores</span>
+              </button>
+            </>
+          )}
         </nav>
 
         <div className="p-4 border-t border-slate-100 bg-slate-50/50 space-y-2 mt-auto">
           <div className="flex items-center gap-3 mb-2 px-2">
-            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center font-bold text-white shadow-lg">A</div>
+            <div className={`w-10 h-10 rounded-full bg-gradient-to-br ${currentUser.role === 'admin' ? 'from-blue-500 to-indigo-600' : 'from-emerald-500 to-teal-600'} flex items-center justify-center font-bold text-white shadow-lg uppercase`}>
+              {currentUser.role[0]}
+            </div>
             <div>
-              <p className="text-sm font-medium text-slate-800">Administrador</p>
+              <p className="text-sm font-medium text-slate-800">
+                {currentUser.role === 'admin' ? 'Administrador' : currentUser.role === 'supervisor' ? 'Supervisor' : 'Colaborador'}
+              </p>
               <p className="text-xs text-slate-400 truncate w-32">{currentUser.email}</p>
             </div>
           </div>
@@ -195,10 +215,12 @@ const App: React.FC = () => {
                 <div className="flex items-center gap-3"><LayoutDashboard size={20} /> Dashboard</div>
                 <ChevronRight size={16} className="text-slate-300" />
               </button>
-              <button onClick={() => handleNavChange('employees')} className={mobileNavItemClass('employees')}>
-                <div className="flex items-center gap-3"><Users size={20} /> Empleados</div>
-                <ChevronRight size={16} className="text-slate-300" />
-              </button>
+              {currentUser.role === 'admin' && (
+                <button onClick={() => handleNavChange('employees')} className={mobileNavItemClass('employees')}>
+                  <div className="flex items-center gap-3"><Users size={20} /> Empleados</div>
+                  <ChevronRight size={16} className="text-slate-300" />
+                </button>
+              )}
               <button onClick={() => handleNavChange('sites')} className={mobileNavItemClass('sites')}>
                 <div className="flex items-center gap-3"><MapPin size={20} /> Sucursales</div>
                 <ChevronRight size={16} className="text-slate-300" />
@@ -238,6 +260,13 @@ const App: React.FC = () => {
                 )}
               </div>
 
+              {currentUser.role === 'admin' && (
+                <button onClick={() => handleNavChange('supervisor_mgmt')} className={mobileNavItemClass('supervisor_mgmt')}>
+                  <div className="flex items-center gap-3"><ClipboardList size={20} /> Gestión Supervisores</div>
+                  <ChevronRight size={16} className="text-slate-300" />
+                </button>
+              )}
+
               {/* Botones de Acción Móvil */}
               <div className="p-6 grid grid-cols-2 gap-4 mt-4 bg-slate-50/50 border-t border-slate-100">
                 <button
@@ -263,7 +292,7 @@ const App: React.FC = () => {
         <div className="flex-1 overflow-y-auto">
           <div className="animate-fade-in pb-24 md:pb-0">
             {currentView === 'dashboard' && <AdminDashboard />}
-            {currentView === 'employees' && <EmployeesPage />}
+            {currentView === 'employees' && currentUser.role === 'admin' && <EmployeesPage />}
             {currentView === 'tasks' && <TasksPage />}
             {currentView === 'sites' && <SitesPage />}
             {currentView === 'payments' && (
@@ -271,6 +300,7 @@ const App: React.FC = () => {
                 <DailyShiftPayment />
               </div>
             )}
+            {currentView === 'supervisor_mgmt' && currentUser.role === 'admin' && <SupervisorManagement />}
           </div>
         </div>
       </main>

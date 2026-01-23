@@ -134,6 +134,14 @@ const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({ onClose }) => {
                     <option value="Viudo">Viudo/a</option>
                   </select>
                 </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Sexo</label>
+                  <select name="sexo" onChange={handleChange} className={inputClass}>
+                    <option value="">Seleccione</option>
+                    <option value="Masculino">Masculino</option>
+                    <option value="Femenino">Femenino</option>
+                  </select>
+                </div>
               </div>
             </div>
 
@@ -280,8 +288,8 @@ const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({ onClose }) => {
             {isLoading ? 'Creando Usuario...' : 'Guardar Colaborador'}
           </button>
         </div>
-      </div>
-    </div>
+      </div >
+    </div >
   );
 };
 

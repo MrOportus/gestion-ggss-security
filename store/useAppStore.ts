@@ -1,7 +1,7 @@
 
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
-import { User, Employee, Site, AttendanceLog, Document, ComparisonRecord, DailyPayment, AppNotification, AppConfirmation, ContractRecord } from '../types';
+import { User, Employee, Site, AttendanceLog, Document, ComparisonRecord, DailyPayment, AppNotification, AppConfirmation, ContractRecord, Advance, SupervisorTask, ChecklistTemplate, ResignationRequest, RecurringSupervisorTask, SupervisorSubTask } from '../types';
 import { db, auth, secondaryAuth } from '../lib/firebase';
 import {
   signInWithEmailAndPassword,
@@ -29,9 +29,15 @@ interface AppState {
   f30History: ComparisonRecord[];
   contractHistory: ContractRecord[];
   dailyPayments: DailyPayment[]; // NEW
+  advances: Advance[];
   notifications: AppNotification[];
   confirmation: AppConfirmation | null;
   isLoading: boolean;
+  supervisorTasks: SupervisorTask[];
+  checklistTemplates: ChecklistTemplate[];
+  resignationRequests: ResignationRequest[];
+  recurringSupervisorTasks: RecurringSupervisorTask[];
+  supervisorSubTasks: SupervisorSubTask[];
 
   // Auth Actions
   login: (email: string, pass: string) => Promise<void>;
@@ -70,11 +76,51 @@ interface AppState {
   deleteDailyPayment: (id: string) => Promise<void>;
   bulkMarkAsPaid: (ids: string[], paidBy: string) => Promise<void>;
 
+  bulkMarkAdvancesAsPaid: (ids: string[]) => Promise<void>;
+
+  fetchAdvances: () => Promise<void>;
+  addAdvances: (advancesArr: Omit<Advance, 'id' | 'createdAt' | 'status'>[]) => Promise<void>;
+  deleteAdvance: (id: string) => Promise<void>;
+  markAdvanceAsPaid: (id: string) => Promise<void>;
+
   // UI Actions
   showNotification: (message: string, type: AppNotification['type']) => void;
   hideNotification: (id: string) => void;
   showConfirmation: (config: AppConfirmation) => void;
   hideConfirmation: () => void;
+
+  // Notification Push Actions
+  registerFCMToken: (employeeId: string, token: string) => Promise<void>;
+
+  // Supervisor Management Actions
+  fetchSupervisorTasks: () => Promise<void>;
+  addSupervisorTask: (task: Omit<SupervisorTask, 'id' | 'createdAt' | 'status'>) => Promise<void>;
+  updateSupervisorTask: (id: string, data: Partial<SupervisorTask>) => Promise<void>;
+  deleteSupervisorTask: (id: string) => Promise<void>;
+
+  // Checklist Template Actions
+  fetchChecklistTemplates: () => Promise<void>;
+  addChecklistTemplate: (template: Omit<ChecklistTemplate, 'id' | 'createdAt'>) => Promise<void>;
+  deleteChecklistTemplate: (id: string) => Promise<void>;
+
+  // Resignation Actions
+  fetchResignationRequests: () => Promise<void>;
+  addResignationRequest: (request: Omit<ResignationRequest, 'id' | 'createdAt' | 'status'>) => Promise<void>;
+  updateResignationRequestStatus: (id: string, status: ResignationRequest['status']) => Promise<void>;
+  deleteResignationRequest: (id: string) => Promise<void>;
+
+  fetchRecurringTasks: () => Promise<void>;
+  fetchSubTasks: () => Promise<void>;
+
+  // Recurring Tasks Actions
+  addRecurringTask: (task: Omit<RecurringSupervisorTask, 'id' | 'createdAt' | 'lastGeneratedAt'>) => Promise<void>;
+  deleteRecurringTask: (id: string) => Promise<void>;
+  toggleRecurringTask: (id: string, active: boolean) => Promise<void>;
+
+  // SubTasks Actions
+  addSupervisorSubTask: (task: Omit<SupervisorSubTask, 'id' | 'createdAt'>) => Promise<void>;
+  updateSupervisorSubTask: (id: string, status: SupervisorSubTask['status']) => Promise<void>;
+  deleteSupervisorSubTask: (id: string) => Promise<void>;
 }
 
 export const useAppStore = create<AppState>()(
@@ -89,6 +135,12 @@ export const useAppStore = create<AppState>()(
       f30History: [],
       contractHistory: [],
       dailyPayments: [],
+      advances: [],
+      supervisorTasks: [],
+      checklistTemplates: [],
+      resignationRequests: [],
+      recurringSupervisorTasks: [],
+      supervisorSubTasks: [],
       notifications: [],
       confirmation: null,
       isLoading: false,
@@ -173,10 +225,31 @@ export const useAppStore = create<AppState>()(
             loadedSites.push(doc.data() as Site);
           });
 
+          // 3. Cargar Tareas de Supervisores
+          const taskSnapshot = await getDocs(collection(db, "SupervisorTasks"));
+          const loadedTasks: SupervisorTask[] = [];
+          taskSnapshot.forEach((doc) => {
+            loadedTasks.push({ ...doc.data(), id: doc.id } as SupervisorTask);
+          });
+
+          // 4. Cargar Plantillas
+          const templateSnapshot = await getDocs(collection(db, "ChecklistTemplates"));
+          const loadedTemplates: ChecklistTemplate[] = [];
+          templateSnapshot.forEach((doc) => {
+            loadedTemplates.push({ ...doc.data(), id: doc.id } as ChecklistTemplate);
+          });
+
           set({
             employees: loadedEmployees,
-            sites: loadedSites
+            sites: loadedSites,
+            supervisorTasks: loadedTasks,
+            checklistTemplates: loadedTemplates
           });
+
+          // También cargar renuncias, recurrentes y subtareas
+          get().fetchResignationRequests();
+          get().fetchRecurringTasks();
+          get().fetchSubTasks();
 
         } catch (error) {
           console.error("Error cargando datos:", error);
@@ -442,11 +515,14 @@ export const useAppStore = create<AppState>()(
       addDailyPayment: async (paymentData) => {
         set({ isLoading: true });
         try {
+          const { currentUser } = get();
           const newPayment: DailyPayment = {
             id: "dp_" + Date.now(),
             status: 'PENDING',
             ...paymentData,
             createdAt: new Date().toISOString(),
+            createdBy: currentUser?.uid || 'unknown',
+            createdByName: currentUser?.email || 'Admin'
           };
 
           if (!newPayment.monthPeriod) {
@@ -525,13 +601,284 @@ export const useAppStore = create<AppState>()(
         }
       },
 
+      // --- ADVANCES ACTIONS ---
+      fetchAdvances: async () => {
+        set({ isLoading: true });
+        try {
+          const q = collection(db, "Anticipos");
+          const snapshot = await getDocs(q);
+          const advances: Advance[] = [];
+          snapshot.forEach(doc => {
+            advances.push({ ...doc.data(), id: doc.id } as Advance);
+          });
+          advances.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+          set({ advances });
+        } catch (error) {
+          console.error("Error fetching advances:", error);
+        } finally {
+          set({ isLoading: false });
+        }
+      },
+
+      addAdvances: async (advancesArr: Omit<Advance, 'id' | 'createdAt' | 'status'>[]) => {
+        set({ isLoading: true });
+        const batch = writeBatch(db);
+        const createdAt = new Date().toISOString();
+        const newAdvances: Advance[] = [];
+
+        advancesArr.forEach((adv: Omit<Advance, 'id' | 'createdAt' | 'status'>) => {
+          const id = "adv_" + Date.now() + "_" + Math.random().toString(36).substr(2, 9);
+          const newAdv: Advance = {
+            id,
+            ...adv,
+            status: 'PENDING',
+            createdAt,
+          };
+          newAdvances.push(newAdv);
+          const docRef = doc(db, "Anticipos", id);
+          batch.set(docRef, newAdv);
+        });
+
+        try {
+          await batch.commit();
+          set(state => ({ advances: [...newAdvances, ...state.advances] }));
+        } catch (error) {
+          console.error("Error adding advances:", error);
+          throw error;
+        } finally {
+          set({ isLoading: false });
+        }
+      },
+
+      deleteAdvance: async (id: string) => {
+        set(state => ({ advances: state.advances.filter(a => a.id !== id) }));
+        try {
+          await deleteDoc(doc(db, "Anticipos", id));
+        } catch (error) {
+          console.error("Error deleting advance:", error);
+        }
+      },
+
+      markAdvanceAsPaid: async (id: string) => {
+        set(state => ({
+          advances: state.advances.map(a => a.id === id ? { ...a, status: 'PAID' } : a)
+        }));
+        try {
+          const docRef = doc(db, "Anticipos", id);
+          await updateDoc(docRef, { status: 'PAID' });
+        } catch (error) {
+          console.error("Error marking advance as paid:", error);
+        }
+      },
+
+      bulkMarkAdvancesAsPaid: async (ids: string[]) => {
+        const batch = writeBatch(db);
+        set(state => ({
+          advances: state.advances.map(a => ids.includes(a.id) ? { ...a, status: 'PAID' } : a)
+        }));
+        try {
+          ids.forEach(id => {
+            const docRef = doc(db, "Anticipos", id);
+            batch.update(docRef, { status: 'PAID' });
+          });
+          await batch.commit();
+        } catch (error) {
+          console.error("Error bulk marking advances as paid:", error);
+          throw error;
+        }
+      },
+
+      // --- SUPERVISOR MANAGEMENT ACTIONS ---
+      fetchSupervisorTasks: async () => {
+        try {
+          const snapshot = await getDocs(collection(db, "SupervisorTasks"));
+          const tasks: SupervisorTask[] = [];
+          snapshot.forEach(doc => tasks.push({ ...doc.data(), id: doc.id } as SupervisorTask));
+          set({ supervisorTasks: tasks });
+        } catch (error) { console.error(error); }
+      },
+
+      addSupervisorTask: async (task) => {
+        const id = "task_" + Date.now();
+        const newTask: SupervisorTask = {
+          ...task,
+          id,
+          status: 'PENDING',
+          createdAt: new Date().toISOString(),
+        };
+        try {
+          await setDoc(doc(db, "SupervisorTasks", id), newTask);
+          set(state => ({ supervisorTasks: [newTask, ...state.supervisorTasks] }));
+        } catch (error) { console.error(error); }
+      },
+
+      updateSupervisorTask: async (id, data) => {
+        try {
+          const docRef = doc(db, "SupervisorTasks", id);
+          await updateDoc(docRef, data);
+          set(state => ({
+            supervisorTasks: state.supervisorTasks.map(t => t.id === id ? { ...t, ...data } : t)
+          }));
+        } catch (error) { console.error(error); }
+      },
+
+      deleteSupervisorTask: async (id) => {
+        try {
+          await deleteDoc(doc(db, "SupervisorTasks", id));
+          set(state => ({
+            supervisorTasks: state.supervisorTasks.filter(t => t.id !== id)
+          }));
+        } catch (error) { console.error(error); }
+      },
+
+      fetchChecklistTemplates: async () => {
+        try {
+          const snapshot = await getDocs(collection(db, "ChecklistTemplates"));
+          const templates: ChecklistTemplate[] = [];
+          snapshot.forEach(doc => templates.push({ ...doc.data(), id: doc.id } as ChecklistTemplate));
+          set({ checklistTemplates: templates });
+        } catch (error) { console.error(error); }
+      },
+
+      addChecklistTemplate: async (template) => {
+        const id = "temp_" + Date.now();
+        const newTemplate: ChecklistTemplate = {
+          ...template,
+          id,
+          createdAt: new Date().toISOString(),
+        };
+        try {
+          await setDoc(doc(db, "ChecklistTemplates", id), newTemplate);
+          set(state => ({ checklistTemplates: [newTemplate, ...state.checklistTemplates] }));
+        } catch (error) { console.error(error); }
+      },
+
+      deleteChecklistTemplate: async (id) => {
+        try {
+          await deleteDoc(doc(db, "ChecklistTemplates", id));
+          set(state => ({
+            checklistTemplates: state.checklistTemplates.filter(t => t.id !== id)
+          }));
+        } catch (error) { console.error(error); }
+      },
+
+      fetchResignationRequests: async () => {
+        try {
+          const snapshot = await getDocs(collection(db, "ResignationRequests"));
+          const requests: ResignationRequest[] = [];
+          snapshot.forEach(doc => requests.push({ ...doc.data(), id: doc.id } as ResignationRequest));
+          requests.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+          set({ resignationRequests: requests });
+        } catch (error) { console.error(error); }
+      },
+
+      addResignationRequest: async (requestData) => {
+        const id = "res_" + Date.now();
+        const newRequest: ResignationRequest = {
+          ...requestData,
+          id,
+          status: 'NEW',
+          createdAt: new Date().toISOString(),
+        };
+        try {
+          await setDoc(doc(db, "ResignationRequests", id), newRequest);
+          set(state => ({ resignationRequests: [newRequest, ...state.resignationRequests] }));
+        } catch (error) { console.error(error); }
+      },
+
+      updateResignationRequestStatus: async (id, status) => {
+        try {
+          const docRef = doc(db, "ResignationRequests", id);
+          await updateDoc(docRef, { status });
+          set(state => ({
+            resignationRequests: state.resignationRequests.map(r => r.id === id ? { ...r, status } : r)
+          }));
+        } catch (error) { console.error(error); }
+      },
+
+      deleteResignationRequest: async (id) => {
+        try {
+          await deleteDoc(doc(db, "ResignationRequests", id));
+          set(state => ({
+            resignationRequests: state.resignationRequests.filter(r => r.id !== id)
+          }));
+        } catch (error) { console.error(error); }
+      },
+
+      fetchRecurringTasks: async () => {
+        try {
+          const snapshot = await getDocs(collection(db, "RecurringSupervisorTasks"));
+          const tasks: RecurringSupervisorTask[] = [];
+          snapshot.forEach(doc => tasks.push({ ...doc.data(), id: doc.id } as RecurringSupervisorTask));
+          set({ recurringSupervisorTasks: tasks });
+        } catch (error) { console.error(error); }
+      },
+
+      fetchSubTasks: async () => {
+        try {
+          const snapshot = await getDocs(collection(db, "SupervisorSubTasks"));
+          const tasks: SupervisorSubTask[] = [];
+          snapshot.forEach(doc => tasks.push({ ...doc.data(), id: doc.id } as SupervisorSubTask));
+          set({ supervisorSubTasks: tasks });
+        } catch (error) { console.error(error); }
+      },
+
+      addRecurringTask: async (taskData) => {
+        const id = "rec_" + Date.now();
+        const newTask: RecurringSupervisorTask = { ...taskData, id, createdAt: new Date().toISOString() };
+        try {
+          await setDoc(doc(db, "RecurringSupervisorTasks", id), newTask);
+          set(state => ({ recurringSupervisorTasks: [newTask, ...state.recurringSupervisorTasks] }));
+        } catch (error) { console.error(error); }
+      },
+
+      deleteRecurringTask: async (id) => {
+        try {
+          await deleteDoc(doc(db, "RecurringSupervisorTasks", id));
+          set(state => ({ recurringSupervisorTasks: state.recurringSupervisorTasks.filter(t => t.id !== id) }));
+        } catch (error) { console.error(error); }
+      },
+
+      toggleRecurringTask: async (id, active) => {
+        try {
+          await updateDoc(doc(db, "RecurringSupervisorTasks", id), { active });
+          set(state => ({
+            recurringSupervisorTasks: state.recurringSupervisorTasks.map(t => t.id === id ? { ...t, active } : t)
+          }));
+        } catch (error) { console.error(error); }
+      },
+
+      addSupervisorSubTask: async (taskData) => {
+        const id = "sub_" + Date.now();
+        const newTask: SupervisorSubTask = { ...taskData, id, createdAt: new Date().toISOString() };
+        try {
+          await setDoc(doc(db, "SupervisorSubTasks", id), newTask);
+          set(state => ({ supervisorSubTasks: [newTask, ...state.supervisorSubTasks] }));
+        } catch (error) { console.error(error); }
+      },
+
+      updateSupervisorSubTask: async (id, status) => {
+        try {
+          await updateDoc(doc(db, "SupervisorSubTasks", id), { status });
+          set(state => ({
+            supervisorSubTasks: state.supervisorSubTasks.map(t => t.id === id ? { ...t, status } : t)
+          }));
+        } catch (error) { console.error(error); }
+      },
+
+      deleteSupervisorSubTask: async (id) => {
+        try {
+          await deleteDoc(doc(db, "SupervisorSubTasks", id));
+          set(state => ({ supervisorSubTasks: state.supervisorSubTasks.filter(t => t.id !== id) }));
+        } catch (error) { console.error(error); }
+      },
+
       // --- UI ACTIONS ---
       showNotification: (message, type) => {
         const id = "notif_" + Date.now();
         set(state => ({
           notifications: [...state.notifications, { id, message, type }]
         }));
-        // Auto-hide after 4 seconds
         setTimeout(() => {
           get().hideNotification(id);
         }, 4000);
@@ -549,7 +896,24 @@ export const useAppStore = create<AppState>()(
 
       hideConfirmation: () => {
         set({ confirmation: null });
-      }
+      },
+
+      registerFCMToken: async (employeeId, token) => {
+        try {
+          const docRef = doc(db, "Employees", employeeId);
+          const emp = get().employees.find(e => e.id === employeeId);
+          if (!emp) return;
+
+          const currentTokens = emp.fcmTokens || [];
+          if (!currentTokens.includes(token)) {
+            const updatedTokens = [...currentTokens, token];
+            await updateDoc(docRef, { fcmTokens: updatedTokens });
+            set(state => ({
+              employees: state.employees.map(e => e.id === employeeId ? { ...e, fcmTokens: updatedTokens } : e)
+            }));
+          }
+        } catch (error) { console.error("Error registering token:", error); }
+      },
     }),
     {
       name: 'ggss-storage-v2',

@@ -1,20 +1,28 @@
-
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useAppStore } from '../store/useAppStore';
 import {
   ClipboardList, Copy, CheckCircle, FileText, Send,
   Clock, UserPlus, FileSearch, Upload, Loader2, Table as TableIcon,
   History, Calendar, Users as UsersIcon, ChevronRight, X, Sparkles, Search, MapPin,
-  Briefcase, DollarSign, Download
+  Briefcase, DollarSign, Download, Building2, Camera
 } from 'lucide-react';
 import SmartAutofill from '../components/SmartAutofill';
 import { GoogleGenAI } from "@google/genai";
 import * as XLSX from 'xlsx';
 import { ComparisonRecord } from '../types';
+import AdvancePayroll from '../components/AdvancePayroll';
+import { Banknote } from 'lucide-react';
+import { getToken, onMessage } from "firebase/messaging";
+import { messaging } from '../lib/firebase';
 
 const TasksPage: React.FC = () => {
-  const { employees, sites, f30History, contractHistory, saveF30Comparison, saveContractRecord, showNotification } = useAppStore();
-  const [activeTask, setActiveTask] = useState<'info_reemplazo' | 'comparar_f30' | 'smart_autofill' | 'generar_contrato' | 'plataforma_falabella' | null>(null);
+  const {
+    employees, sites, f30History, contractHistory,
+    saveF30Comparison, saveContractRecord, showNotification,
+    currentUser, supervisorTasks, updateSupervisorTask,
+    registerFCMToken
+  } = useAppStore();
+  const [activeTask, setActiveTask] = useState<'info_reemplazo' | 'comparar_f30' | 'smart_autofill' | 'generar_contrato' | 'plataforma_falabella' | 'nomina_anticipos' | 'formalizar_servicio' | 'supervision_sucursal' | 'informar_renuncia' | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [viewingRecord, setViewingRecord] = useState<ComparisonRecord | null>(null);
 
@@ -66,10 +74,46 @@ const TasksPage: React.FC = () => {
       if (replacementRef.current && !replacementRef.current.contains(event.target as Node)) setShowReplacementList(false);
       if (contratoEmpRef.current && !contratoEmpRef.current.contains(event.target as Node)) setShowContratoEmpList(false);
       if (contratoSiteRef.current && !contratoSiteRef.current.contains(event.target as Node)) setShowContratoSiteList(false);
+      if (formalizarSiteRef.current && !formalizarSiteRef.current.contains(event.target as Node)) setShowFormalizarSiteList(false);
+      if (formalizarEmpRef.current && !formalizarEmpRef.current.contains(event.target as Node)) setShowFormalizarEmpList(false);
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  // --- NOTIFICACIONES PUSH ---
+  useEffect(() => {
+    const setupNotifications = async () => {
+      if (currentUser && (currentUser.role === 'supervisor' || currentUser.role === 'admin')) {
+        try {
+          const permission = await Notification.requestPermission();
+          if (permission === 'granted') {
+            const token = await getToken(messaging, {
+              vapidKey: 'BD6p9B2G2_YOUR_VAPID_KEY_PLACEHOLDER' // Reemplazar con clave real de Firebase Console
+            });
+
+            if (token) {
+              await registerFCMToken(currentUser.uid, token);
+              console.log("FCM Token registrado");
+            }
+          }
+        } catch (error) {
+          console.error("Error setting up notifications:", error);
+        }
+      }
+    };
+
+    setupNotifications();
+
+    const unsubscribe = onMessage(messaging, (payload) => {
+      console.log('Message received in foreground: ', payload);
+      if (payload.notification) {
+        showNotification(`${payload.notification.title}: ${payload.notification.body}`, 'info');
+      }
+    });
+
+    return () => unsubscribe();
+  }, [currentUser, registerFCMToken, showNotification]);
 
   // --- ESTADOS COMPARAR F30 ---
   const [f30FileBase64, setF30FileBase64] = useState<string | null>(null);
@@ -86,6 +130,44 @@ const TasksPage: React.FC = () => {
     onlyPlatform: { rut: string, name: string }[],
     manualReview: { active: { rut: string, name: string }, platform: { rut: string, name: string }, reason: string }[]
   } | null>(null);
+
+  // --- ESTADOS FORMALIZAR SERVICIO ---
+  const [formalizarData, setFormalizarData] = useState({
+    supervisor: 'Andres Castro',
+    proveedor: 'Aspro',
+    sucursalId: '',
+    motivo: '',
+    fechaInicio: '',
+    fechaTermino: '',
+    horaInicio: '08:00',
+    horaTermino: '20:00',
+    empleadoId: ''
+  });
+  const [formalizarSiteSearch, setFormalizarSiteSearch] = useState('');
+  const [formalizarEmpSearch, setFormalizarEmpSearch] = useState('');
+  const [showFormalizarSiteList, setShowFormalizarSiteList] = useState(false);
+  const [showFormalizarEmpList, setShowFormalizarEmpList] = useState(false);
+  const formalizarSiteRef = useRef<HTMLDivElement>(null);
+  const formalizarEmpRef = useRef<HTMLDivElement>(null);
+  const [formalizarRows, setFormalizarRows] = useState<any[]>([]);
+
+  // --- ESTADOS SUPERVISION SUCURSAL ---
+  const [selectedSupervisionId, setSelectedSupervisionId] = useState<string | null>(null);
+  const currentSupervisionTask = supervisorTasks.find(t => t.id === selectedSupervisionId);
+
+  // --- ESTADOS INFORMAR RENUNCIA ---
+  const { addResignationRequest } = useAppStore();
+  const [resignationData, setResignationData] = useState({
+    workerId: '',
+    resignationDate: new Date().toISOString().slice(0, 10),
+    effectiveDate: new Date().toISOString().slice(0, 10),
+    reason: '',
+    observations: ''
+  });
+  const [resignationWorkerSearch, setResignationWorkerSearch] = useState('');
+  const [showResignationWorkerList, setShowResignationWorkerList] = useState(false);
+  const resignationWorkerRef = useRef<HTMLDivElement>(null);
+  const [resignationAttachments, setResignationAttachments] = useState<string[]>([]);
 
   // --- LOGICA INFO REEMPLAZO ---
   const currentEmp = employees.find(e => String(e.id) === reemplazoData.empleadoActualId);
@@ -131,6 +213,25 @@ const TasksPage: React.FC = () => {
   const contratoEmp = employees.find(e => String(e.id) === contratoData.empleadoId);
   const contratoSite = sites.find(s => String(s.id) === contratoData.sucursalId);
 
+  // --- LOGICA FORMALIZAR SERVICIO ---
+  const filteredFormalizarSites = useMemo(() => {
+    const lower = formalizarSiteSearch.toLowerCase();
+    return sites.filter(s =>
+      s.empresa?.toLowerCase().includes('falabella') &&
+      s.name.toLowerCase().includes(lower)
+    );
+  }, [sites, formalizarSiteSearch]);
+
+  const filteredFormalizarEmp = useMemo(() => {
+    const lower = formalizarEmpSearch.toLowerCase();
+    return employees.filter(e =>
+      e.isActive && (e.firstName.toLowerCase().includes(lower) || e.lastNamePaterno.toLowerCase().includes(lower) || e.rut.toLowerCase().includes(lower))
+    );
+  }, [employees, formalizarEmpSearch]);
+
+  const formalizarEmp = employees.find(e => String(e.id) === formalizarData.empleadoId);
+  const formalizarSite = sites.find(s => String(s.id) === formalizarData.sucursalId);
+
   const handleGenerateContract = async () => {
     if (!contratoEmp || !contratoSite || !contratoData.fechaInicio) {
       showNotification("Por favor seleccione un colaborador, una sucursal y la fecha de inicio.", "warning");
@@ -155,6 +256,7 @@ const TasksPage: React.FC = () => {
         Horario_B: contratoData.horarioB,
         Sueldo: contratoData.sueldo || contratoEmp.sueldoLiquido || 0,
         Fecha_inicio: contratoData.fechaInicio,
+        Fecha_inicio2: formatLongDate(contratoData.fechaInicio),
         Fecha_termino: contratoData.fechaTermino
       };
 
@@ -197,6 +299,16 @@ const TasksPage: React.FC = () => {
     if (!dateStr) return '[Día ingresado]';
     const [year, month, day] = dateStr.split('-');
     return `${day}-${month}-${year}`;
+  };
+
+  const formatLongDate = (dateStr: string) => {
+    if (!dateStr) return '';
+    const months = [
+      "enero", "febrero", "marzo", "abril", "mayo", "junio",
+      "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"
+    ];
+    const [year, month, day] = dateStr.split('-');
+    return `${day} de ${months[parseInt(month) - 1]} del ${year}`;
   };
 
   const generatedReemplazoText = `Estimados.
@@ -624,6 +736,10 @@ Documentos que se adjuntan.
     { id: 'comparar_f30', title: 'Comparar F30-1', icon: <FileSearch className="text-emerald-500" />, desc: 'Cruce masivo de RUTs entre F30 y planilla Excel.' },
     { id: 'plataforma_falabella', title: 'Dia 14 Falabella', icon: <UsersIcon className="text-green-600" />, desc: 'Cruce de activos en plataforma vs planilla de cobros.' },
     { id: 'smart_autofill', title: 'Auto-llenado Inteligente', icon: <Sparkles className="text-amber-500" />, desc: 'Extracción de datos con IA para formularios web.' },
+    { id: 'formalizar_servicio', title: 'Formalizar Servicio', icon: <ClipboardList className="text-rose-500" />, desc: 'Generar tabla de requerimiento de servicio Falabella.' },
+    { id: 'nomina_anticipos', title: 'Nómina Anticipos', icon: <Banknote className="text-amber-600" />, desc: 'Ingreso masivo de anticipos por sucursal para el día 15.', hidden: currentUser && currentUser.role === 'worker' },
+    { id: 'supervision_sucursal', title: 'Supervisión de Sucursal', icon: <Building2 className="text-indigo-600" />, desc: 'Checklists de supervisión asignados por administración.', hidden: currentUser && currentUser.role === 'worker' },
+    { id: 'informar_renuncia', title: 'Informar Renuncia', icon: <X className="text-rose-600" />, desc: 'Reportar renuncia de un trabajador con documentos adjuntos.', hidden: currentUser && currentUser.role === 'worker' },
     { id: 'responder_solicitud', title: 'Responder Solicitud', icon: <Send className="text-slate-300" />, desc: 'Próximamente...', disabled: true },
     { id: 'tarea_4', title: 'Bitácora Diaria', icon: <Clock className="text-slate-300" />, desc: 'Próximamente...', disabled: true },
   ];
@@ -637,7 +753,12 @@ Documentos que se adjuntan.
 
       {!activeTask ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          {tasks.map((task) => (
+          {tasks.filter(t => {
+            if (currentUser?.role === 'supervisor') {
+              return t.id === 'nomina_anticipos' || t.id === 'supervision_sucursal' || t.id === 'informar_renuncia';
+            }
+            return !(t as any).hidden;
+          }).map((task) => (
             <button
               key={task.id}
               disabled={task.disabled}
@@ -654,6 +775,660 @@ Documentos que se adjuntan.
         </div>
       ) : activeTask === 'smart_autofill' ? (
         <SmartAutofill onBack={() => setActiveTask(null)} />
+      ) : activeTask === 'nomina_anticipos' ? (
+        <AdvancePayroll onBack={() => setActiveTask(null)} />
+      ) : activeTask === 'supervision_sucursal' ? (
+        <div className="animate-in slide-in-from-bottom-4 duration-300 space-y-6 pb-24">
+          <div className="flex items-center gap-4">
+            <button onClick={() => { setActiveTask(null); setSelectedSupervisionId(null); }} className="text-sm font-bold text-blue-600 hover:text-blue-800">← Menú</button>
+            <h2 className="text-xl font-bold text-slate-800">Supervisión de Sucursal</h2>
+          </div>
+
+          {!selectedSupervisionId ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {supervisorTasks
+                .filter(t => t.supervisorId === currentUser?.uid && t.status === 'PENDING')
+                .map(task => (
+                  <button
+                    key={task.id}
+                    onClick={() => setSelectedSupervisionId(task.id)}
+                    className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm text-left hover:border-blue-300 transition group flex flex-col"
+                  >
+                    <div className="w-10 h-10 rounded-xl bg-indigo-50 flex items-center justify-center mb-4 group-hover:bg-indigo-100 transition-colors">
+                      <Building2 className="text-indigo-600" size={20} />
+                    </div>
+                    <h3 className="font-bold text-slate-800 mb-1">{task.checklistType}</h3>
+                    <div className="flex items-center gap-2 text-xs text-slate-500 mb-4">
+                      <MapPin size={12} /> {task.siteName}
+                    </div>
+                    <div className="mt-auto pt-3 border-t border-slate-50 flex items-center justify-between text-indigo-600 font-bold text-xs uppercase tracking-widest">
+                      Comenzar Revisión <ChevronRight size={14} />
+                    </div>
+                  </button>
+                ))
+              }
+              {supervisorTasks.filter(t => t.supervisorId === currentUser?.uid && t.status === 'PENDING').length === 0 && (
+                <div className="col-span-full py-12 flex flex-col items-center justify-center text-slate-300 border-2 border-dashed border-slate-100 rounded-3xl">
+                  <CheckCircle size={48} className="mb-2" />
+                  <p className="text-sm font-bold uppercase">No tienes revisiones pendientes</p>
+                </div>
+              )}
+            </div>
+          ) : currentSupervisionTask && (
+            <div className="max-w-3xl mx-auto bg-white rounded-3xl border border-slate-200 shadow-xl overflow-hidden">
+              <div className="p-8 border-b border-slate-100 bg-slate-50 flex justify-between items-start">
+                <div>
+                  <h3 className="text-2xl font-black text-slate-800 tracking-tight">{currentSupervisionTask.checklistType}</h3>
+                  <p className="text-slate-500 font-medium flex items-center gap-2 mt-1">
+                    <MapPin size={14} className="text-blue-500" /> {currentSupervisionTask.siteName}
+                  </p>
+                </div>
+                <button
+                  onClick={() => setSelectedSupervisionId(null)}
+                  className="p-2 hover:bg-white rounded-xl transition"
+                >
+                  <X size={20} className="text-slate-400" />
+                </button>
+              </div>
+
+              <div className="p-8 space-y-8">
+                {currentSupervisionTask.items.map((item, idx) => (
+                  <div key={item.id} className="space-y-4">
+                    <div className="flex gap-4">
+                      <span className="flex-shrink-0 w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-xs font-bold text-slate-400">
+                        {idx + 1}
+                      </span>
+                      <p className="text-slate-700 font-semibold pt-1">{item.question}</p>
+                    </div>
+
+                    <div className="ml-12 flex gap-3">
+                      <button
+                        onClick={() => {
+                          const newItems = [...currentSupervisionTask.items];
+                          newItems[idx].value = true;
+                          updateSupervisorTask(currentSupervisionTask.id, { items: newItems });
+                        }}
+                        className={`px-6 py-2 rounded-xl text-xs font-black uppercase tracking-widest border transition-all ${item.value === true ? 'bg-emerald-600 text-white border-emerald-600 shadow-lg shadow-emerald-100' : 'bg-white text-slate-400 border-slate-200 hover:border-emerald-200 hover:text-emerald-500'}`}
+                      >
+                        SÍ
+                      </button>
+                      <button
+                        onClick={() => {
+                          const newItems = [...currentSupervisionTask.items];
+                          newItems[idx].value = false;
+                          updateSupervisorTask(currentSupervisionTask.id, { items: newItems });
+                        }}
+                        className={`px-6 py-2 rounded-xl text-xs font-black uppercase tracking-widest border transition-all ${item.value === false ? 'bg-rose-600 text-white border-rose-600 shadow-lg shadow-rose-100' : 'bg-white text-slate-400 border-slate-200 hover:border-rose-200 hover:text-rose-500'}`}
+                      >
+                        NO
+                      </button>
+                    </div>
+                  </div>
+                ))}
+
+                <div className="pt-8 border-t border-slate-100 space-y-3">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Observaciones Generales (Opcional)</label>
+                  <textarea
+                    placeholder="Escriba detalles relevantes observados en la supervisión..."
+                    className="w-full h-32 p-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-4 focus:ring-blue-50 transition-all text-sm"
+                    value={currentSupervisionTask.observations || ''}
+                    onChange={(e) => updateSupervisorTask(currentSupervisionTask.id, { observations: e.target.value })}
+                  />
+                </div>
+
+                <div className="pt-4">
+                  <button
+                    disabled={currentSupervisionTask.items.some(i => i.value === null)}
+                    onClick={async () => {
+                      await updateSupervisorTask(currentSupervisionTask.id, {
+                        status: 'COMPLETED',
+                        completedAt: new Date().toISOString()
+                      });
+                      showNotification("Supervisión finalizada correctamente", "success");
+                      setSelectedSupervisionId(null);
+                    }}
+                    className="w-full py-4 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:grayscale text-white font-black uppercase tracking-widest rounded-2xl shadow-xl shadow-blue-100 transition-all active:scale-[0.98]"
+                  >
+                    Finalizar Supervisión
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      ) : activeTask === 'informar_renuncia' ? (
+        <div className="animate-in slide-in-from-bottom-4 duration-300 space-y-6 pb-24 max-w-2xl mx-auto">
+          <div className="flex items-center gap-4">
+            <button onClick={() => setActiveTask(null)} className="text-sm font-bold text-blue-600 hover:text-blue-800">← Menú</button>
+            <h2 className="text-xl font-bold text-slate-800">Informar Renuncia</h2>
+          </div>
+
+          <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-xl space-y-6">
+            <div className="space-y-4">
+              {/* Buscador de Colaborador */}
+              <div className="relative" ref={resignationWorkerRef}>
+                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest block mb-1">Colaborador</label>
+                <div className="relative">
+                  <Search className="absolute left-3 top-3 text-slate-400" size={18} />
+                  <input
+                    type="text"
+                    className="w-full pl-10 pr-4 py-3 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="Buscar por nombre o RUT..."
+                    value={resignationWorkerSearch}
+                    onChange={(e) => {
+                      setResignationWorkerSearch(e.target.value);
+                      setShowResignationWorkerList(true);
+                      setResignationData(prev => ({ ...prev, workerId: '' }));
+                    }}
+                    onFocus={() => setShowResignationWorkerList(true)}
+                  />
+                </div>
+                {showResignationWorkerList && resignationWorkerSearch && (
+                  <div className="absolute z-10 w-full bg-white border border-slate-200 mt-1 rounded-xl shadow-2xl max-h-60 overflow-auto">
+                    {employees.filter(e => e.isActive && (e.firstName.toLowerCase().includes(resignationWorkerSearch.toLowerCase()) || e.rut.includes(resignationWorkerSearch))).map(emp => (
+                      <div
+                        key={emp.id}
+                        className="p-3 hover:bg-blue-50 cursor-pointer border-b border-slate-50 transition"
+                        onClick={() => {
+                          setResignationData(prev => ({ ...prev, workerId: emp.id }));
+                          setResignationWorkerSearch(`${emp.firstName} ${emp.lastNamePaterno}`);
+                          setShowResignationWorkerList(false);
+                        }}
+                      >
+                        <div className="font-bold text-slate-800">{emp.firstName} {emp.lastNamePaterno}</div>
+                        <div className="text-xs text-slate-400">{emp.rut}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest block">Fecha de Renuncia</label>
+                  <input
+                    type="date"
+                    className="w-full p-3 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500"
+                    value={resignationData.resignationDate}
+                    onChange={(e) => setResignationData(prev => ({ ...prev, resignationDate: e.target.value }))}
+                  />
+                  <p className="text-[10px] text-slate-400 italic">Fecha en que presenta el documento</p>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest block">Último Día / Fecha Motivo</label>
+                  <input
+                    type="date"
+                    className="w-full p-3 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500"
+                    value={resignationData.effectiveDate}
+                    onChange={(e) => setResignationData(prev => ({ ...prev, effectiveDate: e.target.value }))}
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest block">Motivo</label>
+                <select
+                  className="w-full p-3 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500"
+                  value={resignationData.reason}
+                  onChange={(e) => setResignationData(prev => ({ ...prev, reason: e.target.value }))}
+                >
+                  <option value="">Seleccionar motivo...</option>
+                  <option value="Voluntaria">Voluntaria</option>
+                  <option value="Falta de Probidad">Falta de Probidad</option>
+                  <option value="Abandono de Trabajo">Abandono de Trabajo</option>
+                  <option value="Termino de Contrato">Término de Contrato</option>
+                  <option value="Otro">Otro</option>
+                </select>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest block">Observaciones (Opcional)</label>
+                <textarea
+                  className="w-full p-3 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 h-24 resize-none"
+                  placeholder="Detalles adicionales sobre la renuncia..."
+                  value={resignationData.observations}
+                  onChange={(e) => setResignationData(prev => ({ ...prev, observations: e.target.value }))}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest block">Documentos / Fotos Capta</label>
+                <div className="grid grid-cols-2 gap-4">
+                  <label className="flex flex-col items-center justify-center p-4 border-2 border-dashed border-slate-200 rounded-xl hover:border-blue-400 hover:bg-blue-50 transition cursor-pointer">
+                    <Camera className="text-slate-400 mb-2" size={24} />
+                    <span className="text-[10px] font-bold text-slate-500 uppercase">Subir Foto</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      className="hidden"
+                      onChange={(e) => {
+                        const files = e.target.files;
+                        if (files) {
+                          Array.from(files).forEach(file => {
+                            const reader = new FileReader();
+                            reader.onload = () => {
+                              setResignationAttachments(prev => [...prev, reader.result as string]);
+                            };
+                            reader.readAsDataURL(file);
+                          });
+                        }
+                      }}
+                    />
+                  </label>
+                  <label className="flex flex-col items-center justify-center p-4 border-2 border-dashed border-slate-200 rounded-xl hover:border-violet-400 hover:bg-violet-50 transition cursor-pointer">
+                    <FileText className="text-slate-400 mb-2" size={24} />
+                    <span className="text-[10px] font-bold text-slate-500 uppercase">Subir Documento</span>
+                    <input
+                      type="file"
+                      accept=".pdf,.doc,.docx"
+                      multiple
+                      className="hidden"
+                      onChange={(e) => {
+                        const files = e.target.files;
+                        if (files) {
+                          Array.from(files).forEach(file => {
+                            const reader = new FileReader();
+                            reader.onload = () => {
+                              setResignationAttachments(prev => [...prev, reader.result as string]);
+                            };
+                            reader.readAsDataURL(file);
+                          });
+                        }
+                      }}
+                    />
+                  </label>
+                </div>
+
+                {resignationAttachments.length > 0 && (
+                  <div className="flex flex-wrap gap-2 pt-2">
+                    {resignationAttachments.map((att, idx) => (
+                      <div key={idx} className="relative group">
+                        {att.startsWith('data:image') ? (
+                          <img src={att} className="w-16 h-16 rounded-lg object-cover border border-slate-200" />
+                        ) : (
+                          <div className="w-16 h-16 rounded-lg bg-slate-100 flex items-center justify-center border border-slate-200">
+                            <FileText size={20} className="text-slate-400" />
+                          </div>
+                        )}
+                        <button
+                          onClick={() => setResignationAttachments(prev => prev.filter((_, i) => i !== idx))}
+                          className="absolute -top-2 -right-2 bg-rose-500 text-white rounded-full p-1 shadow-md opacity-0 group-hover:opacity-100 transition"
+                        >
+                          <X size={10} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <button
+              onClick={async () => {
+                if (!resignationData.workerId || !resignationData.reason) {
+                  showNotification("Complete colaborador y motivo", "warning");
+                  return;
+                }
+                const worker = employees.find(e => e.id === resignationData.workerId);
+                await addResignationRequest({
+                  ...resignationData,
+                  workerName: worker ? `${worker.firstName} ${worker.lastNamePaterno}` : 'Desconocido',
+                  attachments: resignationAttachments,
+                  supervisorId: currentUser?.uid || 'unknown',
+                  supervisorName: currentUser?.email?.split('@')[0] || 'Supervisor'
+                });
+                showNotification("Aviso de renuncia enviado correctamente", "success");
+                setActiveTask(null);
+                setResignationData({
+                  workerId: '',
+                  resignationDate: new Date().toISOString().slice(0, 10),
+                  effectiveDate: new Date().toISOString().slice(0, 10),
+                  reason: '',
+                  observations: ''
+                });
+                setResignationAttachments([]);
+                setResignationWorkerSearch('');
+              }}
+              className="w-full py-4 bg-slate-900 text-white font-black uppercase tracking-widest rounded-2xl shadow-xl hover:bg-black transition-transform active:scale-95 flex items-center justify-center gap-2"
+            >
+              <Send size={18} /> Enviar Aviso de Renuncia
+            </button>
+          </div>
+        </div>
+      ) : activeTask === 'formalizar_servicio' ? (
+        <div className="animate-in slide-in-from-bottom-4 duration-300 space-y-6">
+          <div className="flex items-center justify-between border-b border-slate-200 pb-4">
+            <div className="flex items-center gap-4">
+              <button onClick={() => setActiveTask(null)} className="text-sm font-bold text-blue-600 hover:text-blue-800">← Menú</button>
+              <h2 className="text-xl font-bold text-slate-800">Formalizar Servicio Falabella</h2>
+            </div>
+            {formalizarRows.length > 0 && (
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setFormalizarRows([])}
+                  className="px-4 py-2 border border-slate-200 text-slate-500 rounded-lg font-bold text-sm hover:bg-slate-50 transition"
+                >
+                  Limpiar Lista
+                </button>
+                <button
+                  onClick={async () => {
+                    const header = ["Supervisor", "Fecha de solicitud de servicio", "Proveedor", "Motivo Solicitud", "Sucursal", "Dirección Sucursal", "Cant. Días", "Fecha Inicio servicio", "Fecha Termino Servicio", "Hora Inicio servicio", "Hora Termino Servicio", "Rut Guardia Seguridad", "Nombre de Guardia", "Fecha de Nacimiento", "Sexo", "Teléfono"];
+
+                    const rowsHtml = formalizarRows.map(row => `
+                      <tr style="height: auto;">
+                        <td style="padding: 1px 4px; border: 1px solid #000; vertical-align: middle; white-space: nowrap;">${row.supervisor}</td>
+                        <td style="padding: 1px 4px; border: 1px solid #000; vertical-align: middle; text-align: center; white-space: nowrap;">${row.fechaSolicitud}</td>
+                        <td style="padding: 1px 4px; border: 1px solid #000; vertical-align: middle; white-space: nowrap;">${row.proveedor}</td>
+                        <td style="padding: 1px 4px; border: 1px solid #000; vertical-align: middle;">${row.motivo}</td>
+                        <td style="padding: 1px 4px; border: 1px solid #000; vertical-align: middle; white-space: nowrap;">${row.sucursal}</td>
+                        <td style="padding: 1px 4px; border: 1px solid #000; vertical-align: middle; line-height: 1.1;">${row.direccion}</td>
+                        <td style="padding: 1px 4px; border: 1px solid #000; vertical-align: middle;"></td>
+                        <td style="padding: 1px 4px; border: 1px solid #000; vertical-align: middle; text-align: center; white-space: nowrap;">${row.fechaInicio}</td>
+                        <td style="padding: 1px 4px; border: 1px solid #000; vertical-align: middle; text-align: center; white-space: nowrap;">${row.fechaTermino}</td>
+                        <td style="padding: 1px 4px; border: 1px solid #000; vertical-align: middle; text-align: center; white-space: nowrap;">${row.horaInicio}</td>
+                        <td style="padding: 1px 4px; border: 1px solid #000; vertical-align: middle; text-align: center; white-space: nowrap;">${row.horaTermino}</td>
+                        <td style="padding: 1px 4px; border: 1px solid #000; vertical-align: middle; text-align: center; white-space: nowrap;">${row.rut}</td>
+                        <td style="padding: 1px 4px; border: 1px solid #000; vertical-align: middle; font-weight: bold; white-space: nowrap;">${row.nombre}</td>
+                        <td style="padding: 1px 4px; border: 1px solid #000; vertical-align: middle; text-align: center; white-space: nowrap;">${row.fechaNacimiento}</td>
+                        <td style="padding: 1px 4px; border: 1px solid #000; vertical-align: middle; text-align: center; white-space: nowrap;">${row.sexo}</td>
+                        <td style="padding: 1px 4px; border: 1px solid #000; vertical-align: middle; text-align: center; white-space: nowrap;">${row.telefono}</td>
+                      </tr>
+                    `).join('');
+
+                    const tableHtml = `
+                      <table border="1" style="border-collapse: collapse; font-family: Calibri, sans-serif; font-size: 10pt; width: max-content; line-height: 1.1;">
+                        <tr style="background-color: #92d050; text-align: left;">
+                          ${header.map(h => {
+                      let style = "padding: 2px 4px; border: 1px solid #000; font-weight: bold; text-decoration: underline; vertical-align: middle; white-space: nowrap;";
+                      if (h === "Dirección Sucursal") style = style.replace('white-space: nowrap;', '') + " width: 250pt;";
+                      else if (h === "Nombre de Guardia") style += " width: 110pt;";
+                      return `<th style="${style}">${h}</th>`;
+                    }).join('')}
+                        </tr>
+                        ${rowsHtml}
+                      </table>
+                    `;
+
+                    const plainText = header.join('\t') + '\n' +
+                      formalizarRows.map(row => [
+                        row.supervisor, row.fechaSolicitud, row.proveedor, row.motivo, row.sucursal, row.direccion, "",
+                        row.fechaInicio, row.fechaTermino, row.horaInicio, row.horaTermino, row.rut, row.nombre,
+                        row.fechaNacimiento, row.sexo, row.telefono
+                      ].join('\t')).join('\n');
+
+                    try {
+                      const blobHtml = new Blob([tableHtml], { type: 'text/html' });
+                      const blobText = new Blob([plainText], { type: 'text/plain' });
+                      const data = [new ClipboardItem({ 'text/html': blobHtml, 'text/plain': blobText })];
+                      await navigator.clipboard.write(data);
+                      showNotification(`¡Copiadas ${formalizarRows.length} filas al portapapeles!`, "success");
+                    } catch (err) {
+                      navigator.clipboard.writeText(plainText);
+                      showNotification("Copiado como texto plano.", "info");
+                    }
+                  }}
+                  className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg font-bold text-sm hover:bg-blue-700 transition shadow-lg shadow-blue-100"
+                >
+                  <Copy size={16} /> Copiar {formalizarRows.length} {formalizarRows.length === 1 ? 'Fila' : 'Filas'} para Excel
+                </button>
+              </div>
+            )}
+          </div>
+
+          <div className="bg-white p-8 rounded-2xl border border-slate-200 shadow-sm space-y-8">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+
+              {/* Supervisor y Proveedor */}
+              <div className="space-y-4">
+                <div className="flex flex-col space-y-1">
+                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Supervisor</label>
+                  <select
+                    className="w-full px-4 py-2 text-sm border-b-2 border-slate-100 focus:border-blue-500 outline-none bg-slate-50 rounded-t-lg transition-colors"
+                    value={formalizarData.supervisor}
+                    onChange={(e) => setFormalizarData({ ...formalizarData, supervisor: e.target.value })}
+                  >
+                    <option value="Andres Castro">Andres Castro</option>
+                    <option value="Patricia Yevenes">Patricia Yevenes</option>
+                  </select>
+                </div>
+                <div className="flex flex-col space-y-1">
+                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Proveedor</label>
+                  <input
+                    type="text"
+                    readOnly
+                    className="w-full px-4 py-2 text-sm border-b-2 border-slate-100 bg-slate-100 text-slate-500 rounded-t-lg outline-none"
+                    value={formalizarData.proveedor}
+                  />
+                </div>
+                <div className="flex flex-col space-y-1">
+                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Motivo Solicitud</label>
+                  <input
+                    type="text"
+                    placeholder="Ej: Refuerzo por evento"
+                    className="w-full px-4 py-2 text-sm border-b-2 border-slate-100 focus:border-blue-500 outline-none bg-slate-50 rounded-t-lg transition-colors"
+                    value={formalizarData.motivo}
+                    onChange={(e) => setFormalizarData({ ...formalizarData, motivo: e.target.value })}
+                  />
+                </div>
+              </div>
+
+              {/* Sucursal y Horarios */}
+              <div className="space-y-4">
+                <div className="flex flex-col space-y-1 relative" ref={formalizarSiteRef}>
+                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Sucursal (Falabella)</label>
+                  <div className="relative">
+                    <Search className="absolute left-3 top-2.5 text-slate-400" size={14} />
+                    <input
+                      type="text"
+                      placeholder="Buscar sucursal..."
+                      className="w-full pl-9 pr-4 py-2 text-sm border-b-2 border-slate-100 focus:border-blue-500 outline-none bg-slate-50 rounded-t-lg transition-colors cursor-pointer"
+                      value={formalizarSiteSearch || (formalizarSite?.name || '')}
+                      onFocus={() => { setShowFormalizarSiteList(true); setFormalizarSiteSearch(''); }}
+                      onChange={(e) => { setFormalizarSiteSearch(e.target.value); setShowFormalizarSiteList(true); }}
+                    />
+                  </div>
+                  {showFormalizarSiteList && (
+                    <div className="absolute top-full left-0 w-full bg-white border border-slate-200 rounded-b-lg shadow-2xl max-h-60 overflow-auto z-[110]">
+                      {filteredFormalizarSites.map(s => (
+                        <div
+                          key={s.id}
+                          className="px-4 py-2 hover:bg-blue-50 cursor-pointer border-b border-slate-50"
+                          onClick={() => {
+                            setFormalizarData({ ...formalizarData, sucursalId: String(s.id) });
+                            setFormalizarSiteSearch(s.name);
+                            setShowFormalizarSiteList(false);
+                          }}
+                        >
+                          <div className="text-sm font-bold text-slate-700">{s.name}</div>
+                          <div className="text-[10px] text-slate-400">{s.address}</div>
+                        </div>
+                      ))}
+                      {filteredFormalizarSites.length === 0 && <div className="p-4 text-xs text-slate-400 italic text-center">No hay sucursales Falabella</div>}
+                    </div>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="flex flex-col space-y-1">
+                    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Hora Inicio</label>
+                    <input
+                      type="time"
+                      className="w-full px-4 py-2 text-sm border-b-2 border-slate-100 focus:border-blue-500 outline-none bg-slate-50 rounded-lg"
+                      value={formalizarData.horaInicio}
+                      onChange={(e) => setFormalizarData({ ...formalizarData, horaInicio: e.target.value })}
+                    />
+                  </div>
+                  <div className="flex flex-col space-y-1">
+                    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Hora Término</label>
+                    <input
+                      type="time"
+                      className="w-full px-4 py-2 text-sm border-b-2 border-slate-100 focus:border-blue-500 outline-none bg-slate-50 rounded-lg"
+                      value={formalizarData.horaTermino}
+                      onChange={(e) => setFormalizarData({ ...formalizarData, horaTermino: e.target.value })}
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="flex flex-col space-y-1">
+                    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Fecha Inicio</label>
+                    <input
+                      type="date"
+                      className="w-full px-4 py-2 text-sm border-b-2 border-slate-100 focus:border-blue-500 outline-none bg-slate-50 rounded-lg"
+                      value={formalizarData.fechaInicio}
+                      onChange={(e) => setFormalizarData({ ...formalizarData, fechaInicio: e.target.value })}
+                    />
+                  </div>
+                  <div className="flex flex-col space-y-1">
+                    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Fecha Término</label>
+                    <input
+                      type="date"
+                      className="w-full px-4 py-2 text-sm border-b-2 border-slate-100 focus:border-blue-500 outline-none bg-slate-50 rounded-lg"
+                      value={formalizarData.fechaTermino}
+                      onChange={(e) => setFormalizarData({ ...formalizarData, fechaTermino: e.target.value })}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Colaborador */}
+              <div className="space-y-4">
+                <div className="flex flex-col space-y-1 relative" ref={formalizarEmpRef}>
+                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Nombre Guardia</label>
+                  <div className="relative">
+                    <Search className="absolute left-3 top-2.5 text-slate-400" size={14} />
+                    <input
+                      type="text"
+                      placeholder="Filtrar por nombre o RUT..."
+                      className="w-full pl-9 pr-4 py-2 text-sm border-b-2 border-slate-100 focus:border-blue-500 outline-none bg-slate-50 rounded-t-lg transition-colors cursor-pointer"
+                      value={formalizarEmpSearch || (formalizarEmp ? `${formalizarEmp.firstName} ${formalizarEmp.lastNamePaterno}` : '')}
+                      onFocus={() => { setShowFormalizarEmpList(true); setFormalizarEmpSearch(''); }}
+                      onChange={(e) => { setFormalizarEmpSearch(e.target.value); setShowFormalizarEmpList(true); }}
+                    />
+                  </div>
+                  {showFormalizarEmpList && (
+                    <div className="absolute top-full left-0 w-full bg-white border border-slate-200 rounded-b-lg shadow-2xl max-h-60 overflow-auto z-[110]">
+                      {filteredFormalizarEmp.map(e => (
+                        <div
+                          key={e.id}
+                          className="px-4 py-2 hover:bg-blue-50 cursor-pointer border-b border-slate-50"
+                          onClick={() => {
+                            setFormalizarData({ ...formalizarData, empleadoId: String(e.id) });
+                            setFormalizarEmpSearch(`${e.firstName} ${e.lastNamePaterno}`);
+                            setShowFormalizarEmpList(false);
+                          }}
+                        >
+                          <div className="text-sm font-bold text-slate-700">{e.firstName} {e.lastNamePaterno}</div>
+                          <div className="text-[10px] text-slate-400 font-mono">{e.rut}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {formalizarEmp && (
+                  <div className="p-4 bg-blue-50 rounded-xl border border-blue-100 space-y-2">
+                    <p className="text-[10px] font-black text-blue-800 uppercase tracking-widest border-b border-blue-100 pb-1 mb-2">Datos Automáticos</p>
+                    <div className="grid grid-cols-2 gap-y-2 text-[11px]">
+                      <div><span className="text-slate-500">RUT:</span> <span className="font-bold">{formalizarEmp.rut}</span></div>
+                      <div><span className="text-slate-500">Sexo:</span> <span className="font-bold">{formalizarEmp.sexo || 'N/R'}</span></div>
+                      <div><span className="text-slate-500">Nacimiento:</span> <span className="font-bold">{formalizarEmp.fechaNacimiento || 'N/R'}</span></div>
+                      <div><span className="text-slate-500">Teléfono:</span> <span className="font-bold">{formalizarEmp.phone || 'N/R'}</span></div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="flex justify-center pt-4 border-t border-slate-100">
+              <button
+                disabled={!formalizarEmp || !formalizarSite || !formalizarData.fechaInicio}
+                onClick={() => {
+                  if (!formalizarEmp || !formalizarSite) return;
+                  const newRow = {
+                    id: Date.now(),
+                    supervisor: formalizarData.supervisor,
+                    fechaSolicitud: new Date().toLocaleDateString('es-CL'),
+                    proveedor: formalizarData.proveedor,
+                    motivo: formalizarData.motivo,
+                    sucursal: formalizarSite.name,
+                    direccion: formalizarSite.address,
+                    fechaInicio: formalizarData.fechaInicio,
+                    fechaTermino: formalizarData.fechaTermino,
+                    horaInicio: formalizarData.horaInicio,
+                    horaTermino: formalizarData.horaTermino,
+                    rut: formalizarEmp.rut,
+                    nombre: `${formalizarEmp.firstName} ${formalizarEmp.lastNamePaterno} ${formalizarEmp.lastNameMaterno || ''}`.trim(),
+                    fechaNacimiento: formalizarEmp.fechaNacimiento || '',
+                    sexo: formalizarEmp.sexo || '',
+                    telefono: formalizarEmp.phone || ''
+                  };
+                  setFormalizarRows([...formalizarRows, newRow]);
+                  // Limpiar solo los campos variables
+                  setFormalizarData({
+                    ...formalizarData,
+                    motivo: '',
+                    empleadoId: ''
+                  });
+                  setFormalizarEmpSearch('');
+                  showNotification("Fila agregada a la lista", "success");
+                }}
+                className="flex items-center gap-2 px-12 py-3 bg-emerald-600 text-white rounded-xl font-black uppercase text-xs tracking-widest hover:bg-emerald-700 transition shadow-lg shadow-emerald-100 disabled:opacity-50 disabled:grayscale"
+              >
+                <TableIcon size={18} /> Agregar Fila a la Lista
+              </button>
+            </div>
+
+            {/* Vista Previa de la Tabla */}
+            {formalizarRows.length > 0 && (
+              <div className="space-y-4 pt-4">
+                <div className="flex justify-between items-center border-b border-slate-100 pb-2">
+                  <h3 className="text-xs font-black text-slate-800 uppercase tracking-widest">Lista de Servicios a Formalizar ({formalizarRows.length})</h3>
+                </div>
+                <div className="overflow-x-auto border border-slate-100 rounded-xl">
+                  <table className="w-full text-left text-[10px]">
+                    <thead className="bg-slate-50 text-slate-500 font-bold">
+                      <tr>
+                        <th className="px-3 py-2 border-r border-slate-100">Supervisor</th>
+                        <th className="px-3 py-2 border-r border-slate-100">Motivo</th>
+                        <th className="px-3 py-2 border-r border-slate-100">Sucursal</th>
+                        <th className="px-3 py-2 border-r border-slate-100">Inicio</th>
+                        <th className="px-3 py-2 border-r border-slate-100">Fin</th>
+                        <th className="px-3 py-2 border-r border-slate-100">Horario</th>
+                        <th className="px-3 py-2 border-r border-slate-100">RUT</th>
+                        <th className="px-3 py-2 border-r border-slate-100">Nombre</th>
+                        <th className="px-3 py-2"></th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {formalizarRows.map((row) => (
+                        <tr key={row.id} className="hover:bg-slate-50 transition-colors">
+                          <td className="px-3 py-2 border-r border-slate-100">{row.supervisor}</td>
+                          <td className="px-3 py-2 border-r border-slate-100">{row.motivo}</td>
+                          <td className="px-3 py-2 border-r border-slate-100 text-blue-600 font-bold">{row.sucursal}</td>
+                          <td className="px-3 py-2 border-r border-slate-100">{row.fechaInicio}</td>
+                          <td className="px-3 py-2 border-r border-slate-100">{row.fechaTermino}</td>
+                          <td className="px-3 py-2 border-r border-slate-100">{row.horaInicio} - {row.horaTermino}</td>
+                          <td className="px-3 py-2 border-r border-slate-100 font-mono">{row.rut}</td>
+                          <td className="px-3 py-2 border-r border-slate-100 font-bold">{row.nombre}</td>
+                          <td className="px-3 py-2 text-center">
+                            <button
+                              onClick={() => setFormalizarRows(formalizarRows.filter(r => r.id !== row.id))}
+                              className="text-red-400 hover:text-red-600 p-1"
+                            >
+                              <X size={14} />
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
       ) : activeTask === 'generar_contrato' ? (
         <div className="animate-in slide-in-from-bottom-4 duration-300 space-y-6">
           <div className="flex items-center gap-4 border-b border-slate-200 pb-4">

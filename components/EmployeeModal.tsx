@@ -9,6 +9,58 @@ interface EmployeeModalProps {
   onClose: () => void;
 }
 
+// Helper para renderizar campos - Movido fuera del componente para evitar recreación y pérdida de foco
+const DataField = ({ label, value, name, type = "text", options = null, prefix = "", isEditing, onChange, displayValue: customDisplayValue }: {
+  label: string,
+  value: any,
+  name: string,
+  type?: string,
+  options?: any,
+  prefix?: string,
+  isEditing: boolean,
+  onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => void,
+  displayValue?: string
+}) => {
+
+  // Lógica inteligente para mostrar el texto de la opción en lugar del ID (valor) cuando estamos en modo lectura
+  const displayValue = customDisplayValue || (options
+    ? options.find((opt: any) => String(opt.val) === String(value))?.label || '---'
+    : value || '---');
+
+  return (
+    <div className="flex flex-col space-y-1">
+      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{label}</span>
+      {isEditing ? (
+        options ? (
+          <select
+            name={name}
+            value={value || ''}
+            onChange={onChange}
+            className="w-full bg-blue-50/50 border-b-2 border-blue-200 p-1.5 text-sm font-medium focus:border-blue-500 outline-none transition-colors"
+          >
+            {options.map((opt: any) => <option key={opt.val} value={opt.val}>{opt.label}</option>)}
+          </select>
+        ) : (
+          <div className="relative">
+            {prefix && <span className="absolute left-2 top-1.5 text-slate-500 text-sm font-bold">{prefix}</span>}
+            <input
+              type={type}
+              name={name}
+              value={value || ''}
+              onChange={onChange}
+              className={`w-full bg-blue-50/50 border-b-2 border-blue-200 p-1.5 text-sm font-medium focus:border-blue-500 outline-none transition-colors ${prefix ? 'pl-6' : ''}`}
+            />
+          </div>
+        )
+      ) : (
+        <span className="text-slate-900 font-semibold text-sm border-b border-transparent">
+          {prefix}{displayValue}
+        </span>
+      )}
+    </div>
+  );
+};
+
 const EmployeeModal: React.FC<EmployeeModalProps> = ({ employee, onClose }) => {
   const { documents, uploadDocument, updateEmployee, deleteEmployee, sites } = useAppStore();
   const [docType, setDocType] = useState<Document['type']>('Otro');
@@ -58,48 +110,6 @@ const EmployeeModal: React.FC<EmployeeModalProps> = ({ employee, onClose }) => {
   const confirmDelete = async () => {
     await deleteEmployee(employee.id);
     onClose();
-  };
-
-  // Helper para renderizar campos
-  const DataField = ({ label, value, name, type = "text", options = null, prefix = "" }: { label: string, value: any, name: string, type?: string, options?: any, prefix?: string }) => {
-
-    // Lógica inteligente para mostrar el texto de la opción en lugar del ID (valor) cuando estamos en modo lectura
-    const displayValue = options
-      ? options.find((opt: any) => String(opt.val) === String(value))?.label || '---'
-      : value || '---';
-
-    return (
-      <div className="flex flex-col space-y-1">
-        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{label}</span>
-        {isEditing ? (
-          options ? (
-            <select
-              name={name}
-              value={value || ''}
-              onChange={handleInputChange}
-              className="w-full bg-blue-50/50 border-b-2 border-blue-200 p-1.5 text-sm font-medium focus:border-blue-500 outline-none transition-colors"
-            >
-              {options.map((opt: any) => <option key={opt.val} value={opt.val}>{opt.label}</option>)}
-            </select>
-          ) : (
-            <div className="relative">
-              {prefix && <span className="absolute left-2 top-1.5 text-slate-500 text-sm font-bold">{prefix}</span>}
-              <input
-                type={type}
-                name={name}
-                value={value || ''}
-                onChange={handleInputChange}
-                className={`w-full bg-blue-50/50 border-b-2 border-blue-200 p-1.5 text-sm font-medium focus:border-blue-500 outline-none transition-colors ${prefix ? 'pl-6' : ''}`}
-              />
-            </div>
-          )
-        ) : (
-          <span className="text-slate-900 font-semibold text-sm border-b border-transparent">
-            {prefix}{displayValue}
-          </span>
-        )}
-      </div>
-    );
   };
 
   // Formateador de moneda
@@ -198,12 +208,12 @@ const EmployeeModal: React.FC<EmployeeModalProps> = ({ employee, onClose }) => {
                 <User size={14} /> Datos de Identidad
               </h3>
               <div className="grid grid-cols-2 gap-x-6 gap-y-5">
-                <DataField label="Nombres" value={editData.firstName} name="firstName" />
-                <DataField label="Apellido Paterno" value={editData.lastNamePaterno} name="lastNamePaterno" />
-                <DataField label="Apellido Materno" value={editData.lastNameMaterno} name="lastNameMaterno" />
-                <DataField label="RUT / ID" value={editData.rut} name="rut" />
-                <DataField label="Nacimiento" value={isEditing ? editData.fechaNacimiento?.split('T')[0] : (editData.fechaNacimiento ? new Date(editData.fechaNacimiento).toLocaleDateString() : 'N/A')} name="fechaNacimiento" type="date" />
-                <DataField label="Nacionalidad" value={editData.nacionalidad} name="nacionalidad" />
+                <DataField label="Nombres" value={editData.firstName} name="firstName" isEditing={isEditing} onChange={handleInputChange} />
+                <DataField label="Apellido Paterno" value={editData.lastNamePaterno} name="lastNamePaterno" isEditing={isEditing} onChange={handleInputChange} />
+                <DataField label="Apellido Materno" value={editData.lastNameMaterno} name="lastNameMaterno" isEditing={isEditing} onChange={handleInputChange} />
+                <DataField label="RUT / ID" value={editData.rut} name="rut" isEditing={isEditing} onChange={handleInputChange} />
+                <DataField label="Nacimiento" value={editData.fechaNacimiento?.split('T')[0]} displayValue={editData.fechaNacimiento ? new Date(editData.fechaNacimiento).toLocaleDateString() : 'N/A'} name="fechaNacimiento" type="date" isEditing={isEditing} onChange={handleInputChange} />
+                <DataField label="Nacionalidad" value={editData.nacionalidad} name="nacionalidad" isEditing={isEditing} onChange={handleInputChange} />
                 {editData.tempPasswordLog && (
                   <div className="flex flex-col space-y-1 bg-yellow-50 p-1.5 rounded-lg border border-yellow-100">
                     <span className="text-[10px] font-bold text-yellow-600 uppercase tracking-widest">Contraseña Temporal</span>
@@ -219,10 +229,10 @@ const EmployeeModal: React.FC<EmployeeModalProps> = ({ employee, onClose }) => {
                 <MapPin size={14} /> Contacto y Residencia
               </h3>
               <div className="space-y-5">
-                <DataField label="Dirección Particular" value={editData.direccion} name="direccion" />
+                <DataField label="Dirección Particular" value={editData.direccion} name="direccion" isEditing={isEditing} onChange={handleInputChange} />
                 <div className="grid grid-cols-2 gap-6">
-                  <DataField label="Teléfono" value={editData.phone} name="phone" />
-                  <DataField label="Correo Electrónico" value={editData.email} name="email" />
+                  <DataField label="Teléfono" value={editData.phone} name="phone" isEditing={isEditing} onChange={handleInputChange} />
+                  <DataField label="Correo Electrónico" value={editData.email} name="email" isEditing={isEditing} onChange={handleInputChange} />
                 </div>
               </div>
             </div>
@@ -237,6 +247,8 @@ const EmployeeModal: React.FC<EmployeeModalProps> = ({ employee, onClose }) => {
                   label="Estado Civil"
                   value={editData.estadoCivil}
                   name="estadoCivil"
+                  isEditing={isEditing}
+                  onChange={handleInputChange}
                   options={[
                     { val: 'Soltero', label: 'Soltero/a' },
                     { val: 'Casado', label: 'Casado/a' },
@@ -244,16 +256,16 @@ const EmployeeModal: React.FC<EmployeeModalProps> = ({ employee, onClose }) => {
                     { val: 'Viudo', label: 'Viudo/a' }
                   ]}
                 />
-                <DataField label="Sistema Salud" value={editData.salud} name="salud" />
-                <DataField label="AFP / Previsión" value={editData.afp} name="afp" />
+                <DataField label="Sistema Salud" value={editData.salud} name="salud" isEditing={isEditing} onChange={handleInputChange} />
+                <DataField label="AFP / Previsión" value={editData.afp} name="afp" isEditing={isEditing} onChange={handleInputChange} />
                 <div className="flex flex-col space-y-1">
                   <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Edad Actual</span>
                   <span className="text-slate-900 font-semibold text-sm">{calculateAge(employee.fechaNacimiento)}</span>
                 </div>
               </div>
               <div className="mt-4 pt-4 border-t border-slate-50 space-y-4">
-                <DataField label="Información Bancaria" value={editData.bancoInfo} name="bancoInfo" />
-                <DataField label="Contacto Emergencia" value={editData.contactoFamiliar} name="contactoFamiliar" />
+                <DataField label="Información Bancaria" value={editData.bancoInfo} name="bancoInfo" isEditing={isEditing} onChange={handleInputChange} />
+                <DataField label="Contacto Emergencia" value={editData.contactoFamiliar} name="contactoFamiliar" isEditing={isEditing} onChange={handleInputChange} />
               </div>
             </div>
 
@@ -263,12 +275,12 @@ const EmployeeModal: React.FC<EmployeeModalProps> = ({ employee, onClose }) => {
                 <Shield size={14} /> Uniforme y EPP (Tallas)
               </h3>
               <div className="grid grid-cols-3 gap-x-4 gap-y-5">
-                <DataField label="Pantalón" value={editData.tallePantalon} name="tallePantalon" />
-                <DataField label="Camisa" value={editData.talleCamisa} name="talleCamisa" />
-                <DataField label="Chaqueta" value={editData.talleChaqueta} name="talleChaqueta" />
-                <DataField label="Polar" value={editData.tallePolar} name="tallePolar" />
-                <DataField label="Geólogo" value={editData.talleGeologo} name="talleGeologo" />
-                <DataField label="Calzado" value={editData.talleCalzado} name="talleCalzado" />
+                <DataField label="Pantalón" value={editData.tallePantalon} name="tallePantalon" isEditing={isEditing} onChange={handleInputChange} />
+                <DataField label="Camisa" value={editData.talleCamisa} name="talleCamisa" isEditing={isEditing} onChange={handleInputChange} />
+                <DataField label="Chaqueta" value={editData.talleChaqueta} name="talleChaqueta" isEditing={isEditing} onChange={handleInputChange} />
+                <DataField label="Polar" value={editData.tallePolar} name="tallePolar" isEditing={isEditing} onChange={handleInputChange} />
+                <DataField label="Geólogo" value={editData.talleGeologo} name="talleGeologo" isEditing={isEditing} onChange={handleInputChange} />
+                <DataField label="Calzado" value={editData.talleCalzado} name="talleCalzado" isEditing={isEditing} onChange={handleInputChange} />
               </div>
             </div>
 
@@ -278,62 +290,79 @@ const EmployeeModal: React.FC<EmployeeModalProps> = ({ employee, onClose }) => {
                 <Briefcase size={14} /> Información Laboral
               </h3>
               <div className="grid grid-cols-2 gap-x-6 gap-y-5 mb-6">
-                <DataField label="Cargo Actual" value={editData.cargo} name="cargo" />
+                <DataField
+                  label="Cargo Actual"
+                  value={editData.cargo}
+                  name="cargo"
+                  isEditing={isEditing}
+                  onChange={handleInputChange}
+                  options={[
+                    { val: 'Admin', label: 'Admin' },
+                    { val: 'Supervisor', label: 'Supervisor' },
+                    { val: 'GUARDIA DE SEGURIDAD', label: 'GUARDIA DE SEGURIDAD' }
+                  ]}
+                />
                 <DataField
                   label="Sucursal Asignada"
                   value={editData.currentSiteId}
                   name="currentSiteId"
+                  isEditing={isEditing}
+                  onChange={handleInputChange}
                   options={[{ val: '', label: 'Sin Asignar' }, ...sites.map(s => ({ val: s.id, label: s.name }))]}
                 />
 
-                {/* Fechas con validación visual */}
-                <div className="flex flex-col space-y-1">
-                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Vencimiento OS10</span>
-                  {isEditing ? (
-                    <input type="date" name="fechaVencimientoOS10" value={editData.fechaVencimientoOS10?.split('T')[0]} onChange={handleInputChange} className="bg-blue-50/50 border-b-2 border-blue-200 p-1.5 text-sm font-medium focus:border-blue-500 outline-none transition-colors" />
-                  ) : (
-                    <div className="flex items-center gap-2">
-                      <span className={`text-sm font-bold ${editData.fechaVencimientoOS10 && new Date(editData.fechaVencimientoOS10) < new Date() ? 'text-red-600' : 'text-slate-900'}`}>
-                        {editData.fechaVencimientoOS10 ? new Date(editData.fechaVencimientoOS10).toLocaleDateString() : 'Pendiente'}
-                      </span>
-                      {editData.fechaVencimientoOS10 && new Date(editData.fechaVencimientoOS10) < new Date() && <AlertCircle size={14} className="text-red-500" />}
-                    </div>
-                  )}
-                </div>
+                <DataField
+                  label="Rol de Sistema"
+                  value={editData.role}
+                  name="role"
+                  isEditing={isEditing}
+                  onChange={handleInputChange}
+                  options={[
+                    { val: 'worker', label: 'Guardia / Operativo' },
+                    { val: 'supervisor', label: 'Supervisor' },
+                    { val: 'admin', label: 'Administrador' }
+                  ]}
+                />
 
-                <div className="flex flex-col space-y-1">
-                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Inicio Contrato</span>
-                  {isEditing ? (
-                    <input type="date" name="fechaInicioContrato" value={editData.fechaInicioContrato?.split('T')[0]} onChange={handleInputChange} className="bg-blue-50/50 border-b-2 border-blue-200 p-1.5 text-sm font-medium focus:border-blue-500 outline-none transition-colors" />
-                  ) : (
-                    <span className="text-slate-900 font-bold text-sm">
-                      {editData.fechaInicioContrato ? new Date(editData.fechaInicioContrato).toLocaleDateString() : 'No registrada'}
-                    </span>
-                  )}
-                </div>
+                <DataField
+                  label="Vencimiento OS10"
+                  value={editData.fechaVencimientoOS10?.split('T')[0]}
+                  displayValue={editData.fechaVencimientoOS10 ? new Date(editData.fechaVencimientoOS10).toLocaleDateString() : 'Pendiente'}
+                  name="fechaVencimientoOS10"
+                  type="date"
+                  isEditing={isEditing}
+                  onChange={handleInputChange}
+                />
 
-                <div className="flex flex-col space-y-1">
-                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Término Contrato</span>
-                  {isEditing ? (
-                    <input type="date" name="fechaTerminoContrato" value={editData.fechaTerminoContrato?.split('T')[0]} onChange={handleInputChange} className="bg-blue-50/50 border-b-2 border-blue-200 p-1.5 text-sm font-medium focus:border-blue-500 outline-none transition-colors" />
-                  ) : (
-                    <span className="text-slate-900 font-bold text-sm">
-                      {editData.fechaTerminoContrato ? new Date(editData.fechaTerminoContrato).toLocaleDateString() : 'Indefinido'}
-                    </span>
-                  )}
-                </div>
+                <DataField
+                  label="Inicio Contrato"
+                  value={editData.fechaInicioContrato?.split('T')[0]}
+                  displayValue={editData.fechaInicioContrato ? new Date(editData.fechaInicioContrato).toLocaleDateString() : 'No registrada'}
+                  name="fechaInicioContrato"
+                  type="date"
+                  isEditing={isEditing}
+                  onChange={handleInputChange}
+                />
 
-                {/* SUELDO LIQUIDO */}
-                <div className="flex flex-col space-y-1">
-                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Sueldo Líquido</span>
-                  {isEditing ? (
-                    <input type="number" name="sueldoLiquido" value={editData.sueldoLiquido || ''} onChange={handleInputChange} className="bg-blue-50/50 border-b-2 border-blue-200 p-1.5 text-sm font-medium focus:border-blue-500 outline-none transition-colors" placeholder="0" />
-                  ) : (
-                    <span className="text-slate-900 font-bold text-sm flex items-center gap-1">
-                      {editData.sueldoLiquido ? formatCurrency(editData.sueldoLiquido) : '---'}
-                    </span>
-                  )}
-                </div>
+                <DataField
+                  label="Término Contrato"
+                  value={editData.fechaTerminoContrato?.split('T')[0]}
+                  displayValue={editData.fechaTerminoContrato ? new Date(editData.fechaTerminoContrato).toLocaleDateString() : 'Indefinido'}
+                  name="fechaTerminoContrato"
+                  type="date"
+                  isEditing={isEditing}
+                  onChange={handleInputChange}
+                />
+
+                <DataField
+                  label="Sueldo Líquido"
+                  value={editData.sueldoLiquido}
+                  displayValue={editData.sueldoLiquido ? formatCurrency(editData.sueldoLiquido) : '---'}
+                  name="sueldoLiquido"
+                  type="number"
+                  isEditing={isEditing}
+                  onChange={handleInputChange}
+                />
 
               </div>
             </div>

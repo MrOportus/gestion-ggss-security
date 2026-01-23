@@ -32,6 +32,7 @@ export interface Employee {
   nacionalidad?: string;
   direccion?: string;
   estadoCivil?: string; // Soltero, Casado, Viudo, Divorciado
+  sexo?: string; // Masculino, Femenino
   salud?: string; // Fonasa, Isapre X
   afp?: string; // Modelo, Habitat, etc.
 
@@ -55,6 +56,7 @@ export interface Employee {
   bancoInfo?: string;
   contactoFamiliar?: string;
   tempPasswordLog?: string; // Nuevo campo para auditoría de contraseña temporal
+  fcmTokens?: string[]; // Para notificaciones push
 }
 
 export interface AttendanceLog {
@@ -102,6 +104,8 @@ export interface DailyPayment {
   shiftDate?: string; // Fecha del turno (YYYY-MM-DD)
   paymentDate?: string; // Fecha del pago (YYYY-MM-DD)
   isNightShift?: boolean; // Turno nocturno
+  createdBy?: string;
+  createdByName?: string;
 }
 
 export interface AppNotification {
@@ -123,4 +127,87 @@ export interface ContractRecord {
   workerName: string;
   siteName: string;
   downloadUrl: string;
+}
+
+export interface Advance {
+  id: string;
+  workerId: string;
+  workerName: string;
+  amount: number;
+  siteId: number | string;
+  siteName: string;
+  status: 'PENDING' | 'PAID';
+  createdAt: string;
+  createdBy: string; // UID
+  createdByName: string; // Nombre del responsable
+  paymentDate: string; // Siempre el 15 del mes
+  monthPeriod: string; // YYYY-MM
+}
+
+export interface ChecklistItem {
+  id: string;
+  question: string;
+  type: 'binary' | 'text' | 'photo'; // Sí/No, Comentario, Foto
+  value?: any;
+}
+
+export interface SupervisorTask {
+  id: string;
+  supervisorId: string;
+  supervisorName: string;
+  siteId: string | number;
+  siteName: string;
+  checklistType: string;
+  items: ChecklistItem[];
+  status: 'PENDING' | 'COMPLETED';
+  createdAt: string;
+  completedAt?: string;
+  observations?: string;
+  createdBy: string;
+}
+
+export interface ChecklistTemplate {
+  id: string;
+  title: string;
+  items: Omit<ChecklistItem, 'value'>[];
+  createdAt: string;
+}
+
+export interface ResignationRequest {
+  id: string;
+  workerId: string;
+  workerName: string;
+  resignationDate: string; // Fecha en que el trabajador presenta su renuncia
+  effectiveDate: string; // Fecha motivo
+  reason: string;
+  observations?: string;
+  attachments?: string[]; // URLs o String Base64
+  status: 'NEW' | 'REQUESTED_TO_ACCOUNTANT' | 'ENTERED_TO_DT' | 'REJECTED_BY_DT';
+  createdAt: string;
+  supervisorId: string;
+  supervisorName: string;
+}
+
+export interface RecurringSupervisorTask {
+  id: string;
+  supervisorId: string;
+  supervisorName: string;
+  siteId: string | number;
+  siteName: string;
+  checklistType: string; // Template title
+  frequency: 'DIARIO' | 'SEMANAL' | 'MENSUAL';
+  active: boolean;
+  createdAt: string;
+  lastGeneratedAt?: string;
+}
+
+export interface SupervisorSubTask {
+  id: string;
+  supervisorId: string;
+  supervisorName: string;
+  title: string;
+  description?: string;
+  status: 'DONE' | 'NOT_DONE';
+  createdAt: string;
+  dueDate?: string;
 }
