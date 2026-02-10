@@ -191,11 +191,13 @@ const EmployeesPage: React.FC = () => {
 
             // Fechas laborales específicas
             fechaVencimientoOS10: parseExcelDate(getValue(row, ['curso o.s.10', 'Vencimiento OS10'])),
+            fechaInicioContrato: parseExcelDate(getValue(row, ['INICIO', 'Inicio Contrato', 'Fecha Inicio'])),
             fechaTerminoContrato: parseExcelDate(getValue(row, ['TERMINO', 'Fin Contrato', 'Termino Contrato'])),
 
             isActive: isActive,
             currentSiteId: matchedSiteId, // Asignación automática
           };
+
         }).filter(item => item !== null);
 
         if (newEmployees.length > 0) {

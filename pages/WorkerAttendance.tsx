@@ -1,137 +1,640 @@
-import React, { useState } from 'react';
+
+import React, { useState, useEffect } from 'react';
 import { useAppStore } from '../store/useAppStore';
-import { MapPin, Clock, LogOut } from 'lucide-react';
+import {
+  CheckCircle,
+  MapPin,
+  Clock,
+  LogOut,
+  Delete,
+  Loader2,
+  AlertCircle,
+  ClipboardList,
+  Settings,
+  User,
+  Save,
+  ArrowLeft,
+  Phone,
+  Calendar,
+  Home
+} from 'lucide-react';
+
+import RoundsControl from '../components/RoundsControl';
+
 
 const WorkerAttendance: React.FC = () => {
-  const { currentUser, getEmployeeByUserId, attendanceLogs, addAttendanceLog, logout, sites } = useAppStore();
+  const {
+    currentUser,
+    getEmployeeByUserId,
+    attendanceLogs,
+    addAttendanceLog,
+    logout,
+    sites,
+    fetchAttendanceLogs,
+    guardRounds,
+    fetchGuardRounds,
+    isLoading,
+    employees,
+    updateEmployee
+  } = useAppStore();
+
+  const [step, setStep] = useState<'status' | 'keypad' | 'success' | 'rounds' | 'settings'>('status');
+  const [lastAction, setLastAction] = useState<'check_in' | 'check_out' | null>(null);
+
+  const [rutInput, setRutInput] = useState('');
   const [loading, setLoading] = useState(false);
-  const [locationError, setLocationError] = useState<string | null>(null);
+  const [isEditing, setIsEditing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [coords, setCoords] = useState<{ lat: number, lng: number } | null>(null);
+
+  // Profile Edit State
+  const [editData, setEditData] = useState({
+    firstName: '',
+    lastNamePaterno: '',
+    rut: '',
+    direccion: '',
+    phone: '',
+    fechaNacimiento: ''
+  });
 
   const employee = currentUser ? getEmployeeByUserId(currentUser.uid) : undefined;
 
-  // Determine current status based on last log
+  useEffect(() => {
+    if (employee) {
+      setEditData({
+        firstName: employee.firstName || '',
+        lastNamePaterno: employee.lastNamePaterno || '',
+        rut: employee.rut || '',
+        direccion: employee.direccion || '',
+        phone: employee.phone || '',
+        fechaNacimiento: employee.fechaNacimiento || ''
+      });
+    }
+  }, [employee]);
+
+  // Last log for this specific employee
   const lastLog = attendanceLogs
     .filter(l => l.employeeId === employee?.id)
     .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())[0];
 
   const isCheckedIn = lastLog?.type === 'check_in';
 
-  const handleAttendance = () => {
-    if (!employee) return;
-    setLoading(true);
-    setLocationError(null);
+  const requestLocation = () => {
+    return new Promise<{ lat: number; lng: number }>((resolve, reject) => {
+      if (!navigator.geolocation) {
+        reject(new Error("Tu navegador no soporta geolocalización."));
+        return;
+      }
 
-    if (!navigator.geolocation) {
-      processAttendance(null, null); // Fallback if not supported
-      return;
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          const newCoords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+          setCoords(newCoords);
+          resolve(newCoords);
+        },
+        (err) => {
+          let msg = "Error al obtener ubicación.";
+          if (err.code === 1) msg = "Debes activar el GPS y permitir el acceso a la ubicación para registrar asistencia.";
+          else if (err.code === 2) msg = "Ubicación no disponible. Verifica tu señal de GPS.";
+          else if (err.code === 3) msg = "Tiempo de espera agotado al obtener ubicación.";
+
+          setError(msg);
+          reject(new Error(msg));
+        },
+        { timeout: 10000, enableHighAccuracy: true }
+      );
+    });
+  };
+
+  useEffect(() => {
+    // Solo cargamos logs al montar para tener el historial inicial
+    fetchAttendanceLogs();
+    fetchGuardRounds();
+
+    // Intentar obtener ubicación inicial sin bloquear
+    requestLocation().catch(() => {
+      console.log("Ubicación inicial no obtenida. Se solicitará al confirmar.");
+    });
+  }, []);
+
+
+  // Format RUT helpers
+  const formatRut = (rut: string) => {
+    const clean = rut.replace(/[^0-9kK]/g, '');
+    if (clean.length <= 1) return clean;
+
+    let result = '';
+    const body = clean.slice(0, -1);
+    const dv = clean.slice(-1).toUpperCase();
+
+    let count = 0;
+    for (let i = body.length - 1; i >= 0; i--) {
+      result = body.charAt(i) + result;
+      count++;
+      if (count === 3 && i !== 0) {
+        result = '.' + result;
+        count = 0;
+      }
     }
 
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        processAttendance(position.coords.latitude, position.coords.longitude);
-      },
-      (error) => {
-        console.error(error);
-        setLocationError("No pudimos obtener tu ubicación exacta. Se registrará sin coordenadas.");
-        processAttendance(null, null); // Allow check-in even if geo fails for MVP
-      }
-    );
+    return result + '-' + dv;
   };
 
-  const processAttendance = (lat: number | null, lng: number | null) => {
+  const handleKeyPress = (num: string) => {
+    if (rutInput.length < 9) setRutInput(rutInput + num);
+  };
+
+  const handleBackspace = () => {
+    setRutInput(rutInput.slice(0, -1));
+  };
+
+  const validateRut = () => {
     if (!employee) return;
+    const cleanInput = rutInput.replace(/\./g, '').replace(/-/g, '').toLowerCase();
+    const cleanEmployeeRut = employee.rut.replace(/\./g, '').replace(/-/g, '').toLowerCase();
 
-    // Simulate API delay
-    setTimeout(() => {
-      addAttendanceLog({
-        employeeId: employee.id,
-        type: isCheckedIn ? 'check_out' : 'check_in',
-        locationLat: lat || undefined,
-        locationLng: lng || undefined,
-        siteId: employee.currentSiteId // Mock linking to current site
-      });
-      setLoading(false);
-    }, 1000);
+    if (cleanInput === cleanEmployeeRut) {
+      setError(null);
+      submitAttendance();
+    } else {
+      setError("RUT no coincide con el trabajador activo.");
+    }
   };
 
-  if (!employee) return <div className="p-4 text-center">Error: Perfil de empleado no encontrado. Contacte a RRHH.</div>;
+  const submitAttendance = async () => {
+    if (!employee) return;
+    setLoading(true);
+    setError(null);
 
-  const currentSiteName = sites.find(s => s.id === employee.currentSiteId)?.name || 'Sin Asignación';
+    let finalCoords = coords;
+
+    // Si no hay coordenadas, intentar obtenerlas ahora obligatoriamente
+    if (!finalCoords) {
+      try {
+        finalCoords = await requestLocation();
+      } catch (err: any) {
+        setLoading(false);
+        // El error ya fue seteado por requestLocation
+        return;
+      }
+    }
+
+    const actionType = isCheckedIn ? 'check_out' : 'check_in';
+
+    try {
+      await addAttendanceLog({
+        employeeId: employee.id,
+        employeeName: `${employee.firstName} ${employee.lastNamePaterno}`,
+        rut: employee.rut,
+        type: actionType,
+        locationLat: finalCoords.lat,
+        locationLng: finalCoords.lng,
+        siteId: employee.currentSiteId ?? null,
+        siteName: sites.find(s => s.id === employee.currentSiteId)?.name || 'Sin Sucursal',
+      });
+
+      setLastAction(actionType);
+      setStep('success');
+
+      setTimeout(() => {
+        setStep('status');
+        setRutInput('');
+        setLoading(false);
+      }, 3000);
+
+    } catch (err: any) {
+      console.error("Error en submitAttendance:", err);
+      setError("Error al guardar registro. " + (err.message || ''));
+      setLoading(false);
+    }
+  };
+
+  const handleUpdateProfile = async () => {
+    if (!employee) return;
+    setLoading(true);
+    try {
+      await updateEmployee(employee.id, {
+        firstName: editData.firstName,
+        lastNamePaterno: editData.lastNamePaterno,
+        rut: editData.rut,
+        direccion: editData.direccion,
+        phone: editData.phone,
+        fechaNacimiento: editData.fechaNacimiento
+      });
+      setIsEditing(false);
+      setError(null);
+    } catch (err) {
+      console.error("Error al actualizar perfil:", err);
+      setError("Error al actualizar perfil.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Show loading while fetching initial data or if employees list is still empty (bootstrapping)
+  if (!employee && (isLoading || employees.length === 0)) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
+        <div className="flex flex-col items-center gap-4">
+          <Loader2 size={48} className="text-blue-600 animate-spin" />
+          <p className="text-slate-400 font-bold animate-pulse">Cargando perfil...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!employee) return (
+    <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
+      <div className="bg-white p-8 rounded-3xl shadow-xl text-center">
+        <AlertCircle size={48} className="text-red-500 mx-auto mb-4" />
+        <h2 className="text-xl font-bold text-slate-800">Error de Perfil</h2>
+        <p className="text-slate-500">No se encontró tu ficha de empleado. Contacta a soporte.</p>
+        <button onClick={logout} className="mt-6 text-blue-600 font-bold">Cerrar Sesión</button>
+      </div>
+    </div>
+  );
+
+  const currentSite = sites.find(s => s.id === employee.currentSiteId);
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col">
-      {/* Header */}
-      <div className="bg-blue-600 text-white p-6 shadow-md rounded-b-3xl z-10">
-        <div className="flex justify-between items-start mb-4">
-          <div className="flex items-center gap-3">
-            <img src="/logo.png" alt="GGSS Logo" className="w-12 h-12 object-contain brightness-0 invert" />
-            <div>
-              <h1 className="text-xl font-bold">Hola, {employee.firstName}</h1>
-              <p className="text-blue-100 text-sm">RUT: {employee.rut}</p>
+    <div className="min-h-screen bg-slate-50 flex flex-col font-sans">
+
+      {/* HEADER SECTION */}
+      {step !== 'settings' && (
+        <div className={`bg-gradient-to-br from-blue-700 to-blue-900 text-white p-6 ${step === 'keypad' ? 'pb-4 rounded-b-[2rem]' : 'pb-12 rounded-b-[3rem]'} shadow-2xl relative overflow-hidden transition-all duration-500 ease-in-out`}>
+          <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full -mr-16 -mt-16 blur-2xl"></div>
+          <div className="absolute bottom-0 left-0 w-24 h-24 bg-blue-400/10 rounded-full -ml-12 -mb-12 blur-xl"></div>
+
+          <div className={`flex justify-between items-start relative z-10 transition-all duration-500 ${step === 'keypad' ? 'opacity-0 -translate-y-10 h-0 pointer-events-none' : 'opacity-100 translate-y-0'}`}>
+            <div className="flex items-center gap-4">
+              <div className="w-14 h-14 bg-white/20 backdrop-blur-md rounded-2xl flex items-center justify-center p-2">
+                <img src="/logo.png" alt="GGSS" className="w-full h-full object-contain brightness-0 invert" />
+              </div>
+              <div>
+                <h1 className="text-lg font-black tracking-tighter opacity-70">GGSS SECURITY</h1>
+                <p className="text-2xl font-bold leading-tight">{employee.firstName} {employee.lastNamePaterno}</p>
+                <p className="text-sm font-medium text-blue-200 uppercase tracking-widest">{employee.cargo}</p>
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setStep('settings')}
+                className="p-3 bg-white/10 hover:bg-white/20 backdrop-blur-md rounded-2xl transition-all active:scale-95"
+              >
+                <Settings size={20} />
+              </button>
+              <button
+                onClick={logout}
+                className="p-3 bg-white/10 hover:bg-white/20 backdrop-blur-md rounded-2xl transition-all active:scale-95"
+              >
+                <LogOut size={20} />
+              </button>
             </div>
           </div>
-          <button onClick={logout} className="p-2 bg-blue-700 rounded-full hover:bg-blue-800 transition">
-            <LogOut size={18} />
-          </button>
-        </div>
 
-        <div className="bg-blue-800/50 p-3 rounded-lg flex items-center gap-3 backdrop-blur-sm">
-          <MapPin size={20} className="text-blue-200" />
-          <div>
-            <p className="text-xs text-blue-200 uppercase font-semibold">Ubicación Asignada</p>
-            <p className="font-medium">{currentSiteName}</p>
+          <div className={`bg-blue-950/40 p-4 rounded-2xl flex items-center gap-4 backdrop-blur-sm border border-white/10 transition-all duration-500 ${step === 'keypad' ? 'opacity-0 scale-95 -mt-16 h-0 overflow-hidden pointer-events-none' : 'opacity-100 scale-100 mt-8'}`}>
+            <div className="w-10 h-10 bg-blue-500/20 rounded-xl flex items-center justify-center text-blue-300">
+              <MapPin size={22} />
+            </div>
+            <div className="flex-1">
+              <p className="text-[10px] text-blue-300 uppercase font-black tracking-widest leading-none mb-1">Sucursal Asignada</p>
+              <p className="font-bold text-sm line-clamp-1">{currentSite?.name || 'SIN ASIGNACIÓN'}</p>
+            </div>
           </div>
-        </div>
-      </div>
 
-      {/* Main Action Area */}
-      <div className="flex-1 flex flex-col justify-center items-center p-6 space-y-8">
-
-        <div className="text-center space-y-2">
-          <p className="text-slate-500 font-medium">Estado Actual</p>
-          <div className={`text-3xl font-bold ${isCheckedIn ? 'text-green-600' : 'text-slate-400'}`}>
-            {isCheckedIn ? 'EN TURNO' : 'FUERA DE TURNO'}
-          </div>
-          {isCheckedIn && lastLog && (
-            <p className="text-sm text-slate-400">
-              Desde: {new Date(lastLog.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-            </p>
+          {/* Mini version for identification step */}
+          {step === 'keypad' && (
+            <div className="flex items-center justify-center pt-2 animate-in fade-in slide-in-from-top-4 duration-500">
+              <div className="w-10 h-10 bg-white/20 backdrop-blur-md rounded-xl flex items-center justify-center p-1.5">
+                <img src="/logo.png" alt="GGSS" className="w-full h-full object-contain brightness-0 invert" />
+              </div>
+              <h1 className="ml-3 text-sm font-black tracking-widest opacity-90 uppercase">Validación de Turno</h1>
+            </div>
           )}
         </div>
+      )}
 
-        <button
-          onClick={handleAttendance}
-          disabled={loading}
-          className={`
-            w-64 h-64 rounded-full shadow-xl flex flex-col items-center justify-center gap-2
-            transform transition-all active:scale-95 duration-200 border-8
-            ${isCheckedIn
-              ? 'bg-red-500 border-red-200 hover:bg-red-600 shadow-red-200'
-              : 'bg-green-500 border-green-200 hover:bg-green-600 shadow-green-200'
-            }
-          `}
-        >
-          {loading ? (
-            <div className="w-8 h-8 border-4 border-white border-t-transparent rounded-full animate-spin" />
-          ) : (
-            <>
-              <Clock size={48} className="text-white opacity-90" />
-              <span className="text-2xl font-bold text-white tracking-wider">
-                {isCheckedIn ? 'MARCAR SALIDA' : 'MARCAR ENTRADA'}
-              </span>
-            </>
-          )}
-        </button>
+      {/* MAIN ACTION AREA */}
+      <div className={`flex-1 transition-all duration-500 ${step === 'keypad' ? 'mt-2' : (step === 'settings' ? 'mt-0' : '-mt-6')} px-6 relative z-20 overflow-y-auto pb-10`}>
 
-        {locationError && (
-          <div className="text-xs text-orange-600 bg-orange-100 p-2 rounded text-center max-w-xs">
-            {locationError}
+        {step === 'status' && (
+          <div className="space-y-6 animate-in fade-in slide-in-from-bottom-5 duration-500 h-full flex flex-col items-center justify-center min-h-[400px]">
+
+            {!isCheckedIn ? (
+              /* INICIAR TURNO VIEW */
+              <div className="w-full max-w-sm space-y-4">
+                <div className="text-center mb-6">
+                  <div className="px-4 py-1.5 rounded-full inline-block text-[10px] font-black tracking-widest uppercase mb-2 bg-slate-200 text-slate-500">
+                    Turno cerrado
+                  </div>
+                  <h2 className="text-4xl font-black text-slate-800 tracking-tighter uppercase">Inicia tu Jornada</h2>
+                </div>
+
+                <button
+                  onClick={() => setStep('keypad')}
+                  className="w-full py-8 bg-emerald-500 hover:bg-emerald-600 text-white rounded-[2rem] shadow-xl shadow-emerald-200 flex flex-col items-center justify-center gap-2 transition-all active:scale-95 group border-b-8 border-emerald-700"
+                >
+                  <Clock size={48} className="group-hover:scale-110 transition-transform" />
+                  <span className="text-2xl font-black tracking-widest">INICIAR TURNO</span>
+                </button>
+              </div>
+            ) : (
+              /* TURNO EN CURSO VIEW */
+              <div className="w-full max-w-sm space-y-6">
+                <div className="text-center mb-4">
+                  <div className="px-4 py-1.5 rounded-full inline-block text-[10px] font-black tracking-widest uppercase mb-2 bg-emerald-100 text-emerald-600">
+                    Turno en curso
+                  </div>
+                  <h2 className="text-3xl font-black text-slate-800 tracking-tighter uppercase">Gestión de Turno</h2>
+                  {lastLog && (
+                    <p className="text-slate-400 font-bold mt-1">
+                      Iniciado a las {new Date(lastLog.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </p>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-1 gap-4">
+                  <button
+                    onClick={() => setStep('rounds')}
+                    className="w-full py-6 bg-blue-600 hover:bg-blue-700 text-white rounded-[2rem] shadow-xl shadow-blue-200 flex items-center justify-center gap-3 transition-all active:scale-95 border-b-8 border-blue-800 relative"
+                  >
+                    <ClipboardList size={28} />
+                    <span className="text-xl font-black tracking-wider text-center uppercase">RONDAS ASIGNADAS</span>
+                    {guardRounds.some(r => r.workerId === currentUser?.uid && r.status === 'IN_PROGRESS') && (
+                      <div className="absolute top-4 right-4 w-3 h-3 bg-rose-500 rounded-full animate-ping"></div>
+                    )}
+                  </button>
+
+
+                  <button
+                    onClick={() => setStep('keypad')}
+                    className="w-full py-6 bg-red-500 hover:bg-red-600 text-white rounded-[2rem] shadow-xl shadow-red-200 flex items-center justify-center gap-3 transition-all active:scale-95 border-b-8 border-red-700"
+                  >
+                    <LogOut size={28} />
+                    <span className="text-xl font-black tracking-wider">CERRAR TURNO</span>
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         )}
+
+        {step === 'rounds' && (
+          <RoundsControl onBack={() => setStep('status')} />
+        )}
+
+        {step === 'keypad' && (
+          <div className="bg-white rounded-[3rem] p-8 shadow-xl space-y-8 animate-in zoom-in-95 duration-300 max-w-sm mx-auto mt-4">
+            <div className="text-center">
+              <h3 className="text-2xl font-black text-slate-800 tracking-tight">Identificación</h3>
+              <p className="text-slate-400 font-medium text-xs">Ingresa tu RUT para verificar</p>
+            </div>
+
+            <div className="bg-slate-50 p-6 rounded-3xl text-center ring-2 ring-slate-100">
+              <span className="text-3xl font-black text-slate-700 tracking-tight">
+                {rutInput ? formatRut(rutInput) : 'XX.XXX.XXX-X'}
+              </span>
+            </div>
+
+            {error && (
+              <div className="bg-red-50 p-4 rounded-2xl flex items-center gap-3 text-red-600 animate-bounce">
+                <AlertCircle size={20} />
+                <span className="text-sm font-bold">{error}</span>
+              </div>
+            )}
+
+            <div className="grid grid-cols-3 gap-4">
+              {[1, 2, 3, 4, 5, 6, 7, 8, 9, 'K', 0].map((num) => (
+                <button
+                  key={num}
+                  onClick={() => handleKeyPress(num.toString())}
+                  className="h-16 bg-slate-50 hover:bg-slate-100 active:bg-blue-50 active:text-blue-600 rounded-2xl text-2xl font-black text-slate-600 shadow-sm transition-all"
+                >
+                  {num}
+                </button>
+              ))}
+              <button
+                onClick={handleBackspace}
+                className="h-16 bg-slate-50 hover:bg-red-50 hover:text-red-500 rounded-2xl flex items-center justify-center shadow-sm"
+              >
+                <Delete size={24} />
+              </button>
+            </div>
+
+            <div className="flex gap-4">
+              <button
+                onClick={() => setStep('status')}
+                className="flex-1 py-4 bg-slate-100 text-slate-500 rounded-3xl font-black uppercase tracking-widest active:scale-95 transition-all text-xs"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={validateRut}
+                disabled={rutInput.length < 7 || loading}
+                className="flex-[2] py-4 bg-blue-600 text-white rounded-3xl font-black uppercase tracking-widest shadow-lg shadow-blue-200 active:scale-95 transition-all disabled:opacity-50 text-xs flex items-center justify-center gap-2"
+              >
+                {loading && <Loader2 size={16} className="animate-spin" />}
+                {isCheckedIn ? 'Finalizar' : 'Confirmar'}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {step === 'success' && (
+          <div className="h-full flex flex-col items-center justify-center space-y-6 py-20 animate-in zoom-in-95 duration-500">
+            <div className="w-32 h-32 bg-emerald-100 rounded-full flex items-center justify-center shadow-inner">
+              <CheckCircle size={64} className="text-emerald-500" />
+            </div>
+            <div className="text-center space-y-2">
+              <h2 className="text-3xl font-black text-slate-800 tracking-tighter uppercase">¡Registro Exitoso!</h2>
+              <p className="text-slate-400 font-bold">Tu asistencia ha sido guardada correctamente.</p>
+            </div>
+            <div className="p-4 bg-emerald-50 rounded-2xl border border-emerald-100 text-[10px] font-black uppercase tracking-[0.2em] text-emerald-600">
+              {lastAction === 'check_in' ? 'Iniciando turno...' : 'Finalizando turno...'}
+            </div>
+          </div>
+        )}
+
+        {step === 'settings' && (
+          <div className="min-h-screen bg-slate-50 fixed inset-0 z-[100] overflow-y-auto animate-in fade-in slide-in-from-right-10 duration-500 font-sans">
+            {/* Settings Header */}
+            <div className="bg-white p-6 flex items-center justify-between sticky top-0 z-30 shadow-sm border-b">
+              <div className="flex items-center gap-4">
+                <button
+                  onClick={() => {
+                    setStep('status');
+                    setIsEditing(false);
+                    setError(null);
+                  }}
+                  className="p-2 text-slate-500 hover:bg-slate-100 rounded-full transition-all"
+                >
+                  <ArrowLeft size={24} />
+                </button>
+                <div>
+                  <h2 className="text-xl font-black text-slate-800 tracking-tight">Mi Perfil</h2>
+                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest leading-none">Ajustes de Cuenta</p>
+                </div>
+              </div>
+              {!isEditing ? (
+                <button
+                  onClick={() => setIsEditing(true)}
+                  className="px-6 py-2 bg-blue-600 text-white rounded-full font-black text-xs uppercase tracking-widest shadow-lg shadow-blue-200 active:scale-95 transition-all"
+                >
+                  Modificar
+                </button>
+              ) : (
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setIsEditing(false)}
+                    className="px-6 py-2 bg-slate-100 text-slate-500 rounded-full font-black text-xs uppercase tracking-widest active:scale-95 transition-all"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    onClick={handleUpdateProfile}
+                    disabled={loading}
+                    className="px-6 py-2 bg-emerald-500 text-white rounded-full font-black text-xs uppercase tracking-widest shadow-lg shadow-emerald-200 active:scale-95 transition-all flex items-center gap-2"
+                  >
+                    {loading && <Loader2 size={14} className="animate-spin" />}
+                    Guardar
+                  </button>
+                </div>
+              )}
+            </div>
+
+            <div className="p-6 pb-20 max-w-2xl mx-auto space-y-8">
+              {/* Profile Card Summary */}
+              <div className="bg-gradient-to-br from-blue-600 to-blue-800 rounded-[2.5rem] p-8 text-white relative overflow-hidden shadow-xl shadow-blue-200">
+                <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -mr-16 -mt-16 blur-2xl"></div>
+                <div className="flex flex-col items-center text-center relative z-10">
+                  <div className="w-24 h-24 bg-white/20 backdrop-blur-md rounded-full border-4 border-white/30 flex items-center justify-center mb-4">
+                    <User size={48} className="text-white" />
+                  </div>
+                  <h3 className="text-2xl font-black">{employee.firstName} {employee.lastNamePaterno}</h3>
+                  <p className="text-blue-100 font-bold uppercase tracking-[0.2em] text-xs opacity-80">{employee.cargo}</p>
+                </div>
+              </div>
+
+              {/* Information Sections */}
+              <div className="space-y-6">
+                <div className="bg-white rounded-[2rem] p-8 shadow-sm border border-slate-100 space-y-6">
+                  <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] border-b pb-2">Información Personal</h4>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Nombre</label>
+                      {isEditing ? (
+                        <input
+                          type="text"
+                          value={editData.firstName}
+                          onChange={(e) => setEditData({ ...editData, firstName: e.target.value })}
+                          className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-xl focus:border-blue-500 outline-none transition-all font-bold text-slate-700"
+                        />
+                      ) : (
+                        <p className="px-4 py-3 bg-slate-100/50 rounded-xl font-bold text-slate-700">{employee.firstName}</p>
+                      )}
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Apellido</label>
+                      {isEditing ? (
+                        <input
+                          type="text"
+                          value={editData.lastNamePaterno}
+                          onChange={(e) => setEditData({ ...editData, lastNamePaterno: e.target.value })}
+                          className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-xl focus:border-blue-500 outline-none transition-all font-bold text-slate-700"
+                        />
+                      ) : (
+                        <p className="px-4 py-3 bg-slate-100/50 rounded-xl font-bold text-slate-700">{employee.lastNamePaterno}</p>
+                      )}
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">RUT</label>
+                      <p className="px-4 py-3 bg-slate-100/50 rounded-xl font-bold text-slate-400">{employee.rut}</p>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Fecha de Nacimiento</label>
+                      {isEditing ? (
+                        <input
+                          type="date"
+                          value={editData.fechaNacimiento}
+                          onChange={(e) => setEditData({ ...editData, fechaNacimiento: e.target.value })}
+                          className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-xl focus:border-blue-500 outline-none transition-all font-bold text-slate-700"
+                        />
+                      ) : (
+                        <p className="px-4 py-3 bg-slate-100/50 rounded-xl font-bold text-slate-700">
+                          {employee.fechaNacimiento ? new Date(employee.fechaNacimiento).toLocaleDateString() : 'No registrada'}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-white rounded-[2rem] p-8 shadow-sm border border-slate-100 space-y-6">
+                  <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] border-b pb-2">Contacto y Domicilio</h4>
+
+                  <div className="space-y-6">
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Teléfono Móvil</label>
+                      {isEditing ? (
+                        <div className="relative">
+                          <Phone size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
+                          <input
+                            type="tel"
+                            value={editData.phone}
+                            onChange={(e) => setEditData({ ...editData, phone: e.target.value })}
+                            className="w-full pl-11 pr-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-xl focus:border-blue-500 outline-none transition-all font-bold text-slate-700"
+                            placeholder="+56 9..."
+                          />
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-3 px-4 py-3 bg-slate-100/50 rounded-xl">
+                          <Phone size={16} className="text-slate-400" />
+                          <p className="font-bold text-slate-700">{employee.phone || 'Sin teléfono'}</p>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Dirección Particular</label>
+                      {isEditing ? (
+                        <div className="relative">
+                          <Home size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
+                          <input
+                            type="text"
+                            value={editData.direccion}
+                            onChange={(e) => setEditData({ ...editData, direccion: e.target.value })}
+                            className="w-full pl-11 pr-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-xl focus:border-blue-500 outline-none transition-all font-bold text-slate-700"
+                            placeholder="Calle, Número, Comuna"
+                          />
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-3 px-4 py-3 bg-slate-100/50 rounded-xl">
+                          <Home size={16} className="text-slate-400" />
+                          <p className="font-bold text-slate-700">{employee.direccion || 'Sin dirección'}</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {error && (
+                <div className="bg-red-50 p-4 rounded-2xl flex items-center gap-3 text-red-600 animate-bounce">
+                  <AlertCircle size={20} />
+                  <span className="text-sm font-bold">{error}</span>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
       </div>
 
-      <div className="p-4 text-center text-xs text-slate-400 pb-8">
-        Gestión GGSS App v1.0.0
+      <div className={`p-6 text-center text-[10px] font-black text-slate-300 uppercase tracking-widest opacity-50 transition-all duration-500 ${step === 'keypad' ? 'opacity-0 h-0 p-0 overflow-hidden' : 'opacity-50'}`}>
+        GGSS Security • Attendance Control v3.0
       </div>
     </div>
   );

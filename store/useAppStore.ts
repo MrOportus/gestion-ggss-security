@@ -1,8 +1,9 @@
 
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
-import { User, Employee, Site, AttendanceLog, Document, ComparisonRecord, DailyPayment, AppNotification, AppConfirmation, ContractRecord, Advance, SupervisorTask, ChecklistTemplate, ResignationRequest, RecurringSupervisorTask, SupervisorSubTask } from '../types';
-import { db, auth, secondaryAuth } from '../lib/firebase';
+import { User, Employee, Site, AttendanceLog, Document, ComparisonRecord, DailyPayment, AppNotification, AppConfirmation, ContractRecord, Advance, SupervisorTask, ChecklistTemplate, ResignationRequest, RecurringSupervisorTask, SupervisorSubTask, BoardNote, GuardRound, Loan } from '../types';
+import { db, auth, secondaryAuth, storage } from '../lib/firebase';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import {
   signInWithEmailAndPassword,
   signOut,
@@ -38,6 +39,9 @@ interface AppState {
   resignationRequests: ResignationRequest[];
   recurringSupervisorTasks: RecurringSupervisorTask[];
   supervisorSubTasks: SupervisorSubTask[];
+  boardNotes: BoardNote[];
+  loans: Loan[];
+
 
   // Auth Actions
   login: (email: string, pass: string) => Promise<void>;
@@ -121,6 +125,31 @@ interface AppState {
   addSupervisorSubTask: (task: Omit<SupervisorSubTask, 'id' | 'createdAt'>) => Promise<void>;
   updateSupervisorSubTask: (id: string, status: SupervisorSubTask['status']) => Promise<void>;
   deleteSupervisorSubTask: (id: string) => Promise<void>;
+
+  // Board Note Actions
+  fetchBoardNotes: () => Promise<void>;
+  addBoardNote: (note: Omit<BoardNote, 'id' | 'createdAt' | 'updatedAt'>) => Promise<void>;
+  updateBoardNote: (id: string, data: Partial<BoardNote>) => Promise<void>;
+  deleteBoardNote: (id: string) => Promise<void>;
+
+  fetchAttendanceLogs: () => Promise<void>;
+  uploadAttendancePhoto: (file: Blob, filename: string) => Promise<string>;
+
+  // Round Actions
+  guardRounds: GuardRound[];
+  fetchGuardRounds: () => Promise<void>;
+  addGuardRound: (round: Omit<GuardRound, 'id' | 'startTime' | 'status'>) => Promise<string>;
+  updateGuardRound: (id: string, data: Partial<GuardRound>) => Promise<void>;
+
+  // Loan Actions
+  fetchLoans: () => Promise<void>;
+  addLoan: (loan: Omit<Loan, 'id' | 'createdAt' | 'status'>) => Promise<void>;
+  updateLoan: (id: string, data: Partial<Loan>) => Promise<void>;
+  deleteLoan: (id: string) => Promise<void>;
+  uploadLoanPdf: (file: File, filename: string) => Promise<string>;
+
+
+
 }
 
 export const useAppStore = create<AppState>()(
@@ -141,7 +170,12 @@ export const useAppStore = create<AppState>()(
       resignationRequests: [],
       recurringSupervisorTasks: [],
       supervisorSubTasks: [],
+      boardNotes: [],
+      guardRounds: [],
+      loans: [],
       notifications: [],
+
+
       confirmation: null,
       isLoading: false,
 
@@ -250,6 +284,12 @@ export const useAppStore = create<AppState>()(
           get().fetchResignationRequests();
           get().fetchRecurringTasks();
           get().fetchSubTasks();
+          get().fetchBoardNotes();
+          get().fetchAttendanceLogs();
+          get().fetchGuardRounds();
+          get().fetchLoans();
+
+
 
         } catch (error) {
           console.error("Error cargando datos:", error);
@@ -339,18 +379,34 @@ export const useAppStore = create<AppState>()(
       },
 
       addAttendanceLog: async (log) => {
-        const tempId = Date.now();
+        const id = "att_" + Date.now();
         const newLogEntry: AttendanceLog = {
-          id: tempId,
-          employeeId: log.employeeId,
+          ...log,
+          id,
           timestamp: new Date().toISOString(),
-          type: log.type,
-          locationLat: log.locationLat,
-          locationLng: log.locationLng,
-          siteId: log.siteId
         };
-        set((state) => ({ attendanceLogs: [newLogEntry, ...state.attendanceLogs] }));
-        // Aquí deberías agregar la escritura a Firestore en una colección 'Asistencia' si lo deseas persistir
+        try {
+          await setDoc(doc(db, 'Asistencia', id), newLogEntry);
+          set((state) => ({ attendanceLogs: [newLogEntry, ...state.attendanceLogs] }));
+        } catch (error) {
+          console.error("Error saving attendance:", error);
+        }
+      },
+
+      fetchAttendanceLogs: async () => {
+        try {
+          const snapshot = await getDocs(collection(db, "Asistencia"));
+          const logs: AttendanceLog[] = [];
+          snapshot.forEach(doc => logs.push({ ...doc.data(), id: doc.id } as AttendanceLog));
+          logs.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+          set({ attendanceLogs: logs });
+        } catch (error) { console.error("Error fetching attendance logs:", error); }
+      },
+
+      uploadAttendancePhoto: async (file, filename) => {
+        const storageRef = ref(storage, `attendance/${filename}`);
+        await uploadBytes(storageRef, file);
+        return await getDownloadURL(storageRef);
       },
 
       getEmployeeByUserId: (uid) => get().employees.find(e => e.id === uid),
@@ -367,46 +423,72 @@ export const useAppStore = create<AppState>()(
         set((state) => ({ documents: [...state.documents, newDocEntry] }));
       },
 
-      bulkAddEmployees: async (newEmployees) => {
-        // Implementación simplificada para bulk: 
-        // IMPORTANTE: Bulk add desde excel NO creará cuentas de Auth automáticamente
-        // porque requiere contraseñas.
-        // En esta versión, solo guardaremos la data en Firestore con IDs generados,
-        // pero estos usuarios NO podrán loguearse hasta que se les cree una cuenta Auth manual
-        // o se implemente una función Cloud.
-
+      bulkAddEmployees: async (newEmployeesData) => {
         set({ isLoading: true });
         const batch = writeBatch(db);
+        const { employees: existingEmployees } = get();
 
-        const employeesToAdd: Employee[] = [];
+        const updatedEmployees = [...existingEmployees];
+        let addedCount = 0;
+        let updatedCount = 0;
 
-        newEmployees.forEach((e, idx) => {
-          // Generar un ID temporal (no sirve para login real, solo para gestión)
-          const tempId = "bulk_" + Date.now() + "_" + idx;
-          const newEmp: Employee = {
-            ...e,
-            id: tempId,
-            role: 'worker',
-            isActive: true,
-            email: e.email || `temp_${tempId}@ggss.cl` // Email placeholder
-          };
-          employeesToAdd.push(newEmp);
+        newEmployeesData.forEach((newData, idx) => {
+          // Buscar si ya existe por RUT
+          const existingIdx = updatedEmployees.findIndex(e => e.rut === newData.rut);
 
-          const docRef = doc(db, 'Colaboradores', tempId);
-          batch.set(docRef, newEmp);
+          if (existingIdx !== -1) {
+            // ACTUALIZAR EXISTENTE
+            const existingEmp = updatedEmployees[existingIdx];
+            const updatedEmp = {
+              ...existingEmp,
+              // Campos solicitados específicamente para actualizar
+              fechaInicioContrato: newData.fechaInicioContrato || existingEmp.fechaInicioContrato,
+              fechaTerminoContrato: newData.fechaTerminoContrato || existingEmp.fechaTerminoContrato,
+              isActive: newData.isActive,
+              // Opcional: actualizar otros campos si vienen en el excel y son relevantes
+              cargo: newData.cargo || existingEmp.cargo,
+              currentSiteId: newData.currentSiteId || existingEmp.currentSiteId,
+            };
+
+            updatedEmployees[existingIdx] = updatedEmp;
+            const docRef = doc(db, 'Colaboradores', existingEmp.id);
+            batch.update(docRef, {
+              fechaInicioContrato: updatedEmp.fechaInicioContrato || null,
+              fechaTerminoContrato: updatedEmp.fechaTerminoContrato || null,
+              isActive: updatedEmp.isActive,
+              cargo: updatedEmp.cargo,
+              currentSiteId: updatedEmp.currentSiteId || null
+            });
+            updatedCount++;
+          } else {
+            // AGREGAR NUEVO
+            const tempId = "bulk_" + Date.now() + "_" + idx;
+            const newEmp: Employee = {
+              ...newData,
+              id: tempId,
+              role: 'worker',
+              email: newData.email || `temp_${tempId}@ggss.cl`,
+              isActive: newData.isActive
+            };
+            updatedEmployees.push(newEmp);
+            const docRef = doc(db, 'Colaboradores', tempId);
+            batch.set(docRef, newEmp);
+            addedCount++;
+          }
         });
 
         try {
           await batch.commit();
-          set(state => ({ employees: [...state.employees, ...employeesToAdd] }));
-          alert("Carga masiva completada. NOTA: Estos usuarios no tienen cuenta de acceso (password). Deben crearse manualmente o editarse.");
+          set({ employees: updatedEmployees });
+          alert(`Carga completada:\n- ${addedCount} nuevos colaboradores agregados.\n- ${updatedCount} colaboradores existentes actualizados.`);
         } catch (error) {
-          console.error("Error bulk add:", error);
-          alert("Error en carga masiva.");
+          console.error("Error bulk upsert:", error);
+          alert("Error en la carga masiva.");
         } finally {
           set({ isLoading: false });
         }
       },
+
 
       saveF30Comparison: (record) => {
         const newRecord = { ...record, id: Date.now(), timestamp: new Date().toISOString() };
@@ -873,6 +955,51 @@ export const useAppStore = create<AppState>()(
         } catch (error) { console.error(error); }
       },
 
+      // --- BOARD NOTE ACTIONS ---
+      fetchBoardNotes: async () => {
+        try {
+          const snapshot = await getDocs(collection(db, "BoardNotes"));
+          const notes: BoardNote[] = [];
+          snapshot.forEach(doc => notes.push({ ...doc.data(), id: doc.id } as BoardNote));
+          notes.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+          set({ boardNotes: notes });
+        } catch (error) { console.error("Error fetching board notes:", error); }
+      },
+
+      addBoardNote: async (noteData) => {
+        const id = "note_" + Date.now();
+        const now = new Date().toISOString();
+        const newNote: BoardNote = {
+          ...noteData,
+          id,
+          createdAt: now,
+          updatedAt: now,
+        };
+        try {
+          await setDoc(doc(db, "BoardNotes", id), newNote);
+          set(state => ({ boardNotes: [newNote, ...state.boardNotes] }));
+        } catch (error) { console.error("Error adding board note:", error); }
+      },
+
+      updateBoardNote: async (id, data) => {
+        const now = new Date().toISOString();
+        const updateData = { ...data, updatedAt: now };
+        try {
+          const docRef = doc(db, "BoardNotes", id);
+          await updateDoc(docRef, updateData);
+          set(state => ({
+            boardNotes: state.boardNotes.map(n => n.id === id ? { ...n, ...updateData } : n)
+          }));
+        } catch (error) { console.error("Error updating board note:", error); }
+      },
+
+      deleteBoardNote: async (id) => {
+        try {
+          await deleteDoc(doc(db, "BoardNotes", id));
+          set(state => ({ boardNotes: state.boardNotes.filter(n => n.id !== id) }));
+        } catch (error) { console.error("Error deleting board note:", error); }
+      },
+
       // --- UI ACTIONS ---
       showNotification: (message, type) => {
         const id = "notif_" + Date.now();
@@ -912,8 +1039,98 @@ export const useAppStore = create<AppState>()(
               employees: state.employees.map(e => e.id === employeeId ? { ...e, fcmTokens: updatedTokens } : e)
             }));
           }
+
         } catch (error) { console.error("Error registering token:", error); }
       },
+
+      fetchGuardRounds: async () => {
+        try {
+          const snapshot = await getDocs(collection(db, "Rondas"));
+          const rounds: GuardRound[] = [];
+          snapshot.forEach(doc => rounds.push({ ...doc.data(), id: doc.id } as GuardRound));
+          rounds.sort((a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime());
+          set({ guardRounds: rounds });
+        } catch (error) { console.error("Error fetching rounds:", error); }
+      },
+
+      addGuardRound: async (roundData) => {
+        const id = "round_" + Date.now();
+        const newRound: GuardRound = {
+          ...roundData,
+          id,
+          startTime: new Date().toISOString(),
+          status: 'IN_PROGRESS',
+        };
+        try {
+          await setDoc(doc(db, "Rondas", id), newRound);
+          set(state => ({ guardRounds: [newRound, ...state.guardRounds] }));
+          return id;
+        } catch (error) {
+          console.error("Error adding round:", error);
+          throw error;
+        }
+      },
+
+      updateGuardRound: async (id, data) => {
+        try {
+          const docRef = doc(db, "Rondas", id);
+          await updateDoc(docRef, data);
+          set(state => ({
+            guardRounds: state.guardRounds.map(r => r.id === id ? { ...r, ...data } : r)
+          }));
+        } catch (error) { console.error("Error updating round:", error); }
+      },
+
+      // --- LOAN ACTIONS ---
+      fetchLoans: async () => {
+        try {
+          const snapshot = await getDocs(collection(db, "Prestamos"));
+          const loans: Loan[] = [];
+          snapshot.forEach(doc => loans.push({ ...doc.data(), id: doc.id } as Loan));
+          loans.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+          set({ loans });
+        } catch (error) { console.error("Error fetching loans:", error); }
+      },
+
+      addLoan: async (loanData) => {
+        const id = "loan_" + Date.now();
+        const newLoan: Loan = {
+          ...loanData,
+          id,
+          status: 'PENDING',
+          createdAt: new Date().toISOString(),
+        };
+        try {
+          await setDoc(doc(db, "Prestamos", id), newLoan);
+          set(state => ({ loans: [newLoan, ...state.loans] }));
+        } catch (error) { console.error("Error adding loan:", error); }
+      },
+
+      updateLoan: async (id, data) => {
+        try {
+          const docRef = doc(db, "Prestamos", id);
+          await updateDoc(docRef, data);
+          set(state => ({
+            loans: state.loans.map(l => l.id === id ? { ...l, ...data } : l)
+          }));
+        } catch (error) { console.error("Error updating loan:", error); }
+      },
+
+      deleteLoan: async (id) => {
+        try {
+          await deleteDoc(doc(db, "Prestamos", id));
+          set(state => ({ loans: state.loans.filter(l => l.id !== id) }));
+        } catch (error) { console.error("Error deleting loan:", error); }
+      },
+
+      uploadLoanPdf: async (file, filename) => {
+        const storageRef = ref(storage, `loans/${filename}`);
+        await uploadBytes(storageRef, file);
+        return await getDownloadURL(storageRef);
+      },
+
+
+
     }),
     {
       name: 'ggss-storage-v2',

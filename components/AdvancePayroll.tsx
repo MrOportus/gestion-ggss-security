@@ -3,7 +3,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { useAppStore } from '../store/useAppStore';
 import {
     Users, Trash2, Send, Search, Building2,
-    DollarSign, CheckCircle, Clock, FileText, Download, Calendar
+    DollarSign, CheckCircle, Clock, FileText, Download, Calendar, ArrowLeft
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
@@ -186,8 +186,11 @@ const AdvancePayroll: React.FC<AdvancePayrollProps> = ({ onBack }) => {
         <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
             <div className="flex items-center justify-between">
                 <div className="flex items-center gap-4">
-                    <button onClick={onBack} className="text-sm font-bold text-blue-600 hover:text-blue-800">
-                        ← Volver
+                    <button
+                        onClick={onBack}
+                        className="p-3 bg-white rounded-2xl border border-slate-100 shadow-sm hover:bg-slate-50 text-slate-500 transition-all hover:scale-105"
+                    >
+                        <ArrowLeft size={20} />
                     </button>
                     <h2 className="text-xl font-bold text-slate-800">Nómina de Anticipos</h2>
                 </div>

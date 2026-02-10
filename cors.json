@@ -1,0 +1,22 @@
+[
+    {
+        "origin": [
+            "http://localhost:3000",
+            "http://localhost:5173",
+            "https://gen-lang-client-08607869-461c2.web.app"
+        ],
+        "method": [
+            "GET",
+            "POST",
+            "PUT",
+            "DELETE",
+            "HEAD"
+        ],
+        "maxAgeSeconds": 3600,
+        "responseHeader": [
+            "Content-Type",
+            "Authorization",
+            "x-goog-resumable"
+        ]
+    }
+]

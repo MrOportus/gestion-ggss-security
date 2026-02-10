@@ -3,6 +3,7 @@ import { initializeApp } from "firebase/app";
 import { getFirestore } from "firebase/firestore";
 import { getAuth } from "firebase/auth";
 import { getMessaging } from "firebase/messaging";
+import { getStorage } from "firebase/storage";
 
 const firebaseConfig = {
   apiKey: "AIzaSyBJ-1CfRG63DvsD5Enp2Eys-WvGrenMljE",
@@ -19,6 +20,7 @@ const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app);
 export const auth = getAuth(app);
 export const messaging = getMessaging(app);
+export const storage = getStorage(app);
 
 // 2. Inicializar App Secundaria (Para crear usuarios sin cerrar sesión del Admin)
 // Esto es necesario en aplicaciones puramente frontend para evitar que al crear un usuario

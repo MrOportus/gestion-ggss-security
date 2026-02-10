@@ -11,13 +11,20 @@ import { LogOut, LayoutDashboard, Users, Clock, MapPin, ClipboardList, RefreshCw
 import { DailyShiftPayment } from './components/DailyShiftPayment';
 import { GlobalOverlay } from './components/GlobalOverlay';
 import SupervisorManagement from './pages/SupervisorManagement';
+import NotesPage from './pages/NotesPage';
+import AttendancePage from './pages/AttendancePage';
+import RoundsAdminPage from './pages/RoundsAdminPage';
+import ShiftManagement from './pages/ShiftManagement';
+import LoansPage from './pages/LoansPage';
+import { StickyNote, Navigation, CalendarDays, Receipt } from 'lucide-react';
+
+
 
 const App: React.FC = () => {
   const { currentUser, logout, fetchInitialData, isLoading, initializeAuthListener } = useAppStore();
-  const [currentView, setCurrentView] = useState<'dashboard' | 'employees' | 'tasks' | 'sites' | 'payments' | 'supervisor_mgmt'>('dashboard');
+  const [currentView, setCurrentView] = useState<'dashboard' | 'employees' | 'tasks' | 'sites' | 'payments' | 'supervisor_mgmt' | 'notes' | 'attendance' | 'rounds' | 'shift_management' | 'loans'>('dashboard');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [authInitialized, setAuthInitialized] = useState(false);
-  const [showAsistenciaTooltip, setShowAsistenciaTooltip] = useState(false);
 
   // Inicializar Auth Listener una sola vez
   useEffect(() => {
@@ -101,37 +108,39 @@ const App: React.FC = () => {
             <span className="font-medium">Tareas Recurrentes</span>
           </button>
 
+          <button onClick={() => setCurrentView('shift_management')} className={navItemClass('shift_management')}>
+            <CalendarDays size={20} />
+            <span className="font-medium">Gestión de Turnos</span>
+          </button>
+
           <button onClick={() => setCurrentView('payments')} className={navItemClass('payments')}>
             <DollarSign size={20} />
             <span className="font-medium">Pago de Turnos</span>
           </button>
 
-          <div className="relative">
-            <button
-              onClick={() => setShowAsistenciaTooltip(true)}
-              className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-slate-500 hover:bg-slate-50 hover:text-slate-900 transition-all"
-            >
-              <Clock size={20} />
-              <span className="font-medium">Asistencia</span>
+          <button onClick={() => setCurrentView('loans')} className={navItemClass('loans')}>
+            <Receipt size={20} />
+            <span className="font-medium">Préstamos</span>
+          </button>
+
+
+          <button onClick={() => setCurrentView('notes')} className={navItemClass('notes')}>
+            <StickyNote size={20} />
+            <span className="font-medium">Notas y Tareas</span>
+          </button>
+
+          <button onClick={() => setCurrentView('attendance')} className={navItemClass('attendance')}>
+            <Clock size={20} />
+            <span className="font-medium">Asistencia</span>
+          </button>
+
+          {currentUser.role === 'admin' && (
+            <button onClick={() => setCurrentView('rounds')} className={navItemClass('rounds')}>
+              <Navigation size={20} />
+              <span className="font-medium">Monitoreo Rondas</span>
             </button>
-            {showAsistenciaTooltip && (
-              <div
-                className="absolute inset-x-2 top-1/2 -translate-y-1/2 z-50 bg-slate-900 text-white px-3 py-2 rounded-lg flex items-center justify-between shadow-2xl animate-in fade-in zoom-in duration-200 border border-slate-800"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <div className="flex items-center gap-2">
-                  <Clock size={14} className="text-slate-400" />
-                  <span className="text-[10px] font-black uppercase tracking-wider">Proximamente...</span>
-                </div>
-                <button
-                  onClick={() => setShowAsistenciaTooltip(false)}
-                  className="p-1 hover:bg-white/10 rounded transition-colors"
-                >
-                  <X size={12} />
-                </button>
-              </div>
-            )}
-          </div>
+          )}
+
 
           {currentUser.role === 'admin' && (
             <>
@@ -195,7 +204,14 @@ const App: React.FC = () => {
                   currentView === 'employees' ? 'Empleados' :
                     currentView === 'tasks' ? 'Tareas Recurrentes' :
                       currentView === 'sites' ? 'Sucursales' :
-                        currentView === 'payments' ? 'Pago de Turnos' : currentView}
+                        currentView === 'payments' ? 'Pago de Turnos' :
+                          currentView === 'notes' ? 'Notas y Tareas' :
+                            currentView === 'attendance' ? 'Asistencia' :
+                              currentView === 'rounds' ? 'Monitoreo Rondas' :
+                                currentView === 'shift_management' ? 'Gestión de Turnos' :
+                                  currentView === 'loans' ? 'Préstamos' : currentView}
+
+
               </span>
             </div>
           </div>
@@ -229,36 +245,35 @@ const App: React.FC = () => {
                 <div className="flex items-center gap-3"><ClipboardList size={20} /> Tareas Recurrentes</div>
                 <ChevronRight size={16} className="text-slate-300" />
               </button>
+              <button onClick={() => handleNavChange('shift_management')} className={mobileNavItemClass('shift_management')}>
+                <div className="flex items-center gap-3"><CalendarDays size={20} /> Gestión de Turnos</div>
+                <ChevronRight size={16} className="text-slate-300" />
+              </button>
               <button onClick={() => handleNavChange('payments')} className={mobileNavItemClass('payments')}>
                 <div className="flex items-center gap-3"><DollarSign size={20} /> Pago de Turnos</div>
                 <ChevronRight size={16} className="text-slate-300" />
               </button>
-              <div className="relative">
-                <button
-                  onClick={() => setShowAsistenciaTooltip(true)}
-                  className="w-full flex items-center justify-between px-6 py-4 border-b border-slate-100 text-sm font-bold text-slate-400 hover:bg-slate-50 transition-colors"
-                >
-                  <div className="flex items-center gap-3"><Clock size={20} /> Asistencia</div>
+              <button onClick={() => handleNavChange('loans')} className={mobileNavItemClass('loans')}>
+                <div className="flex items-center gap-3"><Receipt size={20} /> Préstamos</div>
+                <ChevronRight size={16} className="text-slate-300" />
+              </button>
+
+              <button onClick={() => handleNavChange('notes')} className={mobileNavItemClass('notes')}>
+                <div className="flex items-center gap-3"><StickyNote size={20} /> Notas y Tareas</div>
+                <ChevronRight size={16} className="text-slate-300" />
+              </button>
+              <button onClick={() => handleNavChange('attendance')} className={mobileNavItemClass('attendance')}>
+                <div className="flex items-center gap-3"><Clock size={20} /> Asistencia</div>
+                <ChevronRight size={16} className="text-slate-300" />
+              </button>
+
+              {currentUser.role === 'admin' && (
+                <button onClick={() => handleNavChange('rounds')} className={mobileNavItemClass('rounds')}>
+                  <div className="flex items-center gap-3"><Navigation size={20} /> Monitoreo Rondas</div>
                   <ChevronRight size={16} className="text-slate-300" />
                 </button>
-                {showAsistenciaTooltip && (
-                  <div
-                    className="absolute inset-x-4 top-1/2 -translate-y-1/2 z-50 bg-slate-900 text-white px-4 py-3 rounded-xl flex items-center justify-between shadow-2xl animate-in fade-in zoom-in duration-200 border border-slate-800"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <div className="flex items-center gap-3">
-                      <Clock size={16} className="text-slate-400" />
-                      <span className="text-xs font-black uppercase tracking-wider">Proximamente...</span>
-                    </div>
-                    <button
-                      onClick={() => setShowAsistenciaTooltip(false)}
-                      className="p-1.5 hover:bg-white/10 rounded-lg transition-colors"
-                    >
-                      <X size={14} />
-                    </button>
-                  </div>
-                )}
-              </div>
+              )}
+
 
               {currentUser.role === 'admin' && (
                 <button onClick={() => handleNavChange('supervisor_mgmt')} className={mobileNavItemClass('supervisor_mgmt')}>
@@ -300,7 +315,14 @@ const App: React.FC = () => {
                 <DailyShiftPayment />
               </div>
             )}
+            {currentView === 'notes' && <NotesPage />}
+            {currentView === 'attendance' && <AttendancePage />}
+            {currentView === 'rounds' && currentUser.role === 'admin' && <RoundsAdminPage />}
             {currentView === 'supervisor_mgmt' && currentUser.role === 'admin' && <SupervisorManagement />}
+            {currentView === 'shift_management' && <ShiftManagement />}
+            {currentView === 'loans' && <LoansPage />}
+
+
           </div>
         </div>
       </main>

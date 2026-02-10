@@ -60,13 +60,18 @@ export interface Employee {
 }
 
 export interface AttendanceLog {
-  id: number;
-  employeeId: string; // Cambiado a string para coincidir con UID
+  id: string;
+  employeeId: string;
+  employeeName: string;
+  rut: string;
   timestamp: string;
   type: 'check_in' | 'check_out';
-  locationLat?: number;
-  locationLng?: number;
-  siteId?: number;
+  locationLat?: number | null;
+  locationLng?: number | null;
+  siteId?: number | string | null;
+  siteName: string;
+  photoUrl?: string;
+  isManual?: boolean;
 }
 
 export interface Document {
@@ -211,3 +216,52 @@ export interface SupervisorSubTask {
   createdAt: string;
   dueDate?: string;
 }
+
+export interface BoardNote {
+  id: string;
+  title: string;
+  content: string;
+  checklist: { id: string; text: string; completed: boolean }[];
+  color?: string;
+  createdAt: string;
+  updatedAt: string;
+  createdBy: string;
+  createdByName: string;
+}
+
+export interface GuardRound {
+  id: string;
+  workerId: string;
+  workerName: string;
+  siteId: string | number;
+  siteName: string;
+  startTime: string;
+  endTime?: string;
+  startLocation: { lat: number; lng: number; accuracy?: number };
+  endLocation?: { lat: number; lng: number; accuracy?: number };
+  status: 'IN_PROGRESS' | 'COMPLETED';
+  path?: { lat: number; lng: number; timestamp: string; accuracy?: number }[];
+}
+
+export interface LoanInstallment {
+  month: string; // YYYY-MM
+  amount: number;
+  isPaid: boolean;
+  paidAt?: string;
+}
+
+export interface Loan {
+  id: string;
+  workerId: string;
+  workerName: string;
+  workerRut: string;
+  amount: number;
+  installmentsCount: number;
+  firstPaymentDate: string; // ISO date string (YYYY-MM-DD)
+  status: 'PENDING' | 'PAID' | 'PARTIAL';
+  installments: LoanInstallment[];
+  pdfUrl?: string;
+  createdAt: string;
+  createdBy: string;
+}
+

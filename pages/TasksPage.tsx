@@ -4,13 +4,14 @@ import {
   ClipboardList, Copy, CheckCircle, FileText, Send,
   Clock, UserPlus, FileSearch, Upload, Loader2, Table as TableIcon,
   History, Calendar, Users as UsersIcon, ChevronRight, X, Sparkles, Search, MapPin,
-  Briefcase, DollarSign, Download, Building2, Camera
+  Briefcase, DollarSign, Download, Building2, Camera, ArrowLeft
 } from 'lucide-react';
 import SmartAutofill from '../components/SmartAutofill';
 import { GoogleGenAI } from "@google/genai";
 import * as XLSX from 'xlsx';
 import { ComparisonRecord } from '../types';
 import AdvancePayroll from '../components/AdvancePayroll';
+import GalileoExtractor from '../components/GalileoExtractor';
 import { Banknote } from 'lucide-react';
 import { getToken, onMessage } from "firebase/messaging";
 import { messaging } from '../lib/firebase';
@@ -22,7 +23,7 @@ const TasksPage: React.FC = () => {
     currentUser, supervisorTasks, updateSupervisorTask,
     registerFCMToken
   } = useAppStore();
-  const [activeTask, setActiveTask] = useState<'info_reemplazo' | 'comparar_f30' | 'smart_autofill' | 'generar_contrato' | 'plataforma_falabella' | 'nomina_anticipos' | 'formalizar_servicio' | 'supervision_sucursal' | 'informar_renuncia' | null>(null);
+  const [activeTask, setActiveTask] = useState<'info_reemplazo' | 'comparar_f30' | 'smart_autofill' | 'generar_contrato' | 'plataforma_falabella' | 'nomina_anticipos' | 'formalizar_servicio' | 'supervision_sucursal' | 'informar_renuncia' | 'extractor_galileo' | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [viewingRecord, setViewingRecord] = useState<ComparisonRecord | null>(null);
 
@@ -737,6 +738,7 @@ Documentos que se adjuntan.
     { id: 'plataforma_falabella', title: 'Dia 14 Falabella', icon: <UsersIcon className="text-green-600" />, desc: 'Cruce de activos en plataforma vs planilla de cobros.' },
     { id: 'smart_autofill', title: 'Auto-llenado Inteligente', icon: <Sparkles className="text-amber-500" />, desc: 'Extracción de datos con IA para formularios web.' },
     { id: 'formalizar_servicio', title: 'Formalizar Servicio', icon: <ClipboardList className="text-rose-500" />, desc: 'Generar tabla de requerimiento de servicio Falabella.' },
+    { id: 'extractor_galileo', title: 'Extractor de Turnos Galileo', icon: <TableIcon className="text-blue-600" />, desc: 'Extrae datos de notificaciones Galileo para planilla de cobros.' },
     { id: 'nomina_anticipos', title: 'Nómina Anticipos', icon: <Banknote className="text-amber-600" />, desc: 'Ingreso masivo de anticipos por sucursal para el día 15.', hidden: currentUser && currentUser.role === 'worker' },
     { id: 'supervision_sucursal', title: 'Supervisión de Sucursal', icon: <Building2 className="text-indigo-600" />, desc: 'Checklists de supervisión asignados por administración.', hidden: currentUser && currentUser.role === 'worker' },
     { id: 'informar_renuncia', title: 'Informar Renuncia', icon: <X className="text-rose-600" />, desc: 'Reportar renuncia de un trabajador con documentos adjuntos.', hidden: currentUser && currentUser.role === 'worker' },
@@ -777,10 +779,17 @@ Documentos que se adjuntan.
         <SmartAutofill onBack={() => setActiveTask(null)} />
       ) : activeTask === 'nomina_anticipos' ? (
         <AdvancePayroll onBack={() => setActiveTask(null)} />
+      ) : activeTask === 'extractor_galileo' ? (
+        <GalileoExtractor onBack={() => setActiveTask(null)} />
       ) : activeTask === 'supervision_sucursal' ? (
         <div className="animate-in slide-in-from-bottom-4 duration-300 space-y-6 pb-24">
           <div className="flex items-center gap-4">
-            <button onClick={() => { setActiveTask(null); setSelectedSupervisionId(null); }} className="text-sm font-bold text-blue-600 hover:text-blue-800">← Menú</button>
+            <button
+              onClick={() => { setActiveTask(null); setSelectedSupervisionId(null); }}
+              className="p-3 bg-white rounded-2xl border border-slate-100 shadow-sm hover:bg-slate-50 text-slate-500 transition-all hover:scale-105"
+            >
+              <ArrowLeft size={20} />
+            </button>
             <h2 className="text-xl font-bold text-slate-800">Supervisión de Sucursal</h2>
           </div>
 
@@ -899,7 +908,12 @@ Documentos que se adjuntan.
       ) : activeTask === 'informar_renuncia' ? (
         <div className="animate-in slide-in-from-bottom-4 duration-300 space-y-6 pb-24 max-w-2xl mx-auto">
           <div className="flex items-center gap-4">
-            <button onClick={() => setActiveTask(null)} className="text-sm font-bold text-blue-600 hover:text-blue-800">← Menú</button>
+            <button
+              onClick={() => setActiveTask(null)}
+              className="p-3 bg-white rounded-2xl border border-slate-100 shadow-sm hover:bg-slate-50 text-slate-500 transition-all hover:scale-105"
+            >
+              <ArrowLeft size={20} />
+            </button>
             <h2 className="text-xl font-bold text-slate-800">Informar Renuncia</h2>
           </div>
 
@@ -1100,7 +1114,12 @@ Documentos que se adjuntan.
         <div className="animate-in slide-in-from-bottom-4 duration-300 space-y-6">
           <div className="flex items-center justify-between border-b border-slate-200 pb-4">
             <div className="flex items-center gap-4">
-              <button onClick={() => setActiveTask(null)} className="text-sm font-bold text-blue-600 hover:text-blue-800">← Menú</button>
+              <button
+                onClick={() => setActiveTask(null)}
+                className="p-3 bg-white rounded-2xl border border-slate-100 shadow-sm hover:bg-slate-50 text-slate-500 transition-all hover:scale-105"
+              >
+                <ArrowLeft size={20} />
+              </button>
               <h2 className="text-xl font-bold text-slate-800">Formalizar Servicio Falabella</h2>
             </div>
             {formalizarRows.length > 0 && (
@@ -1432,7 +1451,12 @@ Documentos que se adjuntan.
       ) : activeTask === 'generar_contrato' ? (
         <div className="animate-in slide-in-from-bottom-4 duration-300 space-y-6">
           <div className="flex items-center gap-4 border-b border-slate-200 pb-4">
-            <button onClick={() => setActiveTask(null)} className="text-sm font-bold text-blue-600 hover:text-blue-800">← Volver al menú</button>
+            <button
+              onClick={() => setActiveTask(null)}
+              className="p-3 bg-white rounded-2xl border border-slate-100 shadow-sm hover:bg-slate-50 text-slate-500 transition-all hover:scale-105"
+            >
+              <ArrowLeft size={20} />
+            </button>
             <h2 className="text-xl font-bold text-slate-800">Tarea: Generar Contrato</h2>
           </div>
 
@@ -1673,7 +1697,12 @@ Documentos que se adjuntan.
       ) : activeTask === 'plataforma_falabella' ? (
         <div className="animate-in slide-in-from-bottom-4 duration-300 space-y-6">
           <div className="flex items-center gap-4 border-b border-slate-200 pb-4">
-            <button onClick={() => setActiveTask(null)} className="text-sm font-bold text-blue-600 hover:text-blue-800">← Volver al menú</button>
+            <button
+              onClick={() => setActiveTask(null)}
+              className="p-3 bg-white rounded-2xl border border-slate-100 shadow-sm hover:bg-slate-50 text-slate-500 transition-all hover:scale-105"
+            >
+              <ArrowLeft size={20} />
+            </button>
             <h2 className="text-xl font-bold text-slate-800">Dia 14 Falabella</h2>
           </div>
 
@@ -1920,7 +1949,12 @@ Documentos que se adjuntan.
       ) : activeTask === 'info_reemplazo' ? (
         <div className="animate-in slide-in-from-bottom-4 duration-300 space-y-6">
           <div className="flex items-center gap-4 border-b border-slate-200 pb-4">
-            <button onClick={() => setActiveTask(null)} className="text-sm font-bold text-blue-600 hover:text-blue-800">← Volver al menú</button>
+            <button
+              onClick={() => setActiveTask(null)}
+              className="p-3 bg-white rounded-2xl border border-slate-100 shadow-sm hover:bg-slate-50 text-slate-500 transition-all hover:scale-105"
+            >
+              <ArrowLeft size={20} />
+            </button>
             <h2 className="text-xl font-bold text-slate-800">Generador: Info Reemplazo</h2>
           </div>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
@@ -2113,7 +2147,12 @@ Documentos que se adjuntan.
           <div className="space-y-6">
             <div className="flex items-center justify-between border-b border-slate-200 pb-4">
               <div className="flex items-center gap-4">
-                <button onClick={() => setActiveTask(null)} className="text-sm font-bold text-blue-600 hover:text-blue-800">← Volver</button>
+                <button
+                  onClick={() => setActiveTask(null)}
+                  className="p-3 bg-white rounded-2xl border border-slate-100 shadow-sm hover:bg-slate-50 text-slate-500 transition-all hover:scale-105"
+                >
+                  <ArrowLeft size={20} />
+                </button>
                 <h2 className="text-xl font-bold text-slate-800">Cruce F30-1 vs Planilla</h2>
               </div>
               {finalComparison.length > 0 && (

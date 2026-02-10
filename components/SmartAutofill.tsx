@@ -1,17 +1,16 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
     Sparkles,
     Terminal,
     CheckCircle,
-    Copy,
     Eraser,
-    ArrowRight,
     User,
     Calendar,
     Hash,
     Loader2,
     Search,
-    Users
+    Users,
+    ArrowLeft
 } from 'lucide-react';
 import { GoogleGenAI } from "@google/genai";
 import { useAppStore } from '../store/useAppStore';
@@ -245,7 +244,12 @@ const SmartAutofill: React.FC<{ onBack: () => void }> = ({ onBack }) => {
         <div className="animate-in slide-in-from-bottom-4 duration-300 space-y-6">
             {/* HEADER */}
             <div className="flex items-center gap-4 border-b border-slate-200 pb-4">
-                <button onClick={onBack} className="text-sm font-bold text-blue-600 hover:text-blue-800 transition-colors">← Volver al menú</button>
+                <button
+                    onClick={onBack}
+                    className="p-3 bg-white rounded-2xl border border-slate-100 shadow-sm hover:bg-slate-50 text-slate-500 transition-all hover:scale-105"
+                >
+                    <ArrowLeft size={20} />
+                </button>
                 <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
                     <Sparkles className="text-amber-500" /> Modulo de Auto-llenado
                 </h2>
