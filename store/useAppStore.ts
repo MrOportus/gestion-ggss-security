@@ -444,6 +444,8 @@ export const useAppStore = create<AppState>()(
               // Campos solicitados específicamente para actualizar
               fechaInicioContrato: newData.fechaInicioContrato || existingEmp.fechaInicioContrato,
               fechaTerminoContrato: newData.fechaTerminoContrato || existingEmp.fechaTerminoContrato,
+              fechaVencimientoOS10: newData.fechaVencimientoOS10 || existingEmp.fechaVencimientoOS10,
+              codigo: newData.codigo || existingEmp.codigo,
               isActive: newData.isActive,
               // Opcional: actualizar otros campos si vienen en el excel y son relevantes
               cargo: newData.cargo || existingEmp.cargo,
@@ -455,6 +457,8 @@ export const useAppStore = create<AppState>()(
             batch.update(docRef, {
               fechaInicioContrato: updatedEmp.fechaInicioContrato || null,
               fechaTerminoContrato: updatedEmp.fechaTerminoContrato || null,
+              fechaVencimientoOS10: updatedEmp.fechaVencimientoOS10 || null,
+              codigo: updatedEmp.codigo || null,
               isActive: updatedEmp.isActive,
               cargo: updatedEmp.cargo,
               currentSiteId: updatedEmp.currentSiteId || null

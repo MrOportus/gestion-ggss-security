@@ -212,6 +212,7 @@ const EmployeeModal: React.FC<EmployeeModalProps> = ({ employee, onClose }) => {
                 <DataField label="Apellido Paterno" value={editData.lastNamePaterno} name="lastNamePaterno" isEditing={isEditing} onChange={handleInputChange} />
                 <DataField label="Apellido Materno" value={editData.lastNameMaterno} name="lastNameMaterno" isEditing={isEditing} onChange={handleInputChange} />
                 <DataField label="RUT / ID" value={editData.rut} name="rut" isEditing={isEditing} onChange={handleInputChange} />
+                <DataField label="Código Interno" value={editData.codigo} name="codigo" isEditing={isEditing} onChange={handleInputChange} />
                 <DataField label="Nacimiento" value={editData.fechaNacimiento?.split('T')[0]} displayValue={editData.fechaNacimiento ? new Date(editData.fechaNacimiento).toLocaleDateString() : 'N/A'} name="fechaNacimiento" type="date" isEditing={isEditing} onChange={handleInputChange} />
                 <DataField label="Nacionalidad" value={editData.nacionalidad} name="nacionalidad" isEditing={isEditing} onChange={handleInputChange} />
                 {editData.tempPasswordLog && (

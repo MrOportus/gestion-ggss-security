@@ -53,8 +53,8 @@ const EmployeesPage: React.FC = () => {
   });
 
   // Utilidad para parsear fechas de Excel (serial o string)
-  const parseExcelDate = (val: any): string | undefined => {
-    if (!val) return undefined;
+  const parseExcelDate = (val: any): string | null => {
+    if (!val) return null;
     // Serial de Excel (ej: 44500)
     if (typeof val === 'number') {
       const date = new Date(Math.round((val - 25569) * 86400 * 1000));
@@ -78,7 +78,7 @@ const EmployeesPage: React.FC = () => {
         }
       }
     }
-    return undefined;
+    return null;
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -115,7 +115,7 @@ const EmployeesPage: React.FC = () => {
               return normalizedK.includes(normalizedPK); // Includes para mayor flexibilidad
             });
           });
-          return foundKey ? row[foundKey] : undefined;
+          return foundKey ? row[foundKey] : null;
         };
 
         // Mapeo de columnas Excel -> App Model
@@ -134,7 +134,7 @@ const EmployeesPage: React.FC = () => {
           if (servicioStr) {
             if (servicioStr.includes('vigente') || servicioStr === 'on' || servicioStr === 'activo') {
               isActive = true;
-            } else if (servicioStr.includes('desactivado') || servicioStr === 'off' || servicioStr === 'inactivo') {
+            } else if (servicioStr.includes('desactivado') || servicioStr === 'off' || servicioStr === 'inactivo' || servicioStr.includes('baja') || servicioStr.includes('desvinculado')) {
               isActive = false;
             }
           }
@@ -154,7 +154,7 @@ const EmployeesPage: React.FC = () => {
           const excelSiteName = getValue(row, ['Obra', 'Faena', 'Sucursal', 'Instalación', 'Ubicación']);
           const excelCompanyName = getValue(row, ['Empresa', 'Cliente', 'Mandante']);
 
-          let matchedSiteId = undefined;
+          let matchedSiteId = null;
 
           // Prioridad 1: Coincidencia por Nombre de Sucursal
           if (excelSiteName) {
@@ -190,12 +190,13 @@ const EmployeesPage: React.FC = () => {
             sueldoLiquido: sueldoNumber,
 
             // Fechas laborales específicas
-            fechaVencimientoOS10: parseExcelDate(getValue(row, ['curso o.s.10', 'Vencimiento OS10'])),
-            fechaInicioContrato: parseExcelDate(getValue(row, ['INICIO', 'Inicio Contrato', 'Fecha Inicio'])),
-            fechaTerminoContrato: parseExcelDate(getValue(row, ['TERMINO', 'Fin Contrato', 'Termino Contrato'])),
+            fechaVencimientoOS10: parseExcelDate(getValue(row, ['Vencimiento Curso OS10', 'curso o.s.10', 'Vencimiento OS10'])),
+            fechaInicioContrato: parseExcelDate(getValue(row, ['Inicio Contrato', 'Inicio', 'Fecha Inicio'])),
+            fechaTerminoContrato: parseExcelDate(getValue(row, ['Termino Contrato', 'Termino', 'Fin Contrato'])),
 
             isActive: isActive,
             currentSiteId: matchedSiteId, // Asignación automática
+            codigo: String(getValue(row, ['CODIGO', 'Codigo', 'id_interno']) || '').trim(),
           };
 
         }).filter(item => item !== null);

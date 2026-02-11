@@ -53,6 +53,7 @@ export interface Employee {
   talleCalzado?: string;
 
   // Otros
+  codigo?: string; // Código interno/empresa
   bancoInfo?: string;
   contactoFamiliar?: string;
   tempPasswordLog?: string; // Nuevo campo para auditoría de contraseña temporal
