@@ -162,39 +162,47 @@ Responde ÚNICAMENTE el JSON sin markdown.`;
 
             let newRows: ResultRow[] = [];
 
+            const normalizedDaysStr = normalizeDays(extracted.dias);
+            const requestedDayNames = normalizedDaysStr.split(',').map(s => s.trim());
+            const dayMap: { [key: string]: number } = {
+                "domingo": 0, "lunes": 1, "martes": 2, "miercoles": 3, "jueves": 4, "viernes": 5, "sabado": 6
+            };
+            const activeDayNumbers = requestedDayNames.map(name => dayMap[name]).filter(n => n !== undefined);
+            const includesSat = requestedDayNames.includes("sabado");
+            const includesSun = requestedDayNames.includes("domingo");
+
+            const startDate = parseDate(extracted.fecha_inicio);
+            const endDate = parseDate(extracted.fecha_termino);
+
+            const createRow = (start: Date, end: Date, count: number): ResultRow => ({
+                id: Math.random().toString(36).substr(2, 9),
+                fHoy: today,
+                fSolicitud: fSolStr,
+                motivo: extracted.motivo,
+                workerRut,
+                workerName,
+                workerBirthDate,
+                sucursal: extracted.sucursal,
+                dirSucursal: 'vacío',
+                cantDias: count,
+                fInicio: formatDate(start),
+                fTermino: formatDate(end),
+                hInicio: extracted.hora_inicio,
+                hTermino: extracted.hora_termino
+            });
+
             if (hasFullWeekPattern(extracted.dias)) {
                 // Algoritmo de desglose por bloques semanales (Lunes a Viernes)
-                const startDate = parseDate(extracted.fecha_inicio);
-                const endDate = parseDate(extracted.fecha_termino);
-
                 let currentBlock: Date[] = [];
                 let tempDate = new Date(startDate);
 
                 while (tempDate <= endDate) {
-                    const dayOfWeek = tempDate.getDay(); // 0 (Dom) a 6 (Sab)
-
-                    if (dayOfWeek >= 1 && dayOfWeek <= 5) {
-                        // Es día de semana
+                    const dow = tempDate.getDay();
+                    if (dow >= 1 && dow <= 5) {
                         currentBlock.push(new Date(tempDate));
                     } else {
-                        // Es fin de semana
                         if (currentBlock.length > 0) {
-                            newRows.push({
-                                id: Math.random().toString(36).substr(2, 9),
-                                fHoy: today,
-                                fSolicitud: fSolStr,
-                                motivo: extracted.motivo,
-                                workerRut,
-                                workerName,
-                                workerBirthDate,
-                                sucursal: extracted.sucursal,
-                                dirSucursal: 'vacío',
-                                cantDias: currentBlock.length,
-                                fInicio: formatDate(currentBlock[0]),
-                                fTermino: formatDate(currentBlock[currentBlock.length - 1]),
-                                hInicio: extracted.hora_inicio,
-                                hTermino: extracted.hora_termino
-                            });
+                            newRows.push(createRow(currentBlock[0], currentBlock[currentBlock.length - 1], currentBlock.length));
                             currentBlock = [];
                         }
                     }
@@ -202,42 +210,34 @@ Responde ÚNICAMENTE el JSON sin markdown.`;
                 }
 
                 if (currentBlock.length > 0) {
-                    newRows.push({
-                        id: Math.random().toString(36).substr(2, 9),
-                        fHoy: today,
-                        fSolicitud: fSolStr,
-                        motivo: extracted.motivo,
-                        workerRut,
-                        workerName,
-                        workerBirthDate,
-                        sucursal: extracted.sucursal,
-                        dirSucursal: 'vacío',
-                        cantDias: currentBlock.length,
-                        fInicio: formatDate(currentBlock[0]),
-                        fTermino: formatDate(currentBlock[currentBlock.length - 1]),
-                        hInicio: extracted.hora_inicio,
-                        hTermino: extracted.hora_termino
-                    });
+                    newRows.push(createRow(currentBlock[0], currentBlock[currentBlock.length - 1], currentBlock.length));
                 }
             } else {
-                // Caso simple: Un solo registro
-                const count = extracted.dias.split(',').length;
-                newRows.push({
-                    id: Math.random().toString(36).substr(2, 9),
-                    fHoy: today,
-                    fSolicitud: fSolStr,
-                    motivo: extracted.motivo,
-                    workerRut,
-                    workerName,
-                    workerBirthDate,
-                    sucursal: extracted.sucursal,
-                    dirSucursal: 'vacío',
-                    cantDias: count,
-                    fInicio: extracted.fecha_inicio,
-                    fTermino: extracted.fecha_termino,
-                    hInicio: extracted.hora_inicio,
-                    hTermino: extracted.hora_termino
-                });
+                // Nuevo algoritmo: Desglose por días, con agrupación especial Sábado+Domingo
+                let tempDate = new Date(startDate);
+                while (tempDate <= endDate) {
+                    const dow = tempDate.getDay();
+
+                    if (activeDayNumbers.includes(dow)) {
+                        let fInicio = new Date(tempDate);
+                        let fTermino = new Date(tempDate);
+                        let cantDias = 1;
+
+                        // Agrupación Sábado + Domingo: Si hoy es Sábado y se solicitan ambos
+                        if (dow === 6 && includesSat && includesSun) {
+                            const nextDay = new Date(tempDate);
+                            nextDay.setDate(nextDay.getDate() + 1);
+                            if (nextDay <= endDate) {
+                                fTermino = nextDay;
+                                cantDias = 2;
+                                tempDate.setDate(tempDate.getDate() + 1); // Saltar el domingo
+                            }
+                        }
+
+                        newRows.push(createRow(fInicio, fTermino, cantDias));
+                    }
+                    tempDate.setDate(tempDate.getDate() + 1);
+                }
             }
 
             // Agregar al principio (LIFO)
