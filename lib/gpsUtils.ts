@@ -89,9 +89,9 @@ export function douglasPeucker(points: LatLng[], epsilon: number): LatLng[] {
  * @param points Array of LatLng objects
  * @param windowSize Number of points to include in the average
  */
-export function movingAverage(points: LatLng[], windowSize: number): LatLng[] {
+export function movingAverage<T extends LatLng>(points: T[], windowSize: number): T[] {
     if (points.length < 3) return points;
-    const smoothed: LatLng[] = [];
+    const smoothed: T[] = [];
     const half = Math.floor(windowSize / 2);
 
     for (let i = 0; i < points.length; i++) {
@@ -109,6 +109,7 @@ export function movingAverage(points: LatLng[], windowSize: number): LatLng[] {
         }
 
         smoothed.push({
+            ...points[i],
             lat: sumLat / count,
             lng: sumLng / count
         });

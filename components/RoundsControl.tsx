@@ -13,7 +13,6 @@ import {
     CheckCircle
 } from 'lucide-react';
 import { GuardRound } from '../types';
-import { getHaversineDistance } from '../lib/gpsUtils';
 
 interface RoundsControlProps {
     onBack: () => void;
@@ -89,8 +88,8 @@ const RoundsControl: React.FC<RoundsControlProps> = ({ onBack }) => {
                             const lastTime = lastPoint ? new Date(lastPoint.timestamp).getTime() : 0;
                             const now = Date.now();
 
-                            // Update more frequently for walking (3 seconds)
-                            if (now - lastTime > 3000) {
+                            // Update more frequently for micro-movements (2 seconds)
+                            if (now - lastTime > 2000) {
                                 handlePositionUpdate(pos);
                             }
                         }
@@ -99,16 +98,10 @@ const RoundsControl: React.FC<RoundsControlProps> = ({ onBack }) => {
                     {
                         enableHighAccuracy: true,
                         maximumAge: 0,
-                        timeout: 10000
+                        timeout: 5000
                     }
                 );
 
-                // Store watchId in a ref to clear it later (we can reuse gpsIntervalRef or create a new one, 
-                // but since gpsIntervalRef was for the interval, let's repurpose or cast it)
-                // To be clean, we'll cast it to any or just use a new ref variable if we could, 
-                // but here we are replacing the effect. 
-                // Let's assume gpsIntervalRef can hold the ID (it's NodeJS.Timeout | null usually, but in browser it's number).
-                // We will just cast it.
                 (gpsIntervalRef.current as any) = watchId;
             }
 
@@ -124,8 +117,8 @@ const RoundsControl: React.FC<RoundsControlProps> = ({ onBack }) => {
     }, [activeRound?.id]); // Only re-run if the active round ID changes (start/stop)
 
     const handlePositionUpdate = (pos: GeolocationPosition) => {
-        // Relaxed accuracy for indoor/walking environments (35 meters)
-        if (pos.coords.accuracy > 35) {
+        // High accuracy: 25 meters (more strict but necessary for micro-movements)
+        if (pos.coords.accuracy > 25) {
             console.warn("GPS Point ignored (Low accuracy):", pos.coords.accuracy);
             return;
         }
@@ -135,18 +128,7 @@ const RoundsControl: React.FC<RoundsControlProps> = ({ onBack }) => {
 
         const currentRound = state.guardRounds.find(r => r.id === activeRound.id);
         if (currentRound) {
-            const lastPoint = currentRound.path && currentRound.path.length > 0
-                ? currentRound.path[currentRound.path.length - 1]
-                : null;
-
             const newCoords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-
-            // If we have a last point, calculate distance
-            if (lastPoint) {
-                const distance = getHaversineDistance(lastPoint, newCoords);
-                // If moved less than 1.5 meters, ignore to prevent jittering noise when standing still
-                if (distance < 1.5) return;
-            }
 
             const newPoint = {
                 ...newCoords,

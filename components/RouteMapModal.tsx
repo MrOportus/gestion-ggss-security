@@ -4,7 +4,7 @@ import { MapContainer, TileLayer, Polyline, Marker, Popup, useMap } from 'react-
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { X, Navigation, MapPin } from 'lucide-react';
-import { cleanGpsPath, LatLng } from '../lib/gpsUtils';
+import { getHaversineDistance, movingAverage } from '../lib/gpsUtils';
 
 
 // Fix for Leaflet default icon issues in React using CDN URLs
@@ -30,7 +30,7 @@ const ChangeView = ({ bounds }: { bounds: L.LatLngBoundsExpression }) => {
             // Leaflet needs to recalculate size if initialized in a hidden/animated container
             const timer = setTimeout(() => {
                 map.invalidateSize();
-                map.fitBounds(bounds, { padding: [50, 50] });
+                map.fitBounds(bounds, { padding: [50, 50], maxZoom: 19 });
             }, 500); // Wait for modal animation to settle
             return () => clearTimeout(timer);
         }
@@ -41,29 +41,18 @@ const ChangeView = ({ bounds }: { bounds: L.LatLngBoundsExpression }) => {
 const RouteMapModal: React.FC<RouteMapModalProps> = ({ round, onClose }) => {
     if (!round) return null;
 
-    // Filter valid points only
-    const rawPath: LatLng[] = (round.path || [])
-        .filter((p: any) => p && typeof p.lat === 'number' && typeof p.lng === 'number' && !isNaN(p.lat) && !isNaN(p.lng))
-        .map((p: any) => ({ lat: p.lat, lng: p.lng } as LatLng));
+    // For the coloring logic and smoothing, we need the raw points with timestamps
+    const rawPoints = (round.path || [])
+        .filter((p: any) => p && typeof p.lat === 'number' && typeof p.lng === 'number' && p.timestamp);
 
-    // Clean path using Douglas-Peucker and Moving Average
-    // epsilon: 0.00001 (~1-1.5 meters) - Mejor para rutas caminando
-    // windowSize: 3 - Suavizado ligero
-    const cleanedPath = cleanGpsPath(rawPath, 0.00001, 3);
+    // Apply moving average smoothing (window size 3) to raw points to fulfill "suavizado" requirement
+    // but preserving every point for stay detection logic.
+    const fullPathPoints = movingAverage(rawPoints, 3);
 
-    const pathPoints: [number, number][] = cleanedPath.map(p => [p.lat, p.lng]);
-
-    // Fallback logic for basic points
-    const finalPoints = [...pathPoints];
+    // Zoom and bounds calculations
+    const finalPoints: [number, number][] = fullPathPoints.map((p: any) => [p.lat, p.lng]);
     if (finalPoints.length === 0 && round.startLocation?.lat && !isNaN(round.startLocation.lat)) {
         finalPoints.push([round.startLocation.lat, round.startLocation.lng]);
-    }
-    if (round.endLocation?.lat && !isNaN(round.endLocation.lat)) {
-        // Only push if it's not already the last point
-        const last = finalPoints[finalPoints.length - 1];
-        if (!last || last[0] !== round.endLocation.lat || last[1] !== round.endLocation.lng) {
-            finalPoints.push([round.endLocation.lat, round.endLocation.lng]);
-        }
     }
 
     const hasPoints = finalPoints.length > 0;
@@ -74,6 +63,26 @@ const RouteMapModal: React.FC<RouteMapModalProps> = ({ round, onClose }) => {
         ? Math.floor((new Date(round.endTime).getTime() - new Date(round.startTime).getTime()) / 60000)
         : null;
 
+    // Helper to determine color of a segment
+    const getSegmentColor = (p1: any, p2: any, index: number, total: number) => {
+        const t1 = new Date(p1.timestamp).getTime();
+        const t2 = new Date(p2.timestamp).getTime();
+        const dt = (t2 - t1) / 1000; // seconds
+        const dist = getHaversineDistance(p1, p2);
+
+        // Stay detection
+        if (dist < 2) {
+            if (dt > 120) return '#b91c1c'; // Rojo intenso (Deep Red) - > 2 min
+            if (dt > 30) return '#ef4444'; // Rojo (Soft Red) - > 30 sec
+        }
+
+        // Progress coloring
+        const progress = index / total;
+        if (progress < 0.1) return '#22c55e'; // Verde (Inicia)
+        if (progress > 0.9) return '#3b82f6'; // Azul (Termina)
+        return '#f97316'; // Ámbar/Naranja (Cuerpo central - más visible que amarillo puro)
+    };
+
     return (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-300">
             <div className="bg-white w-full max-w-5xl rounded-[2.5rem] shadow-2xl overflow-hidden flex flex-col h-[85vh] animate-in zoom-in-95 duration-300">
@@ -81,30 +90,31 @@ const RouteMapModal: React.FC<RouteMapModalProps> = ({ round, onClose }) => {
                 {/* Header Section */}
                 <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-white relative z-10">
                     <div className="flex items-center gap-4">
-                        <div className="w-12 h-12 bg-blue-600 rounded-2xl flex items-center justify-center text-white shadow-lg">
-                            <Navigation size={24} />
+                        <div className="border-4 border-slate-50 w-14 h-14 bg-blue-600 rounded-2xl flex items-center justify-center text-white shadow-xl">
+                            <Navigation size={28} />
                         </div>
                         <div>
-                            <h3 className="text-xl font-black text-slate-800 tracking-tight">Recorrido de Vigilancia</h3>
-                            <p className="text-xs text-slate-400 font-bold uppercase tracking-widest">{round.workerName} • {round.siteName}</p>
+                            <h3 className="text-xl font-black text-slate-800 tracking-tight leading-none mb-1">Monitoreo de Ronda HD</h3>
+                            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest leading-none">{round.workerName} • {round.siteName}</p>
                         </div>
                     </div>
 
-                    <div className="hidden md:flex items-center gap-6 px-6 border-x border-slate-100 mx-6">
+                    <div className="hidden lg:flex items-center gap-6 px-6 border-x border-slate-100 mx-6">
                         <div className="text-center">
-                            <p className="text-[10px] font-black text-slate-300 uppercase">Tiempo</p>
-                            <p className="font-bold text-slate-700">{duration || '--'} min</p>
+                            <p className="text-[10px] font-black text-slate-300 uppercase leading-none mb-1">Intervalo</p>
+                            <p className="font-bold text-slate-700 text-sm">2 seg</p>
                         </div>
                         <div className="text-center">
-                            <p className="text-[10px] font-black text-slate-300 uppercase">Puntos</p>
-                            <p className="font-bold text-slate-700">{finalPoints.length}</p>
+                            <p className="text-[10px] font-black text-slate-300 uppercase leading-none mb-1">Duración</p>
+                            <p className="font-bold text-slate-700 text-sm">{duration || '--'} min</p>
                         </div>
-                        <div className={`px-3 py-1 rounded-full text-[10px] font-black ${round.status === 'COMPLETED' ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>
-                            {round.status === 'COMPLETED' ? 'FINALIZADA' : 'EN VIVO'}
+                        <div className="text-center">
+                            <p className="text-[10px] font-black text-slate-300 uppercase leading-none mb-1">Precisión</p>
+                            <p className="font-bold text-emerald-600 text-sm">FUSED</p>
                         </div>
                     </div>
 
-                    <button onClick={onClose} className="p-3 hover:bg-slate-100 rounded-2xl text-slate-400 transition-all">
+                    <button onClick={onClose} className="p-3 hover:bg-slate-100 rounded-2xl text-slate-400 transition-all active:scale-90">
                         <X size={24} />
                     </button>
                 </div>
@@ -114,35 +124,48 @@ const RouteMapModal: React.FC<RouteMapModalProps> = ({ round, onClose }) => {
                     {hasPoints && (
                         <MapContainer
                             center={defaultCenter}
-                            zoom={15}
+                            zoom={19}
+                            maxZoom={22}
                             style={{ height: '100%', width: '100%' }}
-                        // Note: react-leaflet 4.x sometimes has issues with dynamic bounds
                         >
                             <TileLayer
                                 attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
                                 url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                                maxZoom={22}
+                                maxNativeZoom={19}
                             />
 
                             {bounds && <ChangeView bounds={bounds} />}
 
-                            {finalPoints.length > 1 && (
-                                <Polyline
-                                    positions={finalPoints}
-                                    pathOptions={{
-                                        color: '#2563eb',
-                                        weight: 6,
-                                        opacity: 0.8,
-                                        lineJoin: 'round',
-                                        lineCap: 'round'
-                                    }}
-                                />
-                            )}
+                            {/* Dynamic Path Segments */}
+                            {fullPathPoints.length > 1 && fullPathPoints.map((point: any, idx: number) => {
+                                if (idx === 0) return null;
+                                const prevPoint = fullPathPoints[idx - 1];
+                                const color = getSegmentColor(prevPoint, point, idx, fullPathPoints.length);
+
+                                return (
+                                    <Polyline
+                                        key={`seg-${idx}`}
+                                        positions={[
+                                            [prevPoint.lat, prevPoint.lng],
+                                            [point.lat, point.lng]
+                                        ]}
+                                        pathOptions={{
+                                            color: color,
+                                            weight: 6,
+                                            opacity: 0.9,
+                                            lineJoin: 'round',
+                                            lineCap: 'round'
+                                        }}
+                                    />
+                                );
+                            })}
 
                             {round.startLocation?.lat && (
                                 <Marker position={[round.startLocation.lat, round.startLocation.lng]}>
                                     <Popup>
                                         <div className="p-1">
-                                            <p className="font-black text-blue-600 text-[10px] uppercase">Inicio</p>
+                                            <p className="font-black text-blue-600 text-[10px] uppercase">Punto de Partida</p>
                                             <p className="font-bold text-xs">{new Date(round.startTime).toLocaleTimeString()}</p>
                                         </div>
                                     </Popup>
@@ -153,7 +176,7 @@ const RouteMapModal: React.FC<RouteMapModalProps> = ({ round, onClose }) => {
                                 <Marker position={[round.endLocation.lat, round.endLocation.lng]}>
                                     <Popup>
                                         <div className="p-1">
-                                            <p className="font-black text-emerald-600 text-[10px] uppercase">Fin</p>
+                                            <p className="font-black text-emerald-600 text-[10px] uppercase">Punto de Cierre</p>
                                             <p className="font-bold text-xs">{new Date(round.endTime).toLocaleTimeString()}</p>
                                         </div>
                                     </Popup>
