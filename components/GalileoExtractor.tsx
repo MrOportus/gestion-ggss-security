@@ -341,7 +341,19 @@ Responde ÚNICAMENTE el JSON sin markdown.`;
                                             setShowWorkerList(true);
                                             setSelectedWorkerId('');
                                         }}
-                                        onFocus={() => setShowWorkerList(true)}
+                                        onFocus={() => {
+                                            setWorkerSearch('');
+                                            setShowWorkerList(true);
+                                        }}
+                                        onBlur={() => {
+                                            setTimeout(() => {
+                                                if (!workerSearch && selectedWorkerId) {
+                                                    const w = employees.find(e => e.id === selectedWorkerId);
+                                                    if (w) setWorkerSearch(`${w.firstName} ${w.lastNamePaterno}`);
+                                                }
+                                                setShowWorkerList(false);
+                                            }, 200);
+                                        }}
                                     />
                                     <button
                                         type="button"

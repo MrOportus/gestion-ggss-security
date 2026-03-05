@@ -1,7 +1,7 @@
 
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
-import { User, Employee, Site, AttendanceLog, Document, ComparisonRecord, DailyPayment, AppNotification, AppConfirmation, ContractRecord, Advance, SupervisorTask, ChecklistTemplate, ResignationRequest, RecurringSupervisorTask, SupervisorSubTask, BoardNote, GuardRound, Loan } from '../types';
+import { User, Employee, Site, AttendanceLog, Document, DigitalDocument, ComparisonRecord, DailyPayment, AppNotification, AppConfirmation, ContractRecord, Advance, SupervisorTask, ChecklistTemplate, ResignationRequest, RecurringSupervisorTask, SupervisorSubTask, BoardNote, GuardRound, Loan } from '../types';
 import { db, auth, secondaryAuth, storage } from '../lib/firebase';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import {
@@ -18,7 +18,11 @@ import {
   deleteDoc,
   setDoc,
   writeBatch,
-  getDoc
+  getDoc,
+  query,
+  where,
+  orderBy,
+  limit
 } from 'firebase/firestore';
 
 interface AppState {
@@ -41,8 +45,7 @@ interface AppState {
   supervisorSubTasks: SupervisorSubTask[];
   boardNotes: BoardNote[];
   loans: Loan[];
-
-
+  digitalDocuments: DigitalDocument[];
   // Auth Actions
   login: (email: string, pass: string) => Promise<void>;
   logout: () => void;
@@ -92,6 +95,7 @@ interface AppState {
   hideNotification: (id: string) => void;
   showConfirmation: (config: AppConfirmation) => void;
   hideConfirmation: () => void;
+  uploadFile: (file: File | Blob, path: string) => Promise<string>;
 
   // Notification Push Actions
   registerFCMToken: (employeeId: string, token: string) => Promise<void>;
@@ -134,6 +138,7 @@ interface AppState {
 
   fetchAttendanceLogs: () => Promise<void>;
   uploadAttendancePhoto: (file: Blob, filename: string) => Promise<string>;
+  forceCloseAttendance: (logId: string, endTimestamp: string, note?: string) => Promise<void>;
 
   // Round Actions
   guardRounds: GuardRound[];
@@ -147,8 +152,11 @@ interface AppState {
   updateLoan: (id: string, data: Partial<Loan>) => Promise<void>;
   deleteLoan: (id: string) => Promise<void>;
   uploadLoanPdf: (file: File, filename: string) => Promise<string>;
-
-
+  // Digital Document Actions
+  fetchDigitalDocuments: () => Promise<void>;
+  addDigitalDocument: (doc: Omit<DigitalDocument, 'id' | 'createdAt' | 'status'>) => Promise<void>;
+  signDigitalDocument: (id: string, signedUrl: string, metadata: DigitalDocument['metadata']) => Promise<void>;
+  deleteDigitalDocument: (id: string) => Promise<void>;
 
 }
 
@@ -173,6 +181,7 @@ export const useAppStore = create<AppState>()(
       boardNotes: [],
       guardRounds: [],
       loans: [],
+      digitalDocuments: [],
       notifications: [],
 
 
@@ -205,7 +214,6 @@ export const useAppStore = create<AppState>()(
                   get().fetchInitialData();
                 }
               } else {
-                // Caso especial: Admin hardcodeado en Firebase pero sin ficha de empleado
                 // Ocurre la primera vez. Asumimos rol admin si no existe ficha pero entró.
                 // (Idealmente se crea la ficha manualmente en la consola de Firebase)
                 set({ currentUser: { uid: firebaseUser.uid, email: firebaseUser.email, role: 'worker' } });
@@ -242,36 +250,61 @@ export const useAppStore = create<AppState>()(
       },
 
       fetchInitialData: async () => {
+        const { currentUser } = get();
+        if (!currentUser) return;
+
         set({ isLoading: true });
         try {
-          // 1. Cargar Colaboradores
-          const empSnapshot = await getDocs(collection(db, "Colaboradores"));
-          const loadedEmployees: Employee[] = [];
-          empSnapshot.forEach((doc) => {
-            // Aseguramos que el ID del objeto sea el ID del documento (UID)
-            loadedEmployees.push({ ...doc.data(), id: doc.id } as Employee);
-          });
+          // 1. Cargar Colaboradores (Admin: Todos, Worker: Solo él mismo)
+          const empCol = collection(db, "Colaboradores");
+          let loadedEmployees: Employee[] = [];
 
-          // 2. Cargar Sucursales
+          if (currentUser.role === 'admin' || currentUser.role === 'supervisor') {
+            const empSnapshot = await getDocs(empCol);
+            empSnapshot.forEach((doc) => {
+              loadedEmployees.push({ ...doc.data(), id: doc.id } as Employee);
+            });
+          } else {
+            // Un Worker solo ve su propia ficha por eficiencia
+            // Intentamos obtener el documento directo por UID
+            const docRef = doc(db, "Colaboradores", currentUser.uid);
+            const docSnap = await getDoc(docRef);
+            if (docSnap.exists()) {
+              loadedEmployees.push({ ...docSnap.data(), id: docSnap.id } as Employee);
+            } else {
+              // Fallback: intentar por campo 'id' si el UID no es el nombre del doc
+              const q = query(empCol, where("id", "==", currentUser.uid));
+              const qSnapshot = await getDocs(q);
+              qSnapshot.forEach((doc) => {
+                loadedEmployees.push({ ...doc.data(), id: doc.id } as Employee);
+              });
+            }
+          }
+
+          // 2. Cargar Sucursales (Necesario para todos para saber donde marcan)
           const siteSnapshot = await getDocs(collection(db, "Sucursales"));
           const loadedSites: Site[] = [];
           siteSnapshot.forEach((doc) => {
             loadedSites.push(doc.data() as Site);
           });
 
-          // 3. Cargar Tareas de Supervisores
-          const taskSnapshot = await getDocs(collection(db, "SupervisorTasks"));
-          const loadedTasks: SupervisorTask[] = [];
-          taskSnapshot.forEach((doc) => {
-            loadedTasks.push({ ...doc.data(), id: doc.id } as SupervisorTask);
-          });
+          // 3. Cargar Tareas de Supervisores (Solo Admin/Supervisor)
+          let loadedTasks: SupervisorTask[] = [];
+          if (currentUser.role === 'admin' || currentUser.role === 'supervisor') {
+            const taskSnapshot = await getDocs(collection(db, "SupervisorTasks"));
+            taskSnapshot.forEach((doc) => {
+              loadedTasks.push({ ...doc.data(), id: doc.id } as SupervisorTask);
+            });
+          }
 
-          // 4. Cargar Plantillas
-          const templateSnapshot = await getDocs(collection(db, "ChecklistTemplates"));
-          const loadedTemplates: ChecklistTemplate[] = [];
-          templateSnapshot.forEach((doc) => {
-            loadedTemplates.push({ ...doc.data(), id: doc.id } as ChecklistTemplate);
-          });
+          // 4. Cargar Plantillas (Solo Admin/Supervisor)
+          let loadedTemplates: ChecklistTemplate[] = [];
+          if (currentUser.role === 'admin' || currentUser.role === 'supervisor') {
+            const templateSnapshot = await getDocs(collection(db, "ChecklistTemplates"));
+            templateSnapshot.forEach((doc) => {
+              loadedTemplates.push({ ...doc.data(), id: doc.id } as ChecklistTemplate);
+            });
+          }
 
           set({
             employees: loadedEmployees,
@@ -280,16 +313,20 @@ export const useAppStore = create<AppState>()(
             checklistTemplates: loadedTemplates
           });
 
-          // También cargar renuncias, recurrentes y subtareas
-          get().fetchResignationRequests();
-          get().fetchRecurringTasks();
-          get().fetchSubTasks();
-          get().fetchBoardNotes();
+          // Llamadas "Smart" a otras colecciones
           get().fetchAttendanceLogs();
           get().fetchGuardRounds();
           get().fetchLoans();
+          get().fetchDigitalDocuments();
 
-
+          if (currentUser.role === 'admin' || currentUser.role === 'supervisor') {
+            get().fetchResignationRequests();
+            get().fetchRecurringTasks();
+            get().fetchSubTasks();
+            get().fetchBoardNotes();
+            get().fetchDailyPayments();
+            get().fetchAdvances();
+          }
 
         } catch (error) {
           console.error("Error cargando datos:", error);
@@ -354,16 +391,17 @@ export const useAppStore = create<AppState>()(
       },
 
       updateEmployee: async (id, data) => {
-        set((state) => ({
-          employees: state.employees.map(e => e.id === id ? { ...e, ...data } : e)
-        }));
-
         try {
           const docRef = doc(db, 'Colaboradores', id);
           // @ts-ignore
           await updateDoc(docRef, data);
+
+          set((state) => ({
+            employees: state.employees.map(e => e.id === id ? { ...e, ...data } : e)
+          }));
         } catch (error) {
           console.error("Error updating employee:", error);
+          throw error;
         }
       },
 
@@ -383,22 +421,47 @@ export const useAppStore = create<AppState>()(
         const newLogEntry: AttendanceLog = {
           ...log,
           id,
-          timestamp: new Date().toISOString(),
+          timestamp: (log as any).timestamp || new Date().toISOString(),
         };
+
+        // Sanitizar el objeto para eliminar campos con valor 'undefined', 
+        // ya que Firebase v9+ lanza error si encuentra uno.
+        Object.keys(newLogEntry).forEach(key => {
+          if (newLogEntry[key as keyof AttendanceLog] === undefined) {
+            delete newLogEntry[key as keyof AttendanceLog];
+          }
+        });
+
         try {
           await setDoc(doc(db, 'Asistencia', id), newLogEntry);
           set((state) => ({ attendanceLogs: [newLogEntry, ...state.attendanceLogs] }));
         } catch (error) {
           console.error("Error saving attendance:", error);
+          throw error;
         }
       },
 
       fetchAttendanceLogs: async () => {
+        const { currentUser } = get();
+        if (!currentUser) return;
+
         try {
-          const snapshot = await getDocs(collection(db, "Asistencia"));
+          let q;
+          if (currentUser.role === 'admin' || currentUser.role === 'supervisor') {
+            // Admin: Últimos 200 logs globales
+            q = query(collection(db, "Asistencia"), orderBy("timestamp", "desc"), limit(200));
+          } else {
+            // Worker: Solo sus propios logs, últimos 50
+            q = query(
+              collection(db, "Asistencia"),
+              where("employeeId", "==", currentUser.uid),
+              orderBy("timestamp", "desc"),
+              limit(50)
+            );
+          }
+          const snapshot = await getDocs(q);
           const logs: AttendanceLog[] = [];
           snapshot.forEach(doc => logs.push({ ...doc.data(), id: doc.id } as AttendanceLog));
-          logs.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
           set({ attendanceLogs: logs });
         } catch (error) { console.error("Error fetching attendance logs:", error); }
       },
@@ -407,6 +470,29 @@ export const useAppStore = create<AppState>()(
         const storageRef = ref(storage, `attendance/${filename}`);
         await uploadBytes(storageRef, file);
         return await getDownloadURL(storageRef);
+      },
+
+      forceCloseAttendance: async (logId, endTimestamp, note) => {
+        try {
+          const docRef = doc(db, 'Asistencia', logId);
+          const updateData: Partial<AttendanceLog> = {
+            status: 'completed',
+            endTime: endTimestamp,
+            type: 'check_out' // Mantener coherencia con sistema actual
+          };
+          if (note) updateData.systemNote = note;
+
+          await updateDoc(docRef, updateData);
+
+          set(state => ({
+            attendanceLogs: state.attendanceLogs.map(log =>
+              log.id === logId ? { ...log, ...updateData } : log
+            )
+          }));
+        } catch (error) {
+          console.error("Error force closing attendance:", error);
+          throw error;
+        }
       },
 
       getEmployeeByUserId: (uid) => get().employees.find(e => e.id === uid),
@@ -466,7 +552,7 @@ export const useAppStore = create<AppState>()(
             updatedCount++;
           } else {
             // AGREGAR NUEVO
-            const tempId = "bulk_" + Date.now() + "_" + idx;
+            const tempId = "bulk-" + Date.now() + "-" + idx;
             const newEmp: Employee = {
               ...newData,
               id: tempId,
@@ -615,6 +701,13 @@ export const useAppStore = create<AppState>()(
             newPayment.monthPeriod = new Date().toISOString().slice(0, 7);
           }
 
+          // Sanitizar para evitar errores de Firebase con 'undefined'
+          Object.keys(newPayment).forEach(key => {
+            if ((newPayment as any)[key] === undefined) {
+              delete (newPayment as any)[key];
+            }
+          });
+
           const docRef = doc(db, "TurnosDiarios", newPayment.id);
           await setDoc(docRef, newPayment);
 
@@ -721,6 +814,13 @@ export const useAppStore = create<AppState>()(
             createdAt,
           };
           newAdvances.push(newAdv);
+
+          // Sanitizar para evitar errores de Firebase con 'undefined'
+          Object.keys(newAdv).forEach(key => {
+            if ((newAdv as any)[key] === undefined) {
+              delete (newAdv as any)[key];
+            }
+          });
           const docRef = doc(db, "Anticipos", id);
           batch.set(docRef, newAdv);
         });
@@ -1048,16 +1148,35 @@ export const useAppStore = create<AppState>()(
       },
 
       fetchGuardRounds: async () => {
+        const { currentUser } = get();
+        if (!currentUser) return;
+
         try {
-          const snapshot = await getDocs(collection(db, "Rondas"));
+          let q;
+          if (currentUser.role === 'admin' || currentUser.role === 'supervisor') {
+            q = query(collection(db, "Rondas"), orderBy("startTime", "desc"), limit(100));
+          } else {
+            q = query(
+              collection(db, "Rondas"),
+              where("workerId", "==", currentUser.uid),
+              orderBy("startTime", "desc"),
+              limit(30)
+            );
+          }
+          const snapshot = await getDocs(q);
           const rounds: GuardRound[] = [];
           snapshot.forEach(doc => rounds.push({ ...doc.data(), id: doc.id } as GuardRound));
-          rounds.sort((a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime());
           set({ guardRounds: rounds });
         } catch (error) { console.error("Error fetching rounds:", error); }
       },
 
       addGuardRound: async (roundData) => {
+        console.log("addGuardRound: Intentando guardar ronda en Firestore...", roundData);
+        if (!roundData.workerId || !roundData.siteId) {
+          console.error("addGuardRound: Datos insuficientes", roundData);
+          throw new Error("Datos de trabajador o sucursal faltantes.");
+        }
+
         const id = "round_" + Date.now();
         const newRound: GuardRound = {
           ...roundData,
@@ -1066,11 +1185,19 @@ export const useAppStore = create<AppState>()(
           status: 'IN_PROGRESS',
         };
         try {
+          // Sanitización preventiva para evitar errores de 'undefined' en Firebase
+          Object.keys(newRound).forEach(key => {
+            if ((newRound as any)[key] === undefined) {
+              delete (newRound as any)[key];
+            }
+          });
+
           await setDoc(doc(db, "Rondas", id), newRound);
+          console.log("addGuardRound: Ronda guardada exitosamente con ID:", id);
           set(state => ({ guardRounds: [newRound, ...state.guardRounds] }));
           return id;
-        } catch (error) {
-          console.error("Error adding round:", error);
+        } catch (error: any) {
+          console.error("addGuardRound: Error crítico al guardar en Firestore:", error);
           throw error;
         }
       },
@@ -1087,11 +1214,23 @@ export const useAppStore = create<AppState>()(
 
       // --- LOAN ACTIONS ---
       fetchLoans: async () => {
+        const { currentUser } = get();
+        if (!currentUser) return;
+
         try {
-          const snapshot = await getDocs(collection(db, "Prestamos"));
+          let q;
+          if (currentUser.role === 'admin' || currentUser.role === 'supervisor') {
+            q = query(collection(db, "Prestamos"), orderBy("createdAt", "desc"));
+          } else {
+            q = query(
+              collection(db, "Prestamos"),
+              where("employeeId", "==", currentUser.uid),
+              orderBy("createdAt", "desc")
+            );
+          }
+          const snapshot = await getDocs(q);
           const loans: Loan[] = [];
           snapshot.forEach(doc => loans.push({ ...doc.data(), id: doc.id } as Loan));
-          loans.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
           set({ loans });
         } catch (error) { console.error("Error fetching loans:", error); }
       },
@@ -1132,6 +1271,93 @@ export const useAppStore = create<AppState>()(
         await uploadBytes(storageRef, file);
         return await getDownloadURL(storageRef);
       },
+
+      uploadFile: async (file, path) => {
+        try {
+          console.log(`Zustand: Iniciando upload a ${path} (Type: ${file.type}, Size: ${file.size})...`);
+          const storageRef = ref(storage, path);
+
+          // Forzar contentType para evitar problemas de detección automática
+          const metadata = {
+            contentType: file instanceof File ? file.type : 'application/pdf'
+          };
+
+          const snapshot = await uploadBytes(storageRef, file, metadata);
+          console.log("Zustand: Upload exitoso, obteniendo URL...");
+
+          const url = await getDownloadURL(snapshot.ref);
+          console.log(`Zustand: URL obtenida: ${url}`);
+          return url;
+        } catch (error: any) {
+          console.error("Zustand: Error detallado en uploadFile:", error);
+          if (error.code === 'storage/unauthorized') {
+            throw new Error("Privilegios insuficientes para subir a Firebase Storage. Verifica las reglas de seguridad.");
+          }
+          throw new Error(`Error de Firebase Storage: ${error.message}`);
+        }
+      },
+
+      // --- DIGITAL DOCUMENTS ACTIONS ---
+      fetchDigitalDocuments: async () => {
+        const { currentUser } = get();
+        if (!currentUser) return;
+
+        try {
+          let q;
+          if (currentUser.role === 'admin' || currentUser.role === 'supervisor') {
+            q = query(collection(db, "documents"), orderBy("createdAt", "desc"));
+          } else {
+            q = query(
+              collection(db, "documents"),
+              where("assignedTo", "==", currentUser.uid),
+              orderBy("createdAt", "desc")
+            );
+          }
+          const snapshot = await getDocs(q);
+          const docs: DigitalDocument[] = [];
+          snapshot.forEach(doc => docs.push({ ...doc.data(), id: doc.id } as DigitalDocument));
+          set({ digitalDocuments: docs });
+        } catch (error) { console.error("Error fetching digital documents:", error); }
+      },
+
+      addDigitalDocument: async (docData) => {
+        const id = "digdoc_" + Date.now();
+        const newDoc: DigitalDocument = {
+          ...docData,
+          id,
+          status: 'pending',
+          createdAt: new Date().toISOString(),
+        };
+        try {
+          await setDoc(doc(db, "documents", id), newDoc);
+          set(state => ({ digitalDocuments: [newDoc, ...state.digitalDocuments] }));
+        } catch (error) { console.error("Error adding digital document:", error); }
+      },
+
+      signDigitalDocument: async (id, signedUrl, metadata) => {
+        const signedAt = new Date().toISOString();
+        const updateData = {
+          status: 'signed' as const,
+          signedUrl,
+          signedAt,
+          metadata
+        };
+        try {
+          const docRef = doc(db, "documents", id);
+          await updateDoc(docRef, updateData);
+          set(state => ({
+            digitalDocuments: state.digitalDocuments.map(d => d.id === id ? { ...d, ...updateData } : d)
+          }));
+        } catch (error) { console.error("Error signing digital document:", error); }
+      },
+
+      deleteDigitalDocument: async (id) => {
+        try {
+          await deleteDoc(doc(db, "documents", id));
+          set(state => ({ digitalDocuments: state.digitalDocuments.filter(d => d.id !== id) }));
+        } catch (error) { console.error("Error deleting digital document:", error); }
+      },
+
 
 
 

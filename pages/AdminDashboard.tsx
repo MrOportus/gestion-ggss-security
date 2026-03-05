@@ -3,7 +3,7 @@ import React, { useState } from 'react';
 import { useAppStore } from '../store/useAppStore';
 import { Employee } from '../types';
 import {
-  Users, FileCheck, MapPin, Search, Eye, AlertCircle, ShieldAlert, FileWarning
+  Users, FileCheck, MapPin, Search, Eye, AlertCircle, ShieldAlert, FileWarning, LogOut
 } from 'lucide-react';
 import { db } from '../lib/firebase';
 import { collection, query, where, onSnapshot } from 'firebase/firestore';
@@ -17,10 +17,18 @@ const AdminDashboard: React.FC = () => {
   const [activeFilter, setActiveFilter] = useState<DashboardFilter>('active_total');
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedSiteId, setSelectedSiteId] = useState<string | number>('all');
+  const { forceCloseAttendance } = useAppStore();
+
+  const [closingLogInfo, setClosingLogInfo] = useState<{ id: string; name: string; timestamp: string } | null>(null);
+  const [exitTime, setExitTime] = useState('');
 
   // --- 1. Lógica de Fechas y Filtros ---
   const today = new Date();
   today.setHours(0, 0, 0, 0);
+  const y = today.getFullYear();
+  const m = (today.getMonth() + 1).toString().padStart(2, '0');
+  const d = today.getDate().toString().padStart(2, '0');
+  const todayStr = `${y}-${m}-${d}`;
 
   const thirtyDaysFromNow = new Date(today);
   thirtyDaysFromNow.setDate(today.getDate() + 30);
@@ -147,13 +155,16 @@ const AdminDashboard: React.FC = () => {
 
   // --- 4. Lógica de Sincronización con Programación (Gestión de Turnos) ---
   const [programming, setProgramming] = React.useState<{ employeeId: string; siteId: string | number; isManualPresent?: boolean }[]>([]);
+  const [localAttendanceLogs, setLocalAttendanceLogs] = React.useState(attendanceLogs);
 
   React.useEffect(() => {
-    // Generar YYYY-MM-DD en hora local
-    const y = today.getFullYear();
-    const m = (today.getMonth() + 1).toString().padStart(2, '0');
-    const d = today.getDate().toString().padStart(2, '0');
-    const todayStr = `${y}-${m}-${d}`;
+    // 1. Sincronizar logs de asistencia en tiempo real
+    const qLogs = query(collection(db, 'Asistencia'));
+    const unsubLogs = onSnapshot(qLogs, (snapshot) => {
+      const logs = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id })) as any[];
+      logs.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+      setLocalAttendanceLogs(logs);
+    });
 
     // 1. Query para Programación (X)
     const qProg = query(
@@ -203,10 +214,11 @@ const AdminDashboard: React.FC = () => {
     });
 
     return () => {
+      unsubLogs();
       unsubProg();
       unsubManual();
     };
-  }, [employees]); // Dependencia de employees para mapear sucursales de manuales si es necesario
+  }, [employees]);
 
   const activeSites = sites.filter(s =>
     s.active &&
@@ -226,23 +238,28 @@ const AdminDashboard: React.FC = () => {
 
     // 2. Determinar estado de cada uno (En Turno vs Espera)
     const empsWithStatus = assignedEmps.map(emp => {
-      // Buscar si el empleado tiene un check_in activo (Digital)
-      const empLogs = attendanceLogs.filter(log => log.employeeId === emp.id);
+      // Buscar el log más reciente para este empleado hoy o ayer (para turnos noche)
+      const yesterday = new Date(today);
+      yesterday.setDate(today.getDate() - 1);
+      const yesterdayStr = yesterday.toISOString().split('T')[0];
+
+      const empLogs = localAttendanceLogs.filter(log =>
+        log.employeeId === emp.id &&
+        (log.timestamp.startsWith(todayStr) || log.timestamp.startsWith(yesterdayStr))
+      );
       const sortedLogs = empLogs.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
       const lastLog = sortedLogs[0];
 
-      const isDigitalLive = lastLog && lastLog.type === 'check_in';
+      // Un empleado está "En Turno" si su último log es check_in Y no está marcado como completed
+      const isLive = lastLog ? (lastLog.type === 'check_in' && lastLog.status !== 'completed') : false;
 
-      // Buscar si el empleado tiene asistencia manual 'presente'
-      const manualEntry = programming.find(p => p.employeeId === emp.id && p.isManualPresent);
-
-      const isLive = isDigitalLive || !!manualEntry;
 
       return {
         ...emp,
         isLive,
-        isManual: !!manualEntry && !isDigitalLive,
-        lastCheckIn: isDigitalLive ? lastLog.timestamp : (manualEntry ? 'Manual ✓' : null)
+        isManual: lastLog?.isManual || false,
+        lastCheckIn: lastLog?.timestamp || null,
+        activeLogId: isLive ? lastLog.id : null
       };
     });
 
@@ -255,10 +272,22 @@ const AdminDashboard: React.FC = () => {
     const siteMatchesSearch = (site.name || '').toLowerCase().includes(searchTerm.toLowerCase());
 
     if (siteMatchesSearch || filteredEmps.length > 0) {
-      acc[site.name] = filteredEmps;
+      // Ordenar empleados: Activos (isLive) primero
+      acc[site.name] = filteredEmps.sort((a, b) => {
+        if (a.isLive && !b.isLive) return -1;
+        if (!a.isLive && b.isLive) return 1;
+        return 0;
+      });
     }
     return acc;
-  }, {} as Record<string, (Employee & { isLive: boolean; lastCheckIn: string | null; isManual?: boolean })[]>);
+  }, {} as Record<string, (Employee & { isLive: boolean; lastCheckIn: string | null; isManual?: boolean; activeLogId?: string | null })[]>);
+
+  // Ordenar las sucursales: poner arriba las que tienen personal activo (isLive)
+  const sortedLiveBySite = Object.entries(liveBySite).sort((a, b) => {
+    const liveA = a[1].some(e => e.isLive) ? 1 : 0;
+    const liveB = b[1].some(e => e.isLive) ? 1 : 0;
+    return liveB - liveA;
+  });
 
 
 
@@ -293,7 +322,7 @@ const AdminDashboard: React.FC = () => {
   const totalContractAlerts = expiredContractsList.length + expiringContracts_30.length + expiringContracts_60.length + expiringContracts_90.length;
 
   return (
-    <div className="p-6 max-w-7xl mx-auto space-y-8">
+    <div className="p-4 md:p-6 max-w-7xl mx-auto space-y-6 md:space-y-8">
       {/* Header */}
       <div>
         <h1 className="text-2xl font-bold text-slate-900">Panel de Control</h1>
@@ -301,7 +330,7 @@ const AdminDashboard: React.FC = () => {
       </div>
 
       {/* KPI Cards Interactivas */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
 
         {/* Card 1: Estatus de Curso OS10 */}
         <button
@@ -376,9 +405,9 @@ const AdminDashboard: React.FC = () => {
           /* VISTA: TURNOS EN VIVO POR SUCURSAL */
           <div className="space-y-4">
             {/* FILTROS ESPECÍFICOS VISTA EN VIVO */}
-            <div className="flex flex-wrap items-center justify-between gap-4 bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
-              <div className="flex items-center gap-4 flex-1">
-                <div className="relative flex-1 max-w-xs">
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4 bg-white p-3 md:p-4 rounded-2xl border border-slate-100 shadow-sm">
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 md:gap-4 flex-1">
+                <div className="relative flex-1">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
                   <input
                     type="text"
@@ -389,10 +418,10 @@ const AdminDashboard: React.FC = () => {
                   />
                 </div>
 
-                <div className="flex items-center gap-2">
-                  <MapPin size={14} className="text-slate-400" />
+                <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2">
+                  <MapPin size={14} className="text-slate-400 shrink-0" />
                   <select
-                    className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm font-bold text-slate-700 outline-none focus:ring-2 focus:ring-emerald-500 transition-all"
+                    className="bg-transparent text-sm font-bold text-slate-700 outline-none w-full cursor-pointer"
                     value={selectedSiteId}
                     onChange={(e) => setSelectedSiteId(e.target.value === 'all' ? 'all' : Number(e.target.value))}
                   >
@@ -404,7 +433,7 @@ const AdminDashboard: React.FC = () => {
                 </div>
               </div>
 
-              <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest bg-slate-50 px-3 py-1.5 rounded-full border border-slate-100">
+              <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest bg-slate-50 px-3 py-1.5 rounded-full border border-slate-100 text-center shrink-0">
                 Total Operativos: <span className="text-emerald-600 font-black">{liveStatusEmployees.length}</span>
               </div>
             </div>
@@ -422,7 +451,7 @@ const AdminDashboard: React.FC = () => {
                     </tr>
                   </thead>
                   <tbody>
-                    {Object.entries(liveBySite).length === 0 ? (
+                    {sortedLiveBySite.length === 0 ? (
                       <tr>
                         <td colSpan={4} className="py-20 text-center">
                           <Users size={48} className="mx-auto text-slate-200 mb-4" />
@@ -430,7 +459,7 @@ const AdminDashboard: React.FC = () => {
                         </td>
                       </tr>
                     ) : (
-                      Object.entries(liveBySite).map(([siteName, emps]) => {
+                      sortedLiveBySite.map(([siteName, emps]) => {
                         const hasNoStaff = emps.length === 0;
                         return (
                           <React.Fragment key={siteName}>
@@ -508,14 +537,20 @@ const AdminDashboard: React.FC = () => {
                                               <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-2 py-0.5 bg-emerald-100/50 text-emerald-700 rounded-md">EN TURNO</span>
                                             </div>
                                             <p className="text-[10px] text-slate-500 font-medium">
-                                              Entrada: <span className="text-emerald-700 font-black">{time}</span> | Fecha: <span className="text-emerald-700 font-black">{date}</span>
+                                              {time ? (
+                                                <>Entrada: <span className="text-emerald-700 font-black">{time}</span> | Fecha: <span className="text-emerald-700 font-black">{date}</span></>
+                                              ) : (
+                                                <span className="italic text-slate-400">Sin hora de registro</span>
+                                              )}
                                             </p>
                                           </>
                                         ) : (
-                                          <div className="flex items-center gap-2">
-                                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-2 py-0.5 bg-slate-100 text-slate-500 rounded-md">STAND-BY</span>
+                                          <div className="flex flex-col gap-1">
+                                            <div className="flex items-center gap-2">
+                                              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-2 py-0.5 bg-slate-100 text-slate-500 rounded-md">STAND-BY</span>
+                                            </div>
                                             <p className="text-[10px] text-slate-400 font-black uppercase tracking-tight italic">
-                                              modo espera de inicio de turno
+                                              esperando inicio de turno
                                             </p>
                                           </div>
                                         )}
@@ -534,6 +569,23 @@ const AdminDashboard: React.FC = () => {
                                       >
                                         <Eye size={18} />
                                       </button>
+                                      {emp.isLive && emp.activeLogId && (
+                                        <button
+                                          onClick={() => {
+                                            const log = attendanceLogs.find(l => l.id === emp.activeLogId);
+                                            setClosingLogInfo({
+                                              id: emp.activeLogId!,
+                                              name: `${emp.firstName} ${emp.lastNamePaterno}`,
+                                              timestamp: log?.timestamp || new Date().toISOString()
+                                            });
+                                            setExitTime(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+                                          }}
+                                          className="inline-flex items-center justify-center p-2 text-rose-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-all border border-transparent hover:border-rose-100"
+                                          title="Forzar Cierre"
+                                        >
+                                          <LogOut size={18} />
+                                        </button>
+                                      )}
                                     </td>
                                   </tr>
                                 );
@@ -770,6 +822,60 @@ const AdminDashboard: React.FC = () => {
           employee={selectedEmployee}
           onClose={() => setSelectedEmployeeId(null)}
         />
+      )}
+
+      {/* Modal de Forzar Cierre */}
+      {closingLogInfo && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95">
+            <div className="p-8 space-y-6">
+              <div className="text-center">
+                <div className="w-16 h-16 bg-rose-100 text-rose-600 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <LogOut size={32} />
+                </div>
+                <h3 className="text-xl font-black text-slate-800 tracking-tight">Forzar Cierre de Turno</h3>
+                <p className="text-slate-500 text-sm mt-2">
+                  Vas a registrar la salida manual para <span className="font-bold text-slate-700">{closingLogInfo.name}</span>.
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Hora de Salida</label>
+                <input
+                  type="time"
+                  value={exitTime}
+                  onChange={(e) => setExitTime(e.target.value)}
+                  className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-2xl focus:border-rose-500 outline-none transition-all font-black text-2xl text-center text-slate-700"
+                />
+              </div>
+
+              <div className="flex gap-4">
+                <button
+                  onClick={() => setClosingLogInfo(null)}
+                  className="flex-1 py-4 bg-slate-100 text-slate-500 rounded-2xl font-black uppercase tracking-widest text-xs"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={async () => {
+                    try {
+                      const [h, m] = exitTime.split(':');
+                      const date = new Date(closingLogInfo.timestamp);
+                      date.setHours(parseInt(h), parseInt(m));
+                      await forceCloseAttendance(closingLogInfo.id, date.toISOString(), "Cierre forzado por administrador");
+                      setClosingLogInfo(null);
+                    } catch (e) {
+                      alert("Error al cerrar turno");
+                    }
+                  }}
+                  className="flex-[2] py-4 bg-rose-600 text-white rounded-2xl font-black uppercase tracking-widest text-xs shadow-lg shadow-rose-200"
+                >
+                  Confirmar Salida
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

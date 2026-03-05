@@ -222,14 +222,14 @@ const EmployeesPage: React.FC = () => {
   const selectedEmployee = selectedEmployeeId ? employees.find(e => e.id === selectedEmployeeId) : null;
 
   return (
-    <div className="p-6 max-w-7xl mx-auto space-y-6">
+    <div className="p-4 md:p-6 max-w-7xl mx-auto space-y-6">
       {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Gestión de Personal</h1>
           <p className="text-slate-500">Administración de expedientes y colaboradores</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <input
             type="file"
             ref={fileInputRef}
@@ -240,23 +240,25 @@ const EmployeesPage: React.FC = () => {
           <button
             onClick={() => fileInputRef.current?.click()}
             disabled={isLoading}
-            title="Soporta columnas: 'Empresa', 'Sucursal' u 'Obra' para asignación automática"
-            className="bg-green-600 hover:bg-green-700 text-white px-4 py-2.5 rounded-lg font-medium flex items-center gap-2 shadow-lg shadow-green-200 transition disabled:opacity-50 disabled:cursor-not-allowed"
+            title="Importar Excel"
+            className="bg-green-600 hover:bg-green-700 text-white px-3 py-2 rounded-lg font-medium flex-1 sm:flex-none flex items-center justify-center gap-2 shadow-lg transition"
           >
-            {isLoading ? <Loader2 size={20} className="animate-spin" /> : <FileSpreadsheet size={20} />}
-            {isLoading ? 'Cargando...' : 'Importar Excel'}
+            {isLoading ? <Loader2 size={18} className="animate-spin" /> : <FileSpreadsheet size={18} />}
+            <span className="text-sm">Importar</span>
           </button>
           <button
             onClick={() => setShowAIModal(true)}
-            className="bg-slate-900 hover:bg-black text-white px-4 py-2.5 rounded-lg font-medium flex items-center gap-2 shadow-lg transition"
+            className="bg-slate-900 hover:bg-black text-white px-3 py-2 rounded-lg font-medium flex-1 sm:flex-none flex items-center justify-center gap-2 shadow-lg transition"
           >
-            <Sparkles size={20} className="text-orange-400" /> Alta por IA
+            <Sparkles size={18} className="text-orange-400" />
+            <span className="text-sm">Alta IA</span>
           </button>
           <button
             onClick={() => setShowAddModal(true)}
-            className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2.5 rounded-lg font-medium flex items-center gap-2 shadow-lg shadow-blue-200 transition"
+            className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-lg font-medium flex-1 sm:flex-none flex items-center justify-center gap-2 shadow-lg transition"
           >
-            <Plus size={20} /> Nuevo Empleado
+            <Plus size={18} />
+            <span className="text-sm">Nuevo</span>
           </button>
         </div>
       </div>
@@ -266,24 +268,24 @@ const EmployeesPage: React.FC = () => {
 
         <div className="flex flex-col md:flex-row gap-4 w-full xl:w-auto">
           {/* Filtro Estado */}
-          <div className="flex items-center gap-2 bg-slate-50 p-1 rounded-lg border border-slate-200 shrink-0">
+          <div className="flex items-center gap-1 bg-slate-50 p-1 rounded-lg border border-slate-200 overflow-x-auto no-scrollbar">
             <button
               onClick={() => setFilterStatus('all')}
-              className={`px-3 py-1.5 text-sm font-medium rounded-md transition ${filterStatus === 'all' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+              className={`px-3 py-1.5 text-xs font-bold rounded-md transition whitespace-nowrap ${filterStatus === 'all' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
             >
-              Todos
+              TODOS
             </button>
             <button
               onClick={() => setFilterStatus('active')}
-              className={`px-3 py-1.5 text-sm font-medium rounded-md transition flex items-center gap-1 ${filterStatus === 'active' ? 'bg-white text-green-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+              className={`px-3 py-1.5 text-xs font-bold rounded-md transition flex items-center gap-1 whitespace-nowrap ${filterStatus === 'active' ? 'bg-white text-green-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
             >
-              <UserCheck size={14} /> Activos
+              <UserCheck size={14} /> ACTIVOS
             </button>
             <button
               onClick={() => setFilterStatus('inactive')}
-              className={`px-3 py-1.5 text-sm font-medium rounded-md transition flex items-center gap-1 ${filterStatus === 'inactive' ? 'bg-white text-red-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+              className={`px-3 py-1.5 text-xs font-bold rounded-md transition flex items-center gap-1 whitespace-nowrap ${filterStatus === 'inactive' ? 'bg-white text-red-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
             >
-              <UserX size={14} /> Inactivos
+              <UserX size={14} /> BAJA
             </button>
           </div>
 

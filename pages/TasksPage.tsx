@@ -1242,8 +1242,20 @@ Documentos que se adjuntan.
                       type="text"
                       placeholder="Buscar sucursal..."
                       className="w-full pl-9 pr-4 py-2 text-sm border-b-2 border-slate-100 focus:border-blue-500 outline-none bg-slate-50 rounded-t-lg transition-colors cursor-pointer"
-                      value={formalizarSiteSearch || (formalizarSite?.name || '')}
-                      onFocus={() => { setShowFormalizarSiteList(true); setFormalizarSiteSearch(''); }}
+                      value={formalizarSiteSearch}
+                      onFocus={() => {
+                        setFormalizarSiteSearch('');
+                        setShowFormalizarSiteList(true);
+                      }}
+                      onBlur={() => {
+                        setTimeout(() => {
+                          if (!formalizarSiteSearch && formalizarData.sucursalId) {
+                            const s = sites.find(site => String(site.id) === formalizarData.sucursalId);
+                            if (s) setFormalizarSiteSearch(s.name);
+                          }
+                          setShowFormalizarSiteList(false);
+                        }, 200);
+                      }}
                       onChange={(e) => { setFormalizarSiteSearch(e.target.value); setShowFormalizarSiteList(true); }}
                     />
                   </div>
@@ -1321,8 +1333,20 @@ Documentos que se adjuntan.
                       type="text"
                       placeholder="Filtrar por nombre o RUT..."
                       className="w-full pl-9 pr-4 py-2 text-sm border-b-2 border-slate-100 focus:border-blue-500 outline-none bg-slate-50 rounded-t-lg transition-colors cursor-pointer"
-                      value={formalizarEmpSearch || (formalizarEmp ? `${formalizarEmp.firstName} ${formalizarEmp.lastNamePaterno}` : '')}
-                      onFocus={() => { setShowFormalizarEmpList(true); setFormalizarEmpSearch(''); }}
+                      value={formalizarEmpSearch}
+                      onFocus={() => {
+                        setFormalizarEmpSearch('');
+                        setShowFormalizarEmpList(true);
+                      }}
+                      onBlur={() => {
+                        setTimeout(() => {
+                          if (!formalizarEmpSearch && formalizarData.empleadoId) {
+                            const emp = employees.find(e => String(e.id) === formalizarData.empleadoId);
+                            if (emp) setFormalizarEmpSearch(`${emp.firstName} ${emp.lastNamePaterno}`);
+                          }
+                          setShowFormalizarEmpList(false);
+                        }, 200);
+                      }}
                       onChange={(e) => { setFormalizarEmpSearch(e.target.value); setShowFormalizarEmpList(true); }}
                     />
                   </div>
@@ -1480,8 +1504,20 @@ Documentos que se adjuntan.
                     type="text"
                     placeholder="Buscar por nombre o RUT..."
                     className="w-full pl-9 pr-4 py-2 text-sm border-b-2 border-slate-100 focus:border-violet-500 outline-none bg-slate-50 rounded-t-lg transition-colors cursor-pointer"
-                    value={contratoEmpSearch || (contratoEmp ? `${contratoEmp.firstName} ${contratoEmp.lastNamePaterno}` : '')}
-                    onFocus={() => { setShowContratoEmpList(true); setContratoEmpSearch(''); }}
+                    value={contratoEmpSearch}
+                    onFocus={() => {
+                      setContratoEmpSearch('');
+                      setShowContratoEmpList(true);
+                    }}
+                    onBlur={() => {
+                      setTimeout(() => {
+                        if (!contratoEmpSearch && contratoData.empleadoId) {
+                          const emp = employees.find(e => String(e.id) === contratoData.empleadoId);
+                          if (emp) setContratoEmpSearch(`${emp.firstName} ${emp.lastNamePaterno}`);
+                        }
+                        setShowContratoEmpList(false);
+                      }, 200);
+                    }}
                     onClick={() => { setShowContratoEmpList(true); setContratoEmpSearch(''); }}
                     onChange={(e) => { setContratoEmpSearch(e.target.value); setShowContratoEmpList(true); }}
                   />
@@ -1519,8 +1555,20 @@ Documentos que se adjuntan.
                     type="text"
                     placeholder="Buscar sucursal..."
                     className="w-full pl-9 pr-4 py-2 text-sm border-b-2 border-slate-100 focus:border-violet-500 outline-none bg-slate-50 rounded-t-lg transition-colors cursor-pointer"
-                    value={contratoSiteSearch || (contratoSite?.name || '')}
-                    onFocus={() => { setShowContratoSiteList(true); setContratoSiteSearch(''); }}
+                    value={contratoSiteSearch}
+                    onFocus={() => {
+                      setContratoSiteSearch('');
+                      setShowContratoSiteList(true);
+                    }}
+                    onBlur={() => {
+                      setTimeout(() => {
+                        if (!contratoSiteSearch && contratoData.sucursalId) {
+                          const s = sites.find(site => String(site.id) === contratoData.sucursalId);
+                          if (s) setContratoSiteSearch(s.name);
+                        }
+                        setShowContratoSiteList(false);
+                      }, 200);
+                    }}
                     onClick={() => { setShowContratoSiteList(true); setContratoSiteSearch(''); }}
                     onChange={(e) => { setContratoSiteSearch(e.target.value); setShowContratoSiteList(true); }}
                   />
@@ -1971,8 +2019,20 @@ Documentos que se adjuntan.
                       type="text"
                       placeholder="Buscar sucursal..."
                       className="w-full pl-9 pr-4 py-2 text-sm border-b-2 border-slate-100 focus:border-blue-500 outline-none bg-slate-50 rounded-t-lg transition-colors cursor-pointer"
-                      value={siteSearch || (sucursal?.name || '')}
-                      onFocus={() => { setShowSiteList(true); setSiteSearch(''); }}
+                      value={siteSearch}
+                      onFocus={() => {
+                        setSiteSearch('');
+                        setShowSiteList(true);
+                      }}
+                      onBlur={() => {
+                        setTimeout(() => {
+                          if (!siteSearch && reemplazoData.sucursalId) {
+                            const s = sites.find(site => String(site.id) === reemplazoData.sucursalId);
+                            if (s) setSiteSearch(s.name);
+                          }
+                          setShowSiteList(false);
+                        }, 200);
+                      }}
                       onClick={() => { setShowSiteList(true); setSiteSearch(''); }}
                       onChange={(e) => { setSiteSearch(e.target.value); setShowSiteList(true); }}
                     />
@@ -2023,8 +2083,20 @@ Documentos que se adjuntan.
                       type="text"
                       placeholder="Buscar por nombre o RUT..."
                       className="w-full pl-9 pr-4 py-2 text-sm border-b-2 border-slate-100 focus:border-blue-500 outline-none bg-slate-50 rounded-t-lg transition-colors cursor-pointer"
-                      value={actualSearch || (currentEmp ? `${currentEmp.firstName} ${currentEmp.lastNamePaterno}` : '')}
-                      onFocus={() => { setShowActualList(true); setActualSearch(''); }}
+                      value={actualSearch}
+                      onFocus={() => {
+                        setActualSearch('');
+                        setShowActualList(true);
+                      }}
+                      onBlur={() => {
+                        setTimeout(() => {
+                          if (!actualSearch && reemplazoData.empleadoActualId) {
+                            const emp = employees.find(e => String(e.id) === reemplazoData.empleadoActualId);
+                            if (emp) setActualSearch(`${emp.firstName} ${emp.lastNamePaterno}`);
+                          }
+                          setShowActualList(false);
+                        }, 200);
+                      }}
                       onClick={() => { setShowActualList(true); setActualSearch(''); }}
                       onChange={(e) => { setActualSearch(e.target.value); setShowActualList(true); }}
                     />
@@ -2067,8 +2139,20 @@ Documentos que se adjuntan.
                       type="text"
                       placeholder="Buscar por nombre o RUT..."
                       className="w-full pl-9 pr-4 py-2 text-sm border-b-2 border-slate-100 focus:border-blue-500 outline-none bg-slate-50 rounded-t-lg transition-colors cursor-pointer"
-                      value={replacementSearch || (replacementEmp ? `${replacementEmp.firstName} ${replacementEmp.lastNamePaterno}` : '')}
-                      onFocus={() => { setShowReplacementList(true); setReplacementSearch(''); }}
+                      value={replacementSearch}
+                      onFocus={() => {
+                        setReplacementSearch('');
+                        setShowReplacementList(true);
+                      }}
+                      onBlur={() => {
+                        setTimeout(() => {
+                          if (!replacementSearch && reemplazoData.empleadoReemplazoId) {
+                            const emp = employees.find(e => String(e.id) === reemplazoData.empleadoReemplazoId);
+                            if (emp) setReplacementSearch(`${emp.firstName} ${emp.lastNamePaterno}`);
+                          }
+                          setShowReplacementList(false);
+                        }, 200);
+                      }}
                       onClick={() => { setShowReplacementList(true); setReplacementSearch(''); }}
                       onChange={(e) => { setReplacementSearch(e.target.value); setShowReplacementList(true); }}
                     />

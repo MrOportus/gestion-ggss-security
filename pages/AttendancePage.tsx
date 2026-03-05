@@ -142,14 +142,14 @@ const AttendancePage: React.FC = () => {
                         </button>
                     </div>
 
-                    <div className="flex flex-wrap items-center gap-4 bg-slate-50 p-4 rounded-3xl border border-slate-100">
-                        <div className="relative flex-1 min-w-[250px]">
+                    <div className="flex flex-col lg:flex-row items-stretch lg:items-center gap-4 bg-slate-50 p-3 md:p-4 rounded-3xl border border-slate-100">
+                        <div className="relative flex-1">
                             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
                             <input type="text" placeholder="Nombre o RUT..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)}
                                 className="w-full pl-10 pr-4 py-2.5 bg-white border border-slate-200 rounded-2xl text-sm outline-none focus:ring-2 focus:ring-blue-500 font-medium" />
                         </div>
 
-                        <div className="relative min-w-[200px]">
+                        <div className="relative w-full lg:w-64">
                             <Filter className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
                             <select value={selectedSiteId} onChange={(e) => setSelectedSiteId(e.target.value)}
                                 className="w-full pl-10 pr-10 py-2.5 bg-white border border-slate-200 rounded-2xl text-sm appearance-none outline-none font-bold text-slate-700">
@@ -159,29 +159,29 @@ const AttendancePage: React.FC = () => {
                             <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-300 pointer-events-none" size={16} />
                         </div>
 
-                        <div className="flex p-1 bg-white border border-slate-200 rounded-2xl">
+                        <div className="flex p-1 bg-white border border-slate-200 rounded-2xl overflow-x-auto no-scrollbar">
                             {(['all', 'day', 'week', 'month', 'range'] as const).map((type) => (
                                 <button key={type} onClick={() => handleFilterTypeChange(type)}
-                                    className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${filterType === type ? 'bg-blue-600 text-white shadow-lg shadow-blue-100' : 'text-slate-400 hover:text-slate-600'}`}>
+                                    className={`px-3 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap ${filterType === type ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-400 hover:text-slate-600'}`}>
                                     {type === 'all' ? 'Todo' : type === 'day' ? 'Día' : type === 'week' ? 'Semana' : type === 'month' ? 'Mes' : 'Rango'}
                                 </button>
                             ))}
                         </div>
 
                         {filterType !== 'all' && (
-                            <div className="flex items-center gap-2">
+                            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
                                 <div className="relative">
                                     <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
                                     <input type={filterType === 'month' ? "month" : "date"} value={startDate} onChange={(e) => setStartDate(e.target.value)}
-                                        className="pl-10 pr-4 py-2.5 bg-white border border-slate-200 rounded-2xl text-sm outline-none focus:ring-2 focus:ring-blue-500 font-bold text-slate-700" />
+                                        className="w-full sm:w-auto pl-10 pr-4 py-2.5 bg-white border border-slate-200 rounded-2xl text-sm outline-none focus:ring-2 focus:ring-blue-500 font-bold text-slate-700" />
                                 </div>
                                 {filterType === 'range' && (
                                     <>
-                                        <span className="text-slate-400 font-bold">-</span>
+                                        <span className="text-slate-400 font-bold text-center">-</span>
                                         <div className="relative">
                                             <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
                                             <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)}
-                                                className="pl-10 pr-4 py-2.5 bg-white border border-slate-200 rounded-2xl text-sm outline-none focus:ring-2 focus:ring-blue-500 font-bold text-slate-700" />
+                                                className="w-full sm:w-auto pl-10 pr-4 py-2.5 bg-white border border-slate-200 rounded-2xl text-sm outline-none focus:ring-2 focus:ring-blue-500 font-bold text-slate-700" />
                                         </div>
                                     </>
                                 )}
@@ -191,7 +191,7 @@ const AttendancePage: React.FC = () => {
                 </div>
             </header>
 
-            <main className="flex-1 p-6 max-w-7xl mx-auto w-full">
+            <main className="flex-1 p-4 md:p-6 max-w-7xl mx-auto w-full">
                 {Object.keys(logsBySite).length === 0 ? (
                     <div className="bg-white rounded-[2.5rem] p-16 text-center shadow-sm border border-slate-100 mt-10">
                         <Clock size={40} className="text-slate-300 mx-auto mb-6" />

@@ -277,7 +277,19 @@ export const DailyShiftPayment = () => {
                     placeholder="Buscar por nombre o RUT..."
                     value={workerSearch}
                     onChange={(e) => { setWorkerSearch(e.target.value); setShowWorkerList(true); setSelectedWorkerId(''); setManualWorkerName(e.target.value); }}
-                    onFocus={() => setShowWorkerList(true)}
+                    onFocus={() => {
+                        setWorkerSearch('');
+                        setShowWorkerList(true);
+                    }}
+                    onBlur={() => {
+                        setTimeout(() => {
+                            if (!workerSearch && selectedWorkerId) {
+                                const emp = employees.find(e => e.id === selectedWorkerId);
+                                if (emp) setWorkerSearch(`${emp.firstName} ${emp.lastNamePaterno}`);
+                            }
+                            setShowWorkerList(false);
+                        }, 200);
+                    }}
                 />
                 {selectedWorkerId && (
                     <div className="absolute right-2 top-2 bg-blue-100 text-blue-700 text-xs px-2 py-1 rounded font-bold">
@@ -320,9 +332,21 @@ export const DailyShiftPayment = () => {
                     type="text"
                     className="w-full pl-9 pr-8 py-2.5 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none cursor-pointer"
                     placeholder="Seleccionar sucursal..."
-                    value={siteSearch || (sites.find(s => String(s.id) === siteId)?.name || '')}
+                    value={siteSearch}
                     onChange={(e) => { setSiteSearch(e.target.value); setShowSiteList(true); setSiteId(''); }}
-                    onFocus={() => { setShowSiteList(true); setSiteSearch(''); }}
+                    onFocus={() => {
+                        setSiteSearch('');
+                        setShowSiteList(true);
+                    }}
+                    onBlur={() => {
+                        setTimeout(() => {
+                            if (!siteSearch && siteId) {
+                                const s = sites.find(site => String(site.id) === siteId);
+                                if (s) setSiteSearch(s.name);
+                            }
+                            setShowSiteList(false);
+                        }, 200);
+                    }}
                 />
                 <ChevronDown className="absolute right-3 top-3 text-slate-400" size={14} />
             </div>

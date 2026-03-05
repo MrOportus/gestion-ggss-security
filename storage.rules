@@ -1,0 +1,39 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    
+    // Función para verificar si es Admin (requiere que el documento de Firestore use el UID)
+    function isAdmin() {
+      return request.auth != null && 
+        firestore.get(/databases/(default)/documents/Colaboradores/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    // Carpeta de evidencias (fotos de rondas/asistencia)
+    match /evidencias/{userId}/{allPaths=**} {
+      allow write: if request.auth != null && request.auth.uid == userId;
+      allow read: if request.auth != null;
+    }
+
+    // Documentos Originales (Subidos por Admin)
+    match /original_docs/{allPaths=**} {
+      allow write: if request.auth != null; // Idealmente restringir a isAdmin() si funciona firestore.get
+      allow read: if request.auth != null;
+    }
+
+    // Documentos Firmados
+    match /signed_docs/{allPaths=**} {
+      allow write: if request.auth != null;
+      allow read: if request.auth != null;
+    }
+    
+    // Asistencia Photos
+    match /attendance/{allPaths=**} {
+      allow read, write: if request.auth != null;
+    }
+
+    // Préstamos
+    match /loans/{allPaths=**} {
+      allow read, write: if request.auth != null;
+    }
+  }
+}

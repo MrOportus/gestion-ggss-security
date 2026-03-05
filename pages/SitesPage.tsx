@@ -103,13 +103,13 @@ const SitesPage: React.FC = () => {
   };
 
   return (
-    <div className="p-6 max-w-7xl mx-auto space-y-6">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+    <div className="p-4 md:p-6 max-w-7xl mx-auto space-y-6">
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Gestión de Sucursales</h1>
           <p className="text-slate-500">Administración de obras e instalaciones</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <input
             type="file"
             ref={fileInputRef}
@@ -119,15 +119,17 @@ const SitesPage: React.FC = () => {
           />
           <button
             onClick={() => fileInputRef.current?.click()}
-            className="bg-green-600 hover:bg-green-700 text-white px-4 py-2.5 rounded-lg font-medium flex items-center gap-2 shadow-lg shadow-green-200 transition"
+            className="bg-green-600 hover:bg-green-700 text-white px-3 py-2 rounded-lg font-medium flex-1 sm:flex-none flex items-center justify-center gap-2 shadow-lg transition"
           >
-            <FileSpreadsheet size={20} /> Importar Excel
+            <FileSpreadsheet size={18} />
+            <span className="text-sm">Importar</span>
           </button>
           <button
             onClick={handleOpenAdd}
-            className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2.5 rounded-lg font-medium flex items-center gap-2 shadow-lg shadow-blue-200 transition"
+            className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-lg font-medium flex-1 sm:flex-none flex items-center justify-center gap-2 shadow-lg transition"
           >
-            <Plus size={20} /> Nueva Sucursal
+            <Plus size={18} />
+            <span className="text-sm">Nueva</span>
           </button>
         </div>
       </div>

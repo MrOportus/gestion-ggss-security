@@ -8,7 +8,11 @@ import {
     MapPin,
     ExternalLink,
     Loader2,
-    Calendar
+    Calendar,
+    Camera,
+    ShieldCheck,
+    AlertCircle,
+    ShieldAlert
 } from 'lucide-react';
 import RouteMapModal from '../components/RouteMapModal';
 
@@ -92,17 +96,30 @@ const RoundsAdminPage: React.FC = () => {
 
                             return (
                                 <div key={round.id} className="bg-white rounded-[2rem] p-5 md:p-6 shadow-sm border border-slate-100 hover:shadow-md transition-all group overflow-hidden">
-                                    <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
-                                        {/* Worker & Site Info */}
-                                        <div className="flex items-center gap-4">
-                                            <div className="w-12 h-12 md:w-14 md:h-14 bg-blue-50 rounded-2xl flex items-center justify-center text-blue-600 font-black text-lg md:text-xl shrink-0">
-                                                {round.workerName[0]}
+                                    <div className="flex flex-col lg:flex-row lg:items-center gap-6 flex-1">
+                                        {/* Worker Info & Result Tag */}
+                                        <div className="flex items-start gap-4 flex-1">
+                                            <div className="w-12 h-12 bg-slate-50 rounded-2xl flex items-center justify-center text-slate-400 shrink-0 border border-slate-100">
+                                                <Navigation size={24} />
                                             </div>
                                             <div className="min-w-0">
-                                                <h4 className="font-black text-slate-800 text-base md:text-lg leading-tight truncate">{round.workerName}</h4>
-                                                <div className="flex items-center gap-2 text-[10px] text-slate-500 font-bold uppercase tracking-widest mt-1">
-                                                    <MapPin size={12} className="text-blue-500 shrink-0" />
-                                                    <span className="truncate">{round.siteName}</span>
+                                                <div className="flex items-center gap-2 flex-wrap">
+                                                    <h3 className="font-black text-slate-800 text-base truncate">{round.workerName}</h3>
+                                                    {round.result && (
+                                                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[9px] font-black uppercase ring-1 ring-inset ${round.result === 'SIN_NOVEDAD' ? 'bg-emerald-50 text-emerald-700 ring-emerald-600/20' :
+                                                                round.result === 'CON_NOVEDAD' ? 'bg-rose-50 text-rose-700 ring-rose-600/20' :
+                                                                    'bg-amber-50 text-amber-700 ring-amber-600/20'
+                                                            }`}>
+                                                            {round.result === 'SIN_NOVEDAD' ? <ShieldCheck size={10} /> :
+                                                                round.result === 'CON_NOVEDAD' ? <ShieldAlert size={10} /> :
+                                                                    <AlertCircle size={10} />}
+                                                            {round.result.replace('_', ' ')}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                                <div className="flex items-center gap-1.5 text-slate-400 font-bold text-[10px] uppercase tracking-wider mt-0.5">
+                                                    <MapPin size={12} className="text-blue-500" />
+                                                    {round.siteName}
                                                 </div>
                                             </div>
                                         </div>
@@ -150,12 +167,50 @@ const RoundsAdminPage: React.FC = () => {
 
                                             <div className="hidden xl:block h-10 w-px bg-slate-100 mx-2"></div>
 
-                                            <div className="flex flex-col items-end shrink-0">
-                                                <p className="text-[10px] font-black text-slate-300 uppercase">GPS</p>
-                                                <p className="text-base md:text-lg font-black text-slate-800 leading-none">{(round.path?.length || 0)}</p>
+                                            <div className="flex gap-6 shrink-0">
+                                                <div className="flex flex-col items-end">
+                                                    <p className="text-[10px] font-black text-slate-300 uppercase">GPS</p>
+                                                    <p className="text-base md:text-lg font-black text-slate-800 leading-none">{(round.path?.length || 0)}</p>
+                                                </div>
+                                                <div className="flex flex-col items-end">
+                                                    <p className="text-[10px] font-black text-slate-300 uppercase">Fotos</p>
+                                                    <div className="flex items-center gap-1">
+                                                        <Camera size={14} className={(round.evidences?.length || 0) > 0 ? "text-amber-500" : "text-slate-300"} />
+                                                        <p className={`text-base md:text-lg font-black leading-none ${(round.evidences?.length || 0) > 0 ? "text-slate-800" : "text-slate-300"}`}>
+                                                            {(round.evidences?.length || 0)}
+                                                        </p>
+                                                    </div>
+                                                </div>
                                             </div>
                                         </div>
                                     </div>
+
+                                    {/* Quick Evidence Preview */}
+                                    {round.evidences && round.evidences.length > 0 && (
+                                        <div className="mt-4 pt-4 border-t border-slate-50">
+                                            <div className="flex items-center gap-3 overflow-x-auto pb-2 scrollbar-none">
+                                                {round.evidences.map((evi, idx) => (
+                                                    <div key={idx} className="shrink-0 group/photo relative cursor-pointer" onClick={() => setSelectedRound(round)}>
+                                                        <img
+                                                            src={evi.photoUrl}
+                                                            alt="Evi"
+                                                            className="w-16 h-16 rounded-xl object-cover border-2 border-slate-100 group-hover/photo:border-blue-400 transition-colors"
+                                                        />
+                                                        <div className="absolute inset-0 bg-blue-600/0 group-hover/photo:bg-blue-600/10 rounded-xl transition-all"></div>
+                                                    </div>
+                                                ))}
+                                                {round.evidences.length > 5 && (
+                                                    <button
+                                                        onClick={() => setSelectedRound(round)}
+                                                        className="shrink-0 w-16 h-16 rounded-xl bg-slate-50 border-2 border-dashed border-slate-200 flex flex-col items-center justify-center text-slate-400 hover:bg-slate-100 transition-colors"
+                                                    >
+                                                        <span className="text-[10px] font-black">+{round.evidences.length - 5}</span>
+                                                        <span className="text-[8px] font-bold uppercase">Ver más</span>
+                                                    </button>
+                                                )}
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
                             );
                         })}

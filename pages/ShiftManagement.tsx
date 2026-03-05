@@ -22,7 +22,7 @@ import ManageStaffModal from '../components/ManageStaffModal';
 
 // --- Types ---
 
-type ShiftStatus = 'programado' | 'asistio_manual' | 'ausente' | 'noche' | 'descanso' | null;
+type ShiftStatus = 'programado' | 'asistio_manual' | 'asistio_manual_completed' | 'ausente' | 'noche' | 'descanso' | null;
 
 interface ProgramacionDoc {
     id?: string;
@@ -84,6 +84,12 @@ const ShiftManagement: React.FC = () => {
         data: AsistenciaDigitalDoc | null;
         employeeName: string;
     }>({ isOpen: false, data: null, employeeName: '' });
+
+    const [manualEntryPrompt, setManualEntryPrompt] = useState<{
+        empId: string;
+        day: Date;
+        key: string;
+    } | null>(null);
 
     // Init default site
     useEffect(() => {
@@ -175,7 +181,8 @@ const ShiftManagement: React.FC = () => {
 
     const getCellStatus = (empId: string, day: Date): {
         type: 'empty' | 'programado' | 'noche' | 'descanso' | 'digital' | 'manual_present' | 'manual_absent',
-        details?: any
+        details?: any,
+        completed?: boolean
     } => {
         const dateKey = formatDateKey(day);
         const key = getCellKey(empId, day);
@@ -185,6 +192,7 @@ const ShiftManagement: React.FC = () => {
             if (pendingChanges[key] === 'noche') return { type: 'noche' };
             if (pendingChanges[key] === 'descanso') return { type: 'descanso' };
             if (pendingChanges[key] === 'asistio_manual') return { type: 'manual_present' };
+            if (pendingChanges[key] === 'asistio_manual_completed') return { type: 'manual_present', completed: true };
             if (pendingChanges[key] === 'ausente') return { type: 'manual_absent' };
             if (pendingChanges[key] === null) return { type: 'empty' };
         }
@@ -192,7 +200,9 @@ const ShiftManagement: React.FC = () => {
         const manualKey = `${empId}_${dateKey}`;
         if (manualAttendanceMap[manualKey]) {
             const doc = manualAttendanceMap[manualKey];
-            if (doc.status === 'presente') return { type: 'manual_present', details: doc };
+            if (doc.status === 'presente') {
+                return { type: 'manual_present', details: doc };
+            }
             if (doc.status === 'ausente') return { type: 'manual_absent', details: doc };
         }
 
@@ -247,8 +257,16 @@ const ShiftManagement: React.FC = () => {
             if (currentStatus === 'programado' && activeTool === 'programado') nextState = null;
             else if (currentStatus === 'noche' && activeTool === 'noche') nextState = null;
             else if (currentStatus === 'descanso' && activeTool === 'descanso') nextState = null;
-            else if (currentStatus === 'manual_present' && activeTool === 'asistio_manual') nextState = null;
+            else if (currentStatus === 'manual_present' && activeTool === 'asistio_manual') {
+                nextState = null;
+            }
             else if (currentStatus === 'manual_absent' && activeTool === 'ausente') nextState = null;
+
+            // Add step for manual attendance
+            if (activeTool === 'asistio_manual' && nextState !== null) {
+                setManualEntryPrompt({ empId, day, key });
+                return;
+            }
         }
 
         setPendingChanges(prev => ({
@@ -282,7 +300,10 @@ const ShiftManagement: React.FC = () => {
         try {
             const batchPromises = [];
             for (const [key, status] of Object.entries(pendingChanges)) {
-                const [siteId, empId, dateStr] = key.split('_');
+                const parts = key.split('_');
+                const siteId = parts[0];
+                const dateStr = parts[parts.length - 1];
+                const empId = parts.slice(1, -1).join('_');
 
                 const progDocId = `prog_${siteId}_${empId}_${dateStr}`;
                 const progRef = doc(db, 'programacion', progDocId);
@@ -300,7 +321,7 @@ const ShiftManagement: React.FC = () => {
                         date: dateStr,
                         status: status
                     }, { merge: true }));
-                } else if (status === 'asistio_manual') {
+                } else if (status === 'asistio_manual' || status === 'asistio_manual_completed') {
                     // 1. Guardar en asistencia_manual (para el calendario)
                     batchPromises.push(setDoc(manualRef, {
                         employeeId: empId,
@@ -315,10 +336,27 @@ const ShiftManagement: React.FC = () => {
                         const attId = `manual_att_${empId}_${dateStr}`;
                         const attRef = doc(db, 'Asistencia', attId);
 
-                        // Generar timestamp: Fecha del calendario + Hora actual
-                        const now = new Date();
-                        const [y, m, d] = dateStr.split('-').map(Number);
-                        const timestamp = new Date(y, m - 1, d, now.getHours(), now.getMinutes(), now.getSeconds()).toISOString();
+                        // Determinar horario según programación (X o N)
+                        const progKey = `${siteId}_${empId}_${dateStr}`;
+                        const existingProg = programmingMap[progKey];
+                        const isNight = existingProg?.status === 'noche';
+                        const [year, month, dayNum] = dateStr.split('-').map(Number);
+
+                        let startH = 7, startM = 30;
+                        let endH = 19, endM = 30;
+                        if (isNight) {
+                            startH = 19; startM = 30;
+                            endH = 7; endM = 30;
+                        }
+
+                        const startTimestamp = new Date(year, month - 1, dayNum, startH, startM).toISOString();
+                        let endTimestamp = new Date(year, month - 1, dayNum, endH, endM).toISOString();
+                        if (isNight) {
+                            const nextDay = new Date(year, month - 1, dayNum + 1, endH, endM);
+                            endTimestamp = nextDay.toISOString();
+                        }
+
+                        const isCompleted = status === 'asistio_manual_completed';
 
                         batchPromises.push(setDoc(attRef, {
                             employeeId: empId,
@@ -326,10 +364,15 @@ const ShiftManagement: React.FC = () => {
                             rut: emp.rut,
                             siteId: site.id,
                             siteName: site.name,
-                            timestamp: timestamp,
-                            type: 'check_in',
+                            timestamp: isCompleted ? endTimestamp : startTimestamp,
+                            type: isCompleted ? 'check_out' : 'check_in',
                             isManual: true,
-                        }));
+                            status: isCompleted ? 'completed' : 'active',
+                            startTime: startTimestamp,
+                            endTime: isCompleted ? endTimestamp : null,
+                            createdBy: 'admin',
+                            shiftId: progDocId
+                        }, { merge: true }));
                     }
                 } else if (status === 'ausente') {
                     batchPromises.push(setDoc(manualRef, {
@@ -797,6 +840,56 @@ const ShiftManagement: React.FC = () => {
                 currentSiteId={selectedSiteId}
                 onSave={handleUpdateStaff}
             />
+
+            {/* Modal de Entrada Manual */}
+            {manualEntryPrompt && (
+                <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+                    <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95">
+                        <div className="p-8 space-y-6">
+                            <div className="text-center">
+                                <div className="w-16 h-16 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center mx-auto mb-4">
+                                    <CheckCircle2 size={32} />
+                                </div>
+                                <h3 className="text-xl font-black text-slate-800 tracking-tight">Asistencia Manual</h3>
+                                <p className="text-slate-500 text-sm mt-2">
+                                    Selecciona el estado del turno para esta jornada.
+                                </p>
+                            </div>
+
+                            <div className="grid grid-cols-1 gap-4">
+                                <button
+                                    onClick={() => {
+                                        setPendingChanges(prev => ({ ...prev, [manualEntryPrompt.key]: 'asistio_manual' }));
+                                        setManualEntryPrompt(null);
+                                    }}
+                                    className="p-6 bg-slate-50 hover:bg-emerald-50 border-2 border-slate-100 hover:border-emerald-200 rounded-2xl transition-all group text-left"
+                                >
+                                    <p className="font-black text-slate-700 group-hover:text-emerald-700">Turno Activo</p>
+                                    <p className="text-xs text-slate-400 font-bold mt-1">El trabajador acaba de ingresar o está trabajando.</p>
+                                </button>
+
+                                <button
+                                    onClick={() => {
+                                        setPendingChanges(prev => ({ ...prev, [manualEntryPrompt.key]: 'asistio_manual_completed' }));
+                                        setManualEntryPrompt(null);
+                                    }}
+                                    className="p-6 bg-slate-50 hover:bg-blue-50 border-2 border-slate-100 hover:border-blue-200 rounded-2xl transition-all group text-left"
+                                >
+                                    <p className="font-black text-slate-700 group-hover:text-blue-700">Turno Terminado</p>
+                                    <p className="text-xs text-slate-400 font-bold mt-1">El turno ya finalizó y se registrará como completado.</p>
+                                </button>
+                            </div>
+
+                            <button
+                                onClick={() => setManualEntryPrompt(null)}
+                                className="w-full py-4 text-slate-400 font-black uppercase tracking-widest text-xs hover:text-slate-600 transition-colors"
+                            >
+                                Cancelar
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
         </div>
     );

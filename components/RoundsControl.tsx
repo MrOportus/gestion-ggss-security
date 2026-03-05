@@ -7,43 +7,63 @@ import {
     Clock,
     History,
     ArrowLeft,
-
     Loader2,
     Navigation,
-    CheckCircle
+    CheckCircle,
+    Camera,
+    MapPin,
+    Trash2,
+    UploadCloud,
+    AlertCircle,
+    ShieldAlert,
+    ShieldCheck
 } from 'lucide-react';
-import { GuardRound } from '../types';
+import { GuardRound, RoundEvidence } from '../types';
+import { noSleep } from '../lib/noSleep';
+import { compressImage } from '../lib/imageUtils';
+import { roundsDB } from '../lib/roundsDB';
+
+// --- CONFIGURACIÓN DE API EXTERNA ---
 
 interface RoundsControlProps {
     onBack: () => void;
 }
 
 const RoundsControl: React.FC<RoundsControlProps> = ({ onBack }) => {
-    const {
-        currentUser,
-        guardRounds,
-        addGuardRound,
-        updateGuardRound,
-        sites,
-        employees,
-        showNotification
-    } = useAppStore();
+    const currentUser = useAppStore(state => state.currentUser);
+    const guardRounds = useAppStore(state => state.guardRounds);
+    const addGuardRound = useAppStore(state => state.addGuardRound);
+    const updateGuardRound = useAppStore(state => state.updateGuardRound);
+    const uploadFile = useAppStore(state => state.uploadFile);
+    const sites = useAppStore(state => state.sites);
+    const employees = useAppStore(state => state.employees);
+    const showNotification = useAppStore(state => state.showNotification);
 
     const [activeRound, setActiveRound] = useState<GuardRound | null>(null);
     const [loading, setLoading] = useState(false);
     const [elapsedTime, setElapsedTime] = useState(0);
+    const [currentPos, setCurrentPos] = useState<GeolocationPosition | null>(null);
+    const [isCapturing, setIsCapturing] = useState(false);
+    const [capturedPhoto, setCapturedPhoto] = useState<Blob | null>(null);
+    const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+    const [showResultModal, setShowResultModal] = useState(false);
+    const [tempEndLocation, setTempEndLocation] = useState<{ lat: number; lng: number; accuracy: number } | null>(null);
+
     const timerRef = useRef<NodeJS.Timeout | null>(null);
-    const gpsIntervalRef = useRef<NodeJS.Timeout | null>(null);
+    const gpsIntervalRef = useRef<number | null>(null);
+    const fileInputRef = useRef<HTMLInputElement>(null);
 
 
     const employee = employees.find(e => e.id === currentUser?.uid);
     const site = sites.find(s => s.id === employee?.currentSiteId);
 
     // Filter last 10 rounds for this worker
-    const myRounds = guardRounds
-        .filter(r => r.workerId === currentUser?.uid)
-        .sort((a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime())
-        .slice(0, 10);
+    const myRounds = React.useMemo(() =>
+        guardRounds
+            .filter(r => r.workerId === currentUser?.uid)
+            .sort((a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime())
+            .slice(0, 10)
+        , [guardRounds, currentUser?.uid]);
 
     useEffect(() => {
         // Check if there's an in-progress round
@@ -54,6 +74,8 @@ const RoundsControl: React.FC<RoundsControlProps> = ({ onBack }) => {
             const start = new Date(inProgress.startTime).getTime();
             const now = Date.now();
             setElapsedTime(Math.floor((now - start) / 1000));
+            // Reactivar WakeLock si se recarga la página
+            noSleep.enable();
         }
     }, [guardRounds, currentUser]);
 
@@ -65,101 +87,109 @@ const RoundsControl: React.FC<RoundsControlProps> = ({ onBack }) => {
 
             // Use watchPosition for better tracking
             if ('geolocation' in navigator) {
-                // Initial immediate capture
-                navigator.geolocation.getCurrentPosition(
-                    (pos) => handlePositionUpdate(pos),
-                    (err) => console.error("Initial GPS Error:", err),
-                    { enableHighAccuracy: true }
-                );
-
-                // Continuous tracking
                 const watchId = navigator.geolocation.watchPosition(
                     (pos) => {
-                        // Throttle updates to ~5 seconds to balance detail vs data size
-                        // We check the timestamp of the last point in the active round
-                        const state = useAppStore.getState();
-                        const currentRound = state.guardRounds.find(r => r.id === activeRound.id);
-
-                        if (currentRound) {
-                            const lastPoint = currentRound.path && currentRound.path.length > 0
-                                ? currentRound.path[currentRound.path.length - 1]
-                                : null;
-
-                            const lastTime = lastPoint ? new Date(lastPoint.timestamp).getTime() : 0;
-                            const now = Date.now();
-
-                            // Update more frequently for micro-movements (2 seconds)
-                            if (now - lastTime > 2000) {
-                                handlePositionUpdate(pos);
-                            }
-                        }
+                        setCurrentPos(pos);
+                        handlePositionUpdate(pos);
                     },
-                    (err) => console.error("Watch GPS Error:", err),
+                    (err) => {
+                        console.error("Watch GPS Error:", err);
+                        showNotification("Error de GPS: " + err.message, "error");
+                    },
                     {
                         enableHighAccuracy: true,
                         maximumAge: 0,
-                        timeout: 5000
+                        timeout: 10000
                     }
                 );
-
-                (gpsIntervalRef.current as any) = watchId;
+                gpsIntervalRef.current = watchId;
             }
 
         } else {
             if (timerRef.current) clearInterval(timerRef.current);
-            if (gpsIntervalRef.current) navigator.geolocation.clearWatch(gpsIntervalRef.current as any);
+            if (gpsIntervalRef.current !== null) navigator.geolocation.clearWatch(gpsIntervalRef.current);
             setElapsedTime(0);
+            noSleep.disable();
         }
         return () => {
             if (timerRef.current) clearInterval(timerRef.current);
-            if (gpsIntervalRef.current) navigator.geolocation.clearWatch(gpsIntervalRef.current as any);
+            if (gpsIntervalRef.current !== null) navigator.geolocation.clearWatch(gpsIntervalRef.current);
         };
-    }, [activeRound?.id]); // Only re-run if the active round ID changes (start/stop)
+    }, [activeRound?.id]);
 
-    const handlePositionUpdate = (pos: GeolocationPosition) => {
-        // High accuracy: 25 meters (more strict but necessary for micro-movements)
-        if (pos.coords.accuracy > 25) {
-            console.warn("GPS Point ignored (Low accuracy):", pos.coords.accuracy);
-            return;
-        }
+    const handlePositionUpdate = async (pos: GeolocationPosition) => {
+        // Ignorar si la precisión es muy baja (> 40m)
+        if (pos.coords.accuracy > 40) return;
 
         const state = useAppStore.getState();
         if (!activeRound) return;
 
         const currentRound = state.guardRounds.find(r => r.id === activeRound.id);
         if (currentRound) {
-            const newCoords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+            const lastPoint = currentRound.path && currentRound.path.length > 0
+                ? currentRound.path[currentRound.path.length - 1]
+                : null;
 
-            const newPoint = {
-                ...newCoords,
-                timestamp: new Date().toISOString(),
-                accuracy: pos.coords.accuracy
-            };
-            const updatedPath = [...(currentRound.path || []), newPoint];
-            state.updateGuardRound(currentRound.id, { path: updatedPath });
+            const lastTime = lastPoint ? new Date(lastPoint.timestamp).getTime() : 0;
+            const now = Date.now();
+
+            // Guardar punto cada 5 segundos para optimizar batería y datos
+            if (now - lastTime > 5000) {
+                const newPoint = {
+                    lat: pos.coords.latitude,
+                    lng: pos.coords.longitude,
+                    timestamp: new Date().toISOString(),
+                    accuracy: pos.coords.accuracy
+                };
+
+                try {
+                    const updatedPath = [...(currentRound.path || []), newPoint];
+                    await state.updateGuardRound(currentRound.id, { path: updatedPath });
+                } catch (err) {
+                    // Si falla (offline), guardamos en IndexedDB
+                    console.warn("Offline: Guardando punto en IndexedDB");
+                    await roundsDB.savePoint({ roundId: currentRound.id, ...newPoint });
+                }
+            }
         }
     };
 
-    // We keep this solely for specific manual triggers if needed, or remove it.
-    // The previous capturePathPoint is replaced by handlePositionUpdate logic inside the watcher.
-
-
     const handleStartRound = async () => {
+        console.log("Iniciando ronda...", { employee, site });
         if (!employee || !site) {
-            showNotification("No tienes una sucursal asignada para iniciar ronda.", "error");
+            const errorMsg = !employee ? "No se encontró ficha de empleado." : "No tienes una sucursal asignada.";
+            console.error("Error al iniciar ronda:", errorMsg);
+            showNotification(errorMsg, "error");
             return;
         }
 
         setLoading(true);
         try {
-            navigator.geolocation.getCurrentPosition(async (pos) => {
+            console.log("Activando WakeLock...");
+            await noSleep.enable();
+
+            console.log("Solicitando ubicación actual...");
+            // Usamos una promesa para envolver getCurrentPosition con timeout
+            const getPos = () => new Promise<GeolocationPosition>((resolve, reject) => {
+                navigator.geolocation.getCurrentPosition(resolve, reject, {
+                    enableHighAccuracy: true,
+                    timeout: 15000,
+                    maximumAge: 0
+                });
+            });
+
+            try {
+                const pos = await getPos();
+                console.log("Ubicación obtenida:", pos.coords);
+
                 const startLocation = {
                     lat: pos.coords.latitude,
                     lng: pos.coords.longitude,
                     accuracy: pos.coords.accuracy
                 };
-                await addGuardRound({
 
+                console.log("Llamando a addGuardRound...");
+                await addGuardRound({
                     workerId: employee.id,
                     workerName: `${employee.firstName} ${employee.lastNamePaterno}`,
                     siteId: site.id,
@@ -168,15 +198,21 @@ const RoundsControl: React.FC<RoundsControlProps> = ({ onBack }) => {
                     path: [{ ...startLocation, timestamp: new Date().toISOString() }]
                 });
 
-                showNotification("Ronda iniciada correctamente", "success");
-                setLoading(false);
-            }, (err) => {
-                console.error(err);
-                showNotification("Error al obtener ubicación. Activa el GPS.", "error");
-                setLoading(false);
-            }, { enableHighAccuracy: true });
-        } catch (err) {
-            console.error(err);
+                showNotification("Ronda iniciada (GPS Activo)", "success");
+            } catch (err: any) {
+                console.error("Error de Geolocalización:", err);
+                let msg = "Error GPS: ";
+                if (err.code === 1) msg += "Permiso denegado. Activa el GPS.";
+                else if (err.code === 2) msg += "Ubicación no disponible.";
+                else if (err.code === 3) msg += "Tiempo de espera agotado.";
+                else msg += err.message;
+
+                showNotification(msg, "error");
+            }
+        } catch (err: any) {
+            console.error("Error general al iniciar ronda:", err);
+            showNotification("Error al procesar: " + err.message, "error");
+        } finally {
             setLoading(false);
         }
     };
@@ -192,29 +228,128 @@ const RoundsControl: React.FC<RoundsControlProps> = ({ onBack }) => {
                     lng: pos.coords.longitude,
                     accuracy: pos.coords.accuracy
                 };
-                await updateGuardRound(activeRound.id, {
-                    endTime: new Date().toISOString(),
-                    endLocation,
-                    status: 'COMPLETED'
-                });
-
-                setActiveRound(null);
-                showNotification("Ronda finalizada correctamente", "success");
+                setTempEndLocation(endLocation);
+                setShowResultModal(true);
                 setLoading(false);
-                setActiveRound(null);
-                setLoading(false);
-            }, (err) => {
-                console.error(err);
-                // Still stop the round even if GPS fails at the end
-                updateGuardRound(activeRound.id, {
-                    endTime: new Date().toISOString(),
-                    status: 'COMPLETED'
-                });
-                setActiveRound(null);
+            }, (_) => {
+                setShowResultModal(true);
                 setLoading(false);
             }, { enableHighAccuracy: true });
         } catch (err) {
-            console.error(err);
+            setLoading(false);
+        }
+    };
+
+    const confirmStopRound = async (result: 'SIN_NOVEDAD' | 'CON_NOVEDAD' | 'SOSPECHA') => {
+        if (!activeRound) return;
+        setLoading(true);
+        try {
+            await updateGuardRound(activeRound.id, {
+                endTime: new Date().toISOString(),
+                endLocation: tempEndLocation || undefined,
+                status: 'COMPLETED',
+                result
+            });
+
+            setActiveRound(null);
+            setShowResultModal(false);
+            setTempEndLocation(null);
+            await noSleep.disable();
+            showNotification("Ronda finalizada con éxito", "success");
+            syncOfflineData();
+        } catch (error) {
+            showNotification("Error al cerrar ronda", "error");
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const syncOfflineData = async () => {
+        const points = await roundsDB.getAllPoints();
+        if (points.length === 0) return;
+
+        console.log(`Intentando sincronizar ${points.length} puntos offline...`);
+        // Aquí iría la lógica para enviar estos puntos al backend cuando haya red
+    };
+
+    const handlePhotoClick = () => {
+        fileInputRef.current?.click();
+    };
+
+    const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        setLoading(true);
+        try {
+            // Comprimir imagen de forma más agresiva para optimizar storage y velocidad
+            // 800px es suficiente para ver detalles y 0.5 reduce mucho el peso sin pixelar
+            const compressedBlob = await compressImage(file, 0.5, 800);
+
+            setCapturedPhoto(compressedBlob);
+            setPhotoPreview(URL.createObjectURL(compressedBlob));
+            setIsCapturing(true);
+        } catch (err) {
+            showNotification("Error al procesar foto", "error");
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleUploadEvidence = async () => {
+        console.log("Iniciando handleUploadEvidence", { hasPhoto: !!capturedPhoto, hasRound: !!activeRound, hasPos: !!currentPos });
+
+        if (!capturedPhoto || !activeRound) {
+            showNotification("Datos insuficientes para subir foto", "error");
+            return;
+        }
+
+        setLoading(true);
+        try {
+            let photoPos = currentPos;
+
+            // Si no tenemos posición del watch, intentamos una rápida
+            if (!photoPos) {
+                console.log("currentPos es null, intentando obtener ubicación rápida...");
+                try {
+                    const pos = await new Promise<GeolocationPosition>((resolve, reject) => {
+                        navigator.geolocation.getCurrentPosition(resolve, reject, {
+                            enableHighAccuracy: true,
+                            timeout: 5000
+                        });
+                    });
+                    photoPos = pos;
+                } catch (err) {
+                    console.warn("No se pudo obtener ubicación para la foto, usando 0,0", err);
+                }
+            }
+
+            // Cambiamos el path para incluir UID por si las reglas de Firebase son estrictas
+            const fileName = `evidencias/${currentUser?.uid || 'anon'}/${activeRound.id}/foto_${Date.now()}.jpg`;
+            console.log("Subiendo archivo a Storage:", fileName);
+
+            const downloadUrl = await uploadFile(capturedPhoto, fileName);
+            console.log("Archivo subido exitosamente. URL:", downloadUrl);
+
+            const evidence: RoundEvidence = {
+                timestamp: new Date().toISOString(),
+                lat: photoPos?.coords.latitude || 0,
+                lng: photoPos?.coords.longitude || 0,
+                photoUrl: downloadUrl
+            };
+
+            const updatedEvidences = [...(activeRound.evidences || []), evidence];
+            console.log("Actualizando ronda con nueva evidencia...");
+            await updateGuardRound(activeRound.id, { evidences: updatedEvidences });
+
+            showNotification("Evidencia fotográfica guardada", "success");
+            setCapturedPhoto(null);
+            setPhotoPreview(null);
+            setIsCapturing(false);
+        } catch (err: any) {
+            console.error("Error crítico en handleUploadEvidence:", err);
+            showNotification("Error: " + (err.message || "No se pudo subir la foto"), "error");
+        } finally {
             setLoading(false);
         }
     };
@@ -227,7 +362,7 @@ const RoundsControl: React.FC<RoundsControlProps> = ({ onBack }) => {
     };
 
     return (
-        <div className="flex flex-col h-full animate-in fade-in duration-500">
+        <div className="flex flex-col h-full animate-in fade-in duration-500 pb-20">
             {/* Header local */}
             <div className="flex items-center gap-4 mb-6">
                 <button
@@ -248,21 +383,33 @@ const RoundsControl: React.FC<RoundsControlProps> = ({ onBack }) => {
                     <div className="space-y-6">
                         <div className="inline-flex items-center gap-2 px-4 py-1.5 bg-rose-50 text-rose-600 rounded-full text-[10px] font-black uppercase tracking-widest animate-pulse">
                             <div className="w-2 h-2 bg-rose-600 rounded-full"></div>
-                            Ronda en curso
+                            Ronda en curso - GPS Persistente
                         </div>
 
                         <div className="text-5xl font-black text-slate-800 tracking-tighter tabular-nums">
                             {formatTime(elapsedTime)}
                         </div>
 
-                        <button
-                            onClick={handleStopRound}
-                            disabled={loading}
-                            className="w-full py-6 bg-rose-500 hover:bg-rose-600 text-white rounded-3xl shadow-xl shadow-rose-200 flex items-center justify-center gap-3 transition-all active:scale-95 border-b-8 border-rose-700 disabled:opacity-50"
-                        >
-                            {loading ? <Loader2 className="animate-spin" /> : <Square size={24} fill="currentColor" />}
-                            <span className="text-xl font-black tracking-widest uppercase">Finalizar Ronda</span>
-                        </button>
+                        <div className="grid grid-cols-2 gap-4">
+                            <button
+                                onClick={handlePhotoClick}
+                                disabled={loading}
+                                className="py-4 bg-blue-50 text-blue-600 rounded-2xl flex flex-col items-center justify-center gap-2 transition-all active:scale-95 border border-blue-100"
+                            >
+                                <Camera size={24} />
+                                <span className="text-[10px] font-black uppercase">Capturar Foto</span>
+                            </button>
+                            <input type="file" ref={fileInputRef} className="hidden" accept="image/*" capture="environment" onChange={handleFileChange} />
+
+                            <button
+                                onClick={handleStopRound}
+                                disabled={loading}
+                                className="py-4 bg-rose-500 text-white rounded-2xl shadow-lg shadow-rose-200 flex flex-col items-center justify-center gap-2 transition-all active:scale-95"
+                            >
+                                {loading ? <Loader2 className="animate-spin" /> : <Square size={24} fill="currentColor" />}
+                                <span className="text-[10px] font-black uppercase">Finalizar</span>
+                            </button>
+                        </div>
                     </div>
                 ) : (
                     <div className="space-y-6">
@@ -272,7 +419,7 @@ const RoundsControl: React.FC<RoundsControlProps> = ({ onBack }) => {
 
                         <div className="space-y-1">
                             <h3 className="text-2xl font-black text-slate-800">Iniciar Nueva Ronda</h3>
-                            <p className="text-sm text-slate-400 font-medium px-4">Inicia el seguimiento GPS de tu recorrido por la sucursal.</p>
+                            <p className="text-sm text-slate-400 font-medium px-4">El GPS se mantendrá activo incluso con la pantalla apagada.</p>
                         </div>
 
                         <button
@@ -287,18 +434,48 @@ const RoundsControl: React.FC<RoundsControlProps> = ({ onBack }) => {
                 )}
             </div>
 
+            {/* Evidence Preview Modal */}
+            {isCapturing && photoPreview && (
+                <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-md z-[100] p-6 flex flex-col items-center justify-center">
+                    <div className="w-full max-w-sm bg-white rounded-[2.5rem] overflow-hidden shadow-2xl">
+                        <div className="relative aspect-[3/4] bg-slate-100">
+                            <img src={photoPreview} className="w-full h-full object-cover" alt="Preview" />
+                            <div className="absolute top-4 left-4 inline-flex items-center gap-2 px-3 py-1 bg-black/50 text-white rounded-full text-[10px] font-black backdrop-blur-sm">
+                                <MapPin size={12} />
+                                {currentPos?.coords.latitude.toFixed(6)}, {currentPos?.coords.longitude.toFixed(6)}
+                            </div>
+                        </div>
+                        <div className="p-6 flex gap-3">
+                            <button
+                                onClick={() => { setIsCapturing(false); setCapturedPhoto(null); setPhotoPreview(null); }}
+                                className="flex-1 py-4 bg-slate-100 text-slate-500 rounded-2xl font-black uppercase text-xs flex items-center justify-center gap-2"
+                            >
+                                <Trash2 size={16} /> Descartar
+                            </button>
+                            <button
+                                onClick={handleUploadEvidence}
+                                disabled={loading}
+                                className="flex-2 flex-[2] py-4 bg-blue-600 text-white rounded-2xl font-black uppercase text-xs flex items-center justify-center gap-2 shadow-lg shadow-blue-200"
+                            >
+                                {loading ? <Loader2 className="animate-spin" /> : <UploadCloud size={16} />} Subir Evidencia
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* History Area */}
             <div className="space-y-4">
                 <div className="flex items-center justify-between px-2">
                     <h4 className="text-sm font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
-                        <History size={16} /> Últimas 10 Rondas
+                        <History size={16} /> Últimas Rondas
                     </h4>
                 </div>
 
                 <div className="space-y-3">
                     {myRounds.length === 0 ? (
                         <div className="bg-white/50 border border-dashed border-slate-200 rounded-[2rem] p-12 text-center">
-                            <p className="text-slate-400 text-sm font-medium italic">No hay registros de rondas anteriores.</p>
+                            <p className="text-slate-400 text-sm font-medium italic">No hay registros de rondas.</p>
                         </div>
                     ) : (
                         myRounds.map((round) => (
@@ -319,21 +496,94 @@ const RoundsControl: React.FC<RoundsControlProps> = ({ onBack }) => {
                                         <div className="flex items-center gap-1">
                                             <Clock size={12} />
                                             {new Date(round.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                            {round.endTime && ` - ${new Date(round.endTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`}
+                                            {round.evidences && ` | ${round.evidences.length} Fotos`}
                                         </div>
                                     </div>
                                 </div>
                                 <div className="text-right">
                                     <p className="text-[10px] font-black uppercase text-slate-300 tracking-tighter">Estado</p>
-                                    <p className={`text-xs font-black uppercase ${round.status === 'COMPLETED' ? 'text-emerald-500' : 'text-rose-500'}`}>
-                                        {round.status === 'COMPLETED' ? 'Finalizada' : 'En Curso'}
-                                    </p>
+                                    <div className="flex flex-col items-end">
+                                        <p className={`text-xs font-black uppercase ${round.status === 'COMPLETED' ? 'text-emerald-500' : 'text-rose-500'}`}>
+                                            {round.status === 'COMPLETED' ? 'Finalizada' : 'En Curso'}
+                                        </p>
+                                        {round.result && (
+                                            <span className={`text-[8px] font-black uppercase px-1.5 py-0.5 rounded-md mt-1 ${round.result === 'SIN_NOVEDAD' ? 'bg-emerald-100 text-emerald-700' :
+                                                round.result === 'CON_NOVEDAD' ? 'bg-rose-100 text-rose-700' :
+                                                    'bg-amber-100 text-amber-700'
+                                                }`}>
+                                                {round.result.replace('_', ' ')}
+                                            </span>
+                                        )}
+                                    </div>
                                 </div>
                             </div>
                         ))
                     )}
                 </div>
             </div>
+
+            {/* Stop Round Result Modal */}
+            {showResultModal && (
+                <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-md z-[110] p-6 flex flex-col items-center justify-center animate-in fade-in duration-300">
+                    <div className="w-full max-w-sm bg-white rounded-[3rem] p-8 shadow-2xl space-y-8 animate-in zoom-in-95 duration-300">
+                        <div className="text-center space-y-2">
+                            <h3 className="text-2xl font-black text-slate-800 tracking-tight leading-none">Finalizar Ronda</h3>
+                            <p className="text-xs text-slate-400 font-bold uppercase tracking-widest">Seleccione el resultado de la vigilancia</p>
+                        </div>
+
+                        <div className="grid grid-cols-1 gap-4">
+                            <button
+                                onClick={() => confirmStopRound('SIN_NOVEDAD')}
+                                disabled={loading}
+                                className="flex items-center gap-4 p-5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-3xl transition-all active:scale-95 group border border-emerald-100"
+                            >
+                                <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center shadow-sm text-emerald-600 group-hover:scale-110 transition-transform">
+                                    <ShieldCheck size={28} />
+                                </div>
+                                <div className="text-left">
+                                    <p className="font-black uppercase text-sm leading-none mb-1">Sin Novedad</p>
+                                    <p className="text-[10px] font-bold opacity-60">Todo en orden en la sucursal.</p>
+                                </div>
+                            </button>
+
+                            <button
+                                onClick={() => confirmStopRound('SOSPECHA')}
+                                disabled={loading}
+                                className="flex items-center gap-4 p-5 bg-amber-50 hover:bg-amber-100 text-amber-700 rounded-3xl transition-all active:scale-95 group border border-amber-100"
+                            >
+                                <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center shadow-sm text-amber-600 group-hover:scale-110 transition-transform">
+                                    <AlertCircle size={28} />
+                                </div>
+                                <div className="text-left">
+                                    <p className="font-black uppercase text-sm leading-none mb-1">Con Sospecha</p>
+                                    <p className="text-[10px] font-bold opacity-60">Situaciones irregulares leves.</p>
+                                </div>
+                            </button>
+
+                            <button
+                                onClick={() => confirmStopRound('CON_NOVEDAD')}
+                                disabled={loading}
+                                className="flex items-center gap-4 p-5 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-3xl transition-all active:scale-95 group border border-rose-100"
+                            >
+                                <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center shadow-sm text-rose-600 group-hover:scale-110 transition-transform">
+                                    <ShieldAlert size={28} />
+                                </div>
+                                <div className="text-left">
+                                    <p className="font-black uppercase text-sm leading-none mb-1">Con Novedad</p>
+                                    <p className="text-[10px] font-bold opacity-60">Incidentes graves o directos.</p>
+                                </div>
+                            </button>
+                        </div>
+
+                        <button
+                            onClick={() => setShowResultModal(false)}
+                            className="w-full py-4 text-slate-400 text-[10px] font-black uppercase tracking-widest hover:text-slate-600 transition-colors"
+                        >
+                            Cancelar
+                        </button>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

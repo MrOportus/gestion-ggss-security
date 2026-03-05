@@ -298,6 +298,7 @@ const SmartAutofill: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                                     placeholder="Buscar por Nombre o RUT..."
                                     value={searchTerm}
                                     onChange={(e) => setSearchTerm(e.target.value)}
+                                    onFocus={() => setSearchTerm('')}
                                     autoFocus
                                 />
                             </div>

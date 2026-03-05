@@ -16,13 +16,14 @@ import AttendancePage from './pages/AttendancePage';
 import RoundsAdminPage from './pages/RoundsAdminPage';
 import ShiftManagement from './pages/ShiftManagement';
 import LoansPage from './pages/LoansPage';
-import { StickyNote, Navigation, CalendarDays, Receipt } from 'lucide-react';
+import DocumentsPage from './pages/DocumentsPage';
+import { StickyNote, Navigation, CalendarDays, Receipt, ShieldCheck } from 'lucide-react';
 
 
 
 const App: React.FC = () => {
   const { currentUser, logout, fetchInitialData, isLoading, initializeAuthListener } = useAppStore();
-  const [currentView, setCurrentView] = useState<'dashboard' | 'employees' | 'tasks' | 'sites' | 'payments' | 'supervisor_mgmt' | 'notes' | 'attendance' | 'rounds' | 'shift_management' | 'loans'>('dashboard');
+  const [currentView, setCurrentView] = useState<'dashboard' | 'employees' | 'tasks' | 'sites' | 'payments' | 'supervisor_mgmt' | 'notes' | 'attendance' | 'rounds' | 'shift_management' | 'loans' | 'documents'>('dashboard');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [authInitialized, setAuthInitialized] = useState(false);
 
@@ -40,7 +41,7 @@ const App: React.FC = () => {
       <div className="min-h-screen flex items-center justify-center bg-slate-50">
         <div className="flex flex-col items-center gap-4">
           <div className="relative">
-            <img src="/logo.png" alt="GGSS Logo" className="w-16 h-16 object-contain animate-pulse" />
+            <img src="/logo-transparencia.png" alt="GGSS Logo" className="w-16 h-16 object-contain animate-pulse" />
             <Loader2 className="animate-spin text-blue-600 absolute -bottom-2 -right-2 bg-white rounded-full p-0.5" size={24} />
           </div>
           <div className="text-center">
@@ -73,11 +74,11 @@ const App: React.FC = () => {
     }`;
 
   return (
-    <div className="min-h-screen bg-slate-50 flex font-sans overflow-hidden">
+    <div className="h-screen w-full bg-slate-50 flex font-sans overflow-hidden">
       {/* SIDEBAR DESKTOP */}
-      <aside className="w-64 bg-white hidden md:flex flex-col shadow-xl z-20 border-r border-slate-200 h-screen">
+      <aside className="w-64 bg-white hidden md:flex flex-col shadow-xl z-20 border-r border-slate-200 shrink-0">
         <div className="p-6 border-b border-slate-100 flex items-center gap-3">
-          <img src="/logo.png" alt="GGSS Logo" className="w-10 h-10 object-contain" />
+          <img src="/logo-transparencia.png" alt="GGSS Logo" className="w-10 h-10 object-contain" />
           <div>
             <h1 className="text-lg font-black tracking-tighter text-slate-900 leading-none">GGSS</h1>
             <h1 className="text-lg font-black tracking-tighter text-blue-600 leading-none">SECURITY</h1>
@@ -121,6 +122,11 @@ const App: React.FC = () => {
           <button onClick={() => setCurrentView('loans')} className={navItemClass('loans')}>
             <Receipt size={20} />
             <span className="font-medium">Préstamos</span>
+          </button>
+
+          <button onClick={() => setCurrentView('documents')} className={navItemClass('documents')}>
+            <ShieldCheck size={20} />
+            <span className="font-medium">Documentos</span>
           </button>
 
 
@@ -188,18 +194,18 @@ const App: React.FC = () => {
       </aside>
 
       {/* MAIN CONTENT */}
-      <main className="flex-1 flex flex-col h-screen relative bg-slate-50">
+      <main className="flex-1 flex flex-col min-w-0 relative bg-slate-50 h-full overflow-hidden">
 
         {/* HEADER MÓVIL */}
-        <div className="md:hidden bg-white text-slate-800 p-4 flex justify-between items-center shadow-sm border-b border-slate-200 z-30 shrink-0 relative">
-          <div className="flex items-center gap-2">
-            <img src="/logo.png" alt="GGSS Logo" className="w-8 h-8 object-contain" />
-            <div className="flex flex-col">
+        <header className="md:hidden bg-white text-slate-800 p-4 flex justify-between items-center shadow-sm border-b border-slate-200 z-30 shrink-0">
+          <div className="flex items-center gap-2 overflow-hidden">
+            <img src="/logo-transparencia.png" alt="GGSS Logo" className="w-8 h-8 object-contain shrink-0" />
+            <div className="flex flex-col min-w-0">
               <div className="flex items-baseline gap-1">
                 <span className="font-black text-slate-900 text-sm leading-none tracking-tight">GGSS</span>
                 <span className="font-black text-blue-600 text-sm leading-none tracking-tight">SECURITY</span>
               </div>
-              <span className="text-[10px] text-slate-400 font-bold uppercase tracking-widest leading-none mt-1">
+              <span className="text-[10px] text-slate-400 font-bold uppercase tracking-widest leading-none mt-1 truncate">
                 {currentView === 'dashboard' ? 'Panel General' :
                   currentView === 'employees' ? 'Empleados' :
                     currentView === 'tasks' ? 'Tareas Recurrentes' :
@@ -209,7 +215,8 @@ const App: React.FC = () => {
                             currentView === 'attendance' ? 'Asistencia' :
                               currentView === 'rounds' ? 'Monitoreo Rondas' :
                                 currentView === 'shift_management' ? 'Gestión de Turnos' :
-                                  currentView === 'loans' ? 'Préstamos' : currentView}
+                                  currentView === 'loans' ? 'Préstamos' :
+                                    currentView === 'documents' ? 'Documentos' : currentView}
 
 
               </span>
@@ -217,11 +224,11 @@ const App: React.FC = () => {
           </div>
           <button
             onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-            className="p-2 text-slate-600 bg-slate-50 rounded-lg hover:bg-slate-100 active:bg-slate-200 transition"
+            className="p-2 text-slate-600 bg-slate-50 rounded-lg hover:bg-slate-100 active:bg-slate-200 transition shrink-0"
           >
             {isMobileMenuOpen ? <X size={24} /> : <Menu size={24} />}
           </button>
-        </div>
+        </header>
 
         {/* MENÚ DESPLEGABLE MÓVIL */}
         {isMobileMenuOpen && (
@@ -255,6 +262,10 @@ const App: React.FC = () => {
               </button>
               <button onClick={() => handleNavChange('loans')} className={mobileNavItemClass('loans')}>
                 <div className="flex items-center gap-3"><Receipt size={20} /> Préstamos</div>
+                <ChevronRight size={16} className="text-slate-300" />
+              </button>
+              <button onClick={() => handleNavChange('documents')} className={mobileNavItemClass('documents')}>
+                <div className="flex items-center gap-3"><ShieldCheck size={20} /> Documentos</div>
                 <ChevronRight size={16} className="text-slate-300" />
               </button>
 
@@ -321,6 +332,7 @@ const App: React.FC = () => {
             {currentView === 'supervisor_mgmt' && currentUser.role === 'admin' && <SupervisorManagement />}
             {currentView === 'shift_management' && <ShiftManagement />}
             {currentView === 'loans' && <LoansPage />}
+            {currentView === 'documents' && <DocumentsPage />}
 
 
           </div>

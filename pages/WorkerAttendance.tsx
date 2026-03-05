@@ -5,6 +5,7 @@ import {
   CheckCircle,
   MapPin,
   Clock,
+  RefreshCw,
   LogOut,
   Delete,
   Loader2,
@@ -12,33 +13,41 @@ import {
   ClipboardList,
   Settings,
   User,
-  Save,
   ArrowLeft,
   Phone,
-  Calendar,
-  Home
+  Home,
+  ShieldCheck,
+  Menu,
+  X,
+  Building2,
+  FileCheck,
+  ChevronRight,
+  UserCircle,
+  Info
 } from 'lucide-react';
+
+import DocumentsPage from './DocumentsPage';
+import { db } from '../lib/firebase';
+import { collection, query, where, getDocs } from 'firebase/firestore';
 
 import RoundsControl from '../components/RoundsControl';
 
 
 const WorkerAttendance: React.FC = () => {
-  const {
-    currentUser,
-    getEmployeeByUserId,
-    attendanceLogs,
-    addAttendanceLog,
-    logout,
-    sites,
-    fetchAttendanceLogs,
-    guardRounds,
-    fetchGuardRounds,
-    isLoading,
-    employees,
-    updateEmployee
-  } = useAppStore();
+  const currentUser = useAppStore(state => state.currentUser);
+  const fetchAttendanceLogs = useAppStore(state => state.fetchAttendanceLogs);
+  const guardRounds = useAppStore(state => state.guardRounds);
+  const fetchGuardRounds = useAppStore(state => state.fetchGuardRounds);
+  const isLoading = useAppStore(state => state.isLoading);
+  const employees = useAppStore(state => state.employees);
+  const addAttendanceLog = useAppStore(state => state.addAttendanceLog);
+  const logout = useAppStore(state => state.logout);
+  const sites = useAppStore(state => state.sites);
+  const updateEmployee = useAppStore(state => state.updateEmployee);
+  const fetchInitialData = useAppStore(state => state.fetchInitialData);
 
-  const [step, setStep] = useState<'status' | 'keypad' | 'success' | 'rounds' | 'settings'>('status');
+  const [step, setStep] = useState<'status' | 'keypad' | 'success' | 'rounds' | 'settings' | 'documents' | 'company_docs'>('status');
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [lastAction, setLastAction] = useState<'check_in' | 'check_out' | null>(null);
 
   const [rutInput, setRutInput] = useState('');
@@ -57,7 +66,9 @@ const WorkerAttendance: React.FC = () => {
     fechaNacimiento: ''
   });
 
-  const employee = currentUser ? getEmployeeByUserId(currentUser.uid) : undefined;
+  const employee = useAppStore(state =>
+    state.currentUser ? state.employees.find(e => e.id === state.currentUser?.uid) : undefined
+  );
 
   useEffect(() => {
     if (employee) {
@@ -73,9 +84,13 @@ const WorkerAttendance: React.FC = () => {
   }, [employee]);
 
   // Last log for this specific employee
-  const lastLog = attendanceLogs
-    .filter(l => l.employeeId === employee?.id)
-    .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())[0];
+  const lastLog = useAppStore(state => {
+    const empId = state.currentUser?.uid;
+    if (!empId) return undefined;
+    return state.attendanceLogs
+      .filter(l => l.employeeId === empId)
+      .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())[0];
+  });
 
   const isCheckedIn = lastLog?.type === 'check_in';
 
@@ -140,13 +155,16 @@ const WorkerAttendance: React.FC = () => {
     return result + '-' + dv;
   };
 
-  const handleKeyPress = (num: string) => {
-    if (rutInput.length < 9) setRutInput(rutInput + num);
-  };
+  const handleKeyPress = React.useCallback((num: string) => {
+    setRutInput(prev => {
+      if (prev.length < 9) return prev + num;
+      return prev;
+    });
+  }, []);
 
-  const handleBackspace = () => {
-    setRutInput(rutInput.slice(0, -1));
-  };
+  const handleBackspace = React.useCallback(() => {
+    setRutInput(prev => prev.slice(0, -1));
+  }, []);
 
   const validateRut = () => {
     if (!employee) return;
@@ -182,6 +200,19 @@ const WorkerAttendance: React.FC = () => {
     const actionType = isCheckedIn ? 'check_out' : 'check_in';
 
     try {
+      const today = new Date();
+      const dateStr = today.toISOString().split('T')[0];
+
+      // Intentar obtener la programación de hoy para este trabajador
+      const q = query(
+        collection(db, 'programacion'),
+        where('employeeId', '==', employee.id),
+        where('date', '==', dateStr)
+      );
+      const progSnapshot = await getDocs(q);
+      const shiftDoc = progSnapshot.docs[0];
+      const shiftId = shiftDoc ? `prog_${employee.currentSiteId}_${employee.id}_${dateStr}` : null;
+
       await addAttendanceLog({
         employeeId: employee.id,
         employeeName: `${employee.firstName} ${employee.lastNamePaterno}`,
@@ -191,7 +222,8 @@ const WorkerAttendance: React.FC = () => {
         locationLng: finalCoords.lng,
         siteId: employee.currentSiteId ?? null,
         siteName: sites.find(s => s.id === employee.currentSiteId)?.name || 'Sin Sucursal',
-      });
+        shiftId: shiftId
+      } as any);
 
       setLastAction(actionType);
       setStep('success');
@@ -267,28 +299,20 @@ const WorkerAttendance: React.FC = () => {
 
           <div className={`flex justify-between items-start relative z-10 transition-all duration-500 ${step === 'keypad' ? 'opacity-0 -translate-y-10 h-0 pointer-events-none' : 'opacity-100 translate-y-0'}`}>
             <div className="flex items-center gap-4">
-              <div className="w-14 h-14 bg-white/20 backdrop-blur-md rounded-2xl flex items-center justify-center p-2">
-                <img src="/logo.png" alt="GGSS" className="w-full h-full object-contain brightness-0 invert" />
-              </div>
+              <button
+                onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+                className="w-12 h-12 bg-white/10 hover:bg-white/20 backdrop-blur-md rounded-2xl flex items-center justify-center transition-all active:scale-95"
+              >
+                <Menu size={24} />
+              </button>
               <div>
-                <h1 className="text-lg font-black tracking-tighter opacity-70">GGSS SECURITY</h1>
-                <p className="text-2xl font-bold leading-tight">{employee.firstName} {employee.lastNamePaterno}</p>
-                <p className="text-sm font-medium text-blue-200 uppercase tracking-widest">{employee.cargo}</p>
+                <h1 className="text-sm font-black tracking-tighter opacity-70">GGSS SECURITY</h1>
+                <p className="text-xl font-bold leading-tight">{employee.firstName}</p>
               </div>
             </div>
-            <div className="flex gap-2">
-              <button
-                onClick={() => setStep('settings')}
-                className="p-3 bg-white/10 hover:bg-white/20 backdrop-blur-md rounded-2xl transition-all active:scale-95"
-              >
-                <Settings size={20} />
-              </button>
-              <button
-                onClick={logout}
-                className="p-3 bg-white/10 hover:bg-white/20 backdrop-blur-md rounded-2xl transition-all active:scale-95"
-              >
-                <LogOut size={20} />
-              </button>
+
+            <div className="w-14 h-14">
+              <img src="/logo-transparencia.png" alt="GGSS" className="w-full h-full object-contain" />
             </div>
           </div>
 
@@ -305,8 +329,8 @@ const WorkerAttendance: React.FC = () => {
           {/* Mini version for identification step */}
           {step === 'keypad' && (
             <div className="flex items-center justify-center pt-2 animate-in fade-in slide-in-from-top-4 duration-500">
-              <div className="w-10 h-10 bg-white/20 backdrop-blur-md rounded-xl flex items-center justify-center p-1.5">
-                <img src="/logo.png" alt="GGSS" className="w-full h-full object-contain brightness-0 invert" />
+              <div className="w-12 h-12">
+                <img src="/logo-transparencia.png" alt="GGSS" className="w-full h-full object-contain" />
               </div>
               <h1 className="ml-3 text-sm font-black tracking-widest opacity-90 uppercase">Validación de Turno</h1>
             </div>
@@ -367,6 +391,14 @@ const WorkerAttendance: React.FC = () => {
 
 
                   <button
+                    onClick={() => setStep('documents')}
+                    className="w-full py-6 bg-slate-800 hover:bg-slate-900 text-white rounded-[2rem] shadow-xl shadow-slate-200 flex items-center justify-center gap-3 transition-all active:scale-95 border-b-8 border-slate-950"
+                  >
+                    <ShieldCheck size={28} />
+                    <span className="text-xl font-black tracking-wider uppercase">MIS DOCUMENTOS</span>
+                  </button>
+
+                  <button
                     onClick={() => setStep('keypad')}
                     className="w-full py-6 bg-red-500 hover:bg-red-600 text-white rounded-[2rem] shadow-xl shadow-red-200 flex items-center justify-center gap-3 transition-all active:scale-95 border-b-8 border-red-700"
                   >
@@ -382,6 +414,62 @@ const WorkerAttendance: React.FC = () => {
         {step === 'rounds' && (
           <RoundsControl onBack={() => setStep('status')} />
         )}
+
+        {step === 'documents' && (
+          <div className="bg-slate-50 min-h-screen pb-20 -mx-6">
+            <div className="bg-white p-4 flex items-center gap-4 sticky top-0 z-30 shadow-sm border-b mb-4">
+              <button
+                onClick={() => setStep('status')}
+                className="p-2 text-slate-500 hover:bg-slate-100 rounded-xl transition-all"
+              >
+                <ArrowLeft size={24} />
+              </button>
+              <h2 className="font-black text-slate-800 tracking-tight text-lg">Mis Documentos</h2>
+            </div>
+            <DocumentsPage />
+          </div>
+        )}
+
+        {step === 'company_docs' && (
+          <div className="bg-slate-50 min-h-screen pb-20 -mx-6">
+            <div className="bg-white p-4 flex items-center gap-4 sticky top-0 z-30 shadow-sm border-b mb-6">
+              <button
+                onClick={() => setStep('status')}
+                className="p-2 text-slate-500 hover:bg-slate-100 rounded-xl transition-all"
+              >
+                <ArrowLeft size={24} />
+              </button>
+              <h2 className="font-black text-slate-800 tracking-tight text-lg">Documentos Empresa</h2>
+            </div>
+
+            <div className="px-6 space-y-6">
+              <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 text-center space-y-4 shadow-sm">
+                <div className="w-16 h-16 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center mx-auto">
+                  <Building2 size={32} />
+                </div>
+                <div>
+                  <h3 className="text-xl font-black text-slate-800 uppercase tracking-tight">Biblioteca Corporativa</h3>
+                  <p className="text-slate-500 font-medium">Próximamente encontrarás aquí:</p>
+                </div>
+                <div className="grid grid-cols-1 gap-2 pt-2">
+                  <div className="p-4 bg-slate-50 rounded-2xl flex items-center gap-3 text-left">
+                    <FileCheck size={20} className="text-blue-500" />
+                    <span className="text-xs font-bold text-slate-600">Reglamento Interno</span>
+                  </div>
+                  <div className="p-4 bg-slate-50 rounded-2xl flex items-center gap-3 text-left">
+                    <ShieldCheck size={20} className="text-blue-500" />
+                    <span className="text-xs font-bold text-slate-600">Directivas de Funcionamiento</span>
+                  </div>
+                  <div className="p-4 bg-slate-50 rounded-2xl flex items-center gap-3 text-left">
+                    <Info size={20} className="text-blue-500" />
+                    <span className="text-xs font-bold text-slate-600">Manuales de Procedimiento</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
 
         {step === 'keypad' && (
           <div className="bg-white rounded-[3rem] p-8 shadow-xl space-y-8 animate-in zoom-in-95 duration-300 max-w-sm mx-auto mt-4">
@@ -405,17 +493,15 @@ const WorkerAttendance: React.FC = () => {
 
             <div className="grid grid-cols-3 gap-4">
               {[1, 2, 3, 4, 5, 6, 7, 8, 9, 'K', 0].map((num) => (
-                <button
+                <KeypadButton
                   key={num}
-                  onClick={() => handleKeyPress(num.toString())}
-                  className="h-16 bg-slate-50 hover:bg-slate-100 active:bg-blue-50 active:text-blue-600 rounded-2xl text-2xl font-black text-slate-600 shadow-sm transition-all"
-                >
-                  {num}
-                </button>
+                  value={num.toString()}
+                  onClick={handleKeyPress}
+                />
               ))}
               <button
                 onClick={handleBackspace}
-                className="h-16 bg-slate-50 hover:bg-red-50 hover:text-red-500 rounded-2xl flex items-center justify-center shadow-sm"
+                className="h-16 bg-slate-50 hover:bg-red-50 hover:text-red-500 rounded-2xl flex items-center justify-center shadow-sm transition-colors active:scale-95"
               >
                 <Delete size={24} />
               </button>
@@ -633,11 +719,123 @@ const WorkerAttendance: React.FC = () => {
 
       </div>
 
-      <div className={`p-6 text-center text-[10px] font-black text-slate-300 uppercase tracking-widest opacity-50 transition-all duration-500 ${step === 'keypad' ? 'opacity-0 h-0 p-0 overflow-hidden' : 'opacity-50'}`}>
+      <div className={`p-6 text-center text-[10px] font-black text-slate-300 uppercase tracking-widest opacity-50 transition-all duration-500 ${step === 'keypad' || step === 'documents' || step === 'company_docs' ? 'opacity-0 h-0 p-0 overflow-hidden' : 'opacity-50'}`}>
         GGSS Security • Attendance Control v3.0
+      </div>
+
+      {/* SIDEBAR HAMBURGER MENU */}
+      <div
+        className={`fixed inset-0 z-[200] transition-all duration-500 ${isSidebarOpen ? 'opacity-100 visible' : 'opacity-0 invisible pointer-events-none'}`}
+      >
+        {/* Overlay */}
+        <div
+          className="absolute inset-0 bg-slate-900/60 backdrop-blur-md"
+          onClick={() => setIsSidebarOpen(false)}
+        ></div>
+
+        {/* Menu Content */}
+        <div
+          className={`absolute inset-y-0 left-0 w-[85%] max-w-sm bg-white shadow-2xl transition-transform duration-500 ease-out flex flex-col ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}
+        >
+          {/* Menu Header */}
+          <div className="p-8 bg-gradient-to-br from-blue-700 to-blue-900 text-white relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -mr-16 -mt-16 blur-2xl"></div>
+            <button
+              onClick={() => setIsSidebarOpen(false)}
+              className="absolute top-6 right-6 p-2 bg-white/10 hover:bg-white/20 rounded-xl transition-all z-50 cursor-pointer"
+              title="Cerrar menú"
+            >
+              <X size={20} />
+            </button>
+
+            <div className="flex flex-col gap-4 relative z-10">
+              <div className="w-16 h-16 bg-white/20 backdrop-blur-md rounded-2xl flex items-center justify-center p-3 border border-white/20">
+                <UserCircle size={40} />
+              </div>
+              <div>
+                <h3 className="text-xl font-black tracking-tight">{employee.firstName} {employee.lastNamePaterno}</h3>
+                <p className="text-blue-200 text-xs font-bold uppercase tracking-widest">{employee.cargo}</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Menu Items */}
+          <div className="flex-1 overflow-y-auto p-6 space-y-2">
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-4 ml-2">Menú Principal</p>
+
+
+            <button
+              onClick={() => { setStep('documents'); setIsSidebarOpen(false); }}
+              className={`w-full p-4 rounded-2xl flex items-center justify-between transition-all ${step === 'documents' ? 'bg-blue-50 text-blue-600' : 'text-slate-600 hover:bg-slate-50'}`}
+            >
+              <div className="flex items-center gap-3">
+                <ShieldCheck size={22} className={step === 'documents' ? 'text-blue-600' : 'text-slate-400'} />
+                <span className="font-bold">Mis Documentos</span>
+              </div>
+              <ChevronRight size={16} className="opacity-30" />
+            </button>
+
+            <button
+              onClick={() => { setStep('company_docs'); setIsSidebarOpen(false); }}
+              className={`w-full p-4 rounded-2xl flex items-center justify-between transition-all ${step === 'company_docs' ? 'bg-blue-50 text-blue-600' : 'text-slate-600 hover:bg-slate-50'}`}
+            >
+              <div className="flex items-center gap-3">
+                <Building2 size={22} className={step === 'company_docs' ? 'text-blue-600' : 'text-slate-400'} />
+                <span className="font-bold">Documentos Empresa</span>
+              </div>
+              <ChevronRight size={16} className="opacity-30" />
+            </button>
+
+            <div className="h-px bg-slate-100 my-4"></div>
+
+            <button
+              onClick={() => { setStep('settings'); setIsSidebarOpen(false); }}
+              className={`w-full p-4 rounded-2xl flex items-center justify-between transition-all ${step === 'settings' ? 'bg-blue-50 text-blue-600' : 'text-slate-600 hover:bg-slate-50'}`}
+            >
+              <div className="flex items-center gap-3">
+                <Settings size={22} className={step === 'settings' ? 'text-blue-600' : 'text-slate-400'} />
+                <span className="font-bold">Mi Perfil</span>
+              </div>
+              <ChevronRight size={16} className="opacity-30" />
+            </button>
+          </div>
+
+          {/* Menu Footer */}
+          <div className="p-6 border-t border-slate-100">
+            <button
+              onClick={() => fetchInitialData()}
+              disabled={isLoading}
+              className="w-full p-4 bg-blue-50 hover:bg-blue-100 text-blue-600 rounded-2xl flex items-center justify-center gap-3 transition-all font-black text-sm uppercase tracking-widest mb-2 disabled:opacity-50"
+            >
+              <RefreshCw size={20} className={isLoading ? "animate-spin" : ""} />
+              {isLoading ? 'Sincronizando...' : 'Recargar Datos'}
+            </button>
+
+            <button
+              onClick={logout}
+              className="w-full p-4 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-2xl flex items-center justify-center gap-3 transition-all font-black text-sm uppercase tracking-widest"
+            >
+              <LogOut size={20} />
+              Cerrar Sesión
+            </button>
+            <p className="text-center text-[8px] font-black text-slate-300 mt-4 uppercase tracking-[0.2em]">GGSS Security v3.0</p>
+          </div>
+        </div>
       </div>
     </div>
   );
 };
+
+// Helper Components for optimization
+const KeypadButton = React.memo(({ value, onClick }: { value: string, onClick: (v: string) => void }) => {
+  return (
+    <button
+      onClick={() => onClick(value)}
+      className="h-16 bg-slate-50 hover:bg-slate-100 active:bg-blue-50 active:text-blue-600 rounded-2xl text-2xl font-black text-slate-600 shadow-sm transition-all"
+    >
+      {value}
+    </button>
+  );
+});
 
 export default WorkerAttendance;

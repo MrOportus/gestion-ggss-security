@@ -39,7 +39,7 @@ const Login: React.FC = () => {
       <div className="bg-white p-8 rounded-2xl shadow-2xl w-full max-w-md space-y-8 border border-slate-100 animate-in fade-in duration-500">
         <div className="text-center">
           <div className="w-24 h-24 rounded-3xl flex items-center justify-center mx-auto mb-6 transition-all duration-300">
-            <img src="/logo.png" alt="GGSS Logo" className="w-full h-full object-contain drop-shadow-md" />
+            <img src="/logo-transparencia.png" alt="GGSS Logo" className="w-full h-full object-contain" />
           </div>
           <h2 className="text-3xl font-bold text-slate-900 tracking-tight">Acceso GGSS</h2>
           <p className="text-slate-500 mt-2 text-sm font-medium">Sistema de Gestión de Seguridad</p>

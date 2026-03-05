@@ -73,6 +73,12 @@ export interface AttendanceLog {
   siteName: string;
   photoUrl?: string;
   isManual?: boolean;
+  status?: 'active' | 'completed';
+  startTime?: string | null;
+  endTime?: string | null;
+  createdBy?: string;
+  systemNote?: string;
+  shiftId?: string;
 }
 
 export interface Document {
@@ -82,6 +88,24 @@ export interface Document {
   fileName: string;
   uploadDate: string;
 }
+
+export interface DigitalDocument {
+  id: string;
+  title: string;
+  type: string;
+  assignedTo: string;
+  status: 'pending' | 'signed';
+  originalUrl: string;
+  signedUrl?: string;
+  createdAt: string;
+  signedAt?: string;
+  metadata?: {
+    ip?: string;
+    rut?: string;
+    browserInfo?: string;
+  };
+}
+
 
 export interface ComparisonRecord {
   id: number;
@@ -230,6 +254,13 @@ export interface BoardNote {
   createdByName: string;
 }
 
+export interface RoundEvidence {
+  timestamp: string;
+  lat: number;
+  lng: number;
+  photoUrl: string;
+}
+
 export interface GuardRound {
   id: string;
   workerId: string;
@@ -242,6 +273,8 @@ export interface GuardRound {
   endLocation?: { lat: number; lng: number; accuracy?: number };
   status: 'IN_PROGRESS' | 'COMPLETED';
   path?: { lat: number; lng: number; timestamp: string; accuracy?: number }[];
+  evidences?: RoundEvidence[];
+  result?: 'SIN_NOVEDAD' | 'CON_NOVEDAD' | 'SOSPECHA';
 }
 
 export interface LoanInstallment {
