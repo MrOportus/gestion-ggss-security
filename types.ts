@@ -299,3 +299,12 @@ export interface Loan {
   createdBy: string;
 }
 
+export interface Reminder {
+  id: string;
+  text: string;
+  dueDate: any; // Firestore Timestamp
+  completed: boolean;
+  userId: string;
+  createdAt: any; // Firestore Timestamp
+}
+

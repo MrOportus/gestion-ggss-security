@@ -1,15 +1,15 @@
 
 import React, { useState } from 'react';
 import { useAppStore } from '../store/useAppStore';
-import { Employee } from '../types';
-import {
-  Users, FileCheck, MapPin, Search, Eye, AlertCircle, ShieldAlert, FileWarning, LogOut
-} from 'lucide-react';
+import { collection, query, where, onSnapshot, orderBy } from 'firebase/firestore';
 import { db } from '../lib/firebase';
-import { collection, query, where, onSnapshot } from 'firebase/firestore';
+import { Employee, Reminder } from '../types';
+import {
+  Users, FileCheck, MapPin, Search, Eye, AlertCircle, ShieldAlert, FileWarning, LogOut, Bell, Clock
+} from 'lucide-react';
 import EmployeeModal from '../components/EmployeeModal';
 
-type DashboardFilter = 'active_total' | 'os10_all' | 'contracts_all';
+type DashboardFilter = 'active_total' | 'os10_all' | 'contracts_all' | 'reminders_all';
 
 const AdminDashboard: React.FC = () => {
   const { employees, attendanceLogs, sites } = useAppStore();
@@ -117,6 +117,11 @@ const AdminDashboard: React.FC = () => {
       viewDescription = "Consolidado de personal con contrato vencido o por vencer en los próximos 90 días.";
       dateColumnHeader = "Término Contrato";
       break;
+    case 'reminders_all':
+      viewTitle = "Gestión de Recordatorios";
+      viewDescription = "Consolidado de todas las tareas pendientes con fecha de vencimiento.";
+      dateColumnHeader = "Vencimiento";
+      break;
     case 'active_total':
     default:
       currentList = activeEmployees;
@@ -156,6 +161,7 @@ const AdminDashboard: React.FC = () => {
   // --- 4. Lógica de Sincronización con Programación (Gestión de Turnos) ---
   const [programming, setProgramming] = React.useState<{ employeeId: string; siteId: string | number; isManualPresent?: boolean }[]>([]);
   const [localAttendanceLogs, setLocalAttendanceLogs] = React.useState(attendanceLogs);
+  const [reminders, setReminders] = useState<Reminder[]>([]);
 
   React.useEffect(() => {
     // 1. Sincronizar logs de asistencia en tiempo real
@@ -213,10 +219,24 @@ const AdminDashboard: React.FC = () => {
       });
     });
 
+    // 3. Recordatorios
+    const qReminders = query(
+      collection(db, 'reminders'),
+      where('completed', '==', false),
+      orderBy('dueDate', 'asc')
+    );
+    const unsubReminders = onSnapshot(qReminders, (snapshot) => {
+      const list = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id })) as Reminder[];
+      setReminders(list);
+    }, (error) => {
+      console.error("Error fetching reminders for dashboard:", error);
+    });
+
     return () => {
       unsubLogs();
       unsubProg();
       unsubManual();
+      unsubReminders();
     };
   }, [employees]);
 
@@ -382,7 +402,30 @@ const AdminDashboard: React.FC = () => {
           {activeFilter === 'contracts_all' && <div className="absolute right-0 top-0 bottom-0 w-1 bg-blue-500"></div>}
         </button>
 
-        {/* Card 3: Turnos en Vivo */}
+        {/* Card 3: Recordatorios */}
+        <button
+          onClick={() => setActiveFilter('reminders_all')}
+          className={`bg-white p-5 rounded-xl shadow-sm border text-left transition-all hover:shadow-md relative overflow-hidden group ${activeFilter === 'reminders_all' ? 'border-amber-500 ring-1 ring-amber-500 bg-amber-50' : 'border-slate-100'}`}
+        >
+          <div className="flex items-center gap-4 relative z-10">
+            <div className={`p-3 rounded-lg ${activeFilter === 'reminders_all' ? 'bg-amber-200 text-amber-700' : 'bg-amber-100 text-amber-600'}`}>
+              <Bell size={24} />
+            </div>
+            <div className="flex-1">
+              <p className="text-xs font-bold uppercase tracking-wider text-slate-500">Recordatorios</p>
+              <div className="flex items-baseline gap-2">
+                <h3 className="text-2xl font-bold text-slate-800">{reminders.length}</h3>
+                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-tight">Pendientes</p>
+              </div>
+            </div>
+          </div>
+          <div className="mt-4 flex gap-1 h-1.5 rounded-full overflow-hidden bg-slate-100 relative z-10">
+            <div className="bg-amber-500 h-full w-full"></div>
+          </div>
+          {activeFilter === 'reminders_all' && <div className="absolute right-0 top-0 bottom-0 w-1 bg-amber-500"></div>}
+        </button>
+
+        {/* Card 4: Turnos en Vivo */}
         <button
           onClick={() => setActiveFilter('active_total')}
           className={`bg-white p-5 rounded-xl shadow-sm border text-left transition-all hover:shadow-md relative overflow-hidden group ${activeFilter === 'active_total' ? 'border-emerald-500 ring-1 ring-emerald-500 bg-emerald-50' : 'border-slate-100'}`}
@@ -600,6 +643,57 @@ const AdminDashboard: React.FC = () => {
               </div>
             </div>
 
+          </div>
+        ) : activeFilter === 'reminders_all' ? (
+          /* VISTA: TABLA DE RECORDATORIOS */
+          <div className="bg-white rounded-xl shadow-sm border border-slate-100 flex flex-col min-h-[600px]">
+            <div className="p-5 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+              <div>
+                <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                  {viewTitle}
+                  <span className="text-xs bg-slate-200 text-slate-600 px-2 py-0.5 rounded-full">{reminders.length}</span>
+                </h2>
+                <p className="text-xs text-slate-500 mt-1">{viewDescription}</p>
+              </div>
+            </div>
+            <div className="overflow-auto flex-1">
+              <table className="w-full text-left text-sm text-slate-600">
+                <thead className="bg-slate-50 text-slate-700 font-bold sticky top-0 z-10 shadow-sm">
+                  <tr>
+                    <th className="px-6 py-4">Tarea</th>
+                    <th className="px-6 py-4">Vencimiento</th>
+                    <th className="px-6 py-4 text-right">Estado</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {reminders.length === 0 ? (
+                    <tr>
+                      <td colSpan={3} className="px-6 py-20 text-center text-slate-400">
+                        <Bell size={48} className="mx-auto mb-4 opacity-20" />
+                        <p>No hay recordatorios pendientes.</p>
+                      </td>
+                    </tr>
+                  ) : (
+                    reminders.map(reminder => (
+                      <tr key={reminder.id} className="hover:bg-slate-50 transition-colors">
+                        <td className="px-6 py-4">
+                          <p className="font-bold text-slate-900">{reminder.text}</p>
+                        </td>
+                        <td className="px-6 py-4">
+                          <div className="flex items-center gap-2 text-slate-500">
+                            <Clock size={14} />
+                            <span>{reminder.dueDate?.toDate()?.toLocaleDateString() || 'N/A'}</span>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 text-right">
+                          <span className="px-2 py-1 bg-amber-100 text-amber-700 text-[10px] font-bold rounded-full uppercase">Pendiente</span>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         ) : (
           /* VISTA: TABLAS DE ALERTAS (Contratos / OS10) */

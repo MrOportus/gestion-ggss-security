@@ -107,8 +107,8 @@ const RoundsAdminPage: React.FC = () => {
                                                     <h3 className="font-black text-slate-800 text-base truncate">{round.workerName}</h3>
                                                     {round.result && (
                                                         <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[9px] font-black uppercase ring-1 ring-inset ${round.result === 'SIN_NOVEDAD' ? 'bg-emerald-50 text-emerald-700 ring-emerald-600/20' :
-                                                                round.result === 'CON_NOVEDAD' ? 'bg-rose-50 text-rose-700 ring-rose-600/20' :
-                                                                    'bg-amber-50 text-amber-700 ring-amber-600/20'
+                                                            round.result === 'CON_NOVEDAD' ? 'bg-rose-50 text-rose-700 ring-rose-600/20' :
+                                                                'bg-amber-50 text-amber-700 ring-amber-600/20'
                                                             }`}>
                                                             {round.result === 'SIN_NOVEDAD' ? <ShieldCheck size={10} /> :
                                                                 round.result === 'CON_NOVEDAD' ? <ShieldAlert size={10} /> :
@@ -191,11 +191,22 @@ const RoundsAdminPage: React.FC = () => {
                                             <div className="flex items-center gap-3 overflow-x-auto pb-2 scrollbar-none">
                                                 {round.evidences.map((evi, idx) => (
                                                     <div key={idx} className="shrink-0 group/photo relative cursor-pointer" onClick={() => setSelectedRound(round)}>
-                                                        <img
-                                                            src={evi.photoUrl}
-                                                            alt="Evi"
-                                                            className="w-16 h-16 rounded-xl object-cover border-2 border-slate-100 group-hover/photo:border-blue-400 transition-colors"
-                                                        />
+                                                        <div className="w-16 h-16 rounded-xl border-2 border-slate-100 flex items-center justify-center bg-slate-50 overflow-hidden relative group-hover/photo:border-blue-400 transition-colors">
+                                                            <img
+                                                                src={evi.photoUrl}
+                                                                alt="Evi"
+                                                                className="w-full h-full object-cover"
+                                                                onError={(e) => {
+                                                                    const target = e.target as HTMLImageElement;
+                                                                    target.style.display = 'none';
+                                                                    const parent = target.parentElement;
+                                                                    if (parent) {
+                                                                        parent.classList.add('flex-col', 'gap-1');
+                                                                        parent.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" class="text-slate-200"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>';
+                                                                    }
+                                                                }}
+                                                            />
+                                                        </div>
                                                         <div className="absolute inset-0 bg-blue-600/0 group-hover/photo:bg-blue-600/10 rounded-xl transition-all"></div>
                                                     </div>
                                                 ))}

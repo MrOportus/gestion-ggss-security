@@ -11,7 +11,6 @@ import {
     Navigation,
     CheckCircle,
     Camera,
-    MapPin,
     Trash2,
     UploadCloud,
     AlertCircle,
@@ -324,8 +323,8 @@ const RoundsControl: React.FC<RoundsControlProps> = ({ onBack }) => {
                 }
             }
 
-            // Cambiamos el path para incluir UID por si las reglas de Firebase son estrictas
-            const fileName = `evidencias/${currentUser?.uid || 'anon'}/${activeRound.id}/foto_${Date.now()}.jpg`;
+            // Path dentro de evidencias/{uid}/ para respetar las Storage Rules
+            const fileName = `evidencias/${currentUser?.uid}/${activeRound.id}/foto_${Date.now()}.jpg`;
             console.log("Subiendo archivo a Storage:", fileName);
 
             const downloadUrl = await uploadFile(capturedPhoto, fileName);
@@ -440,10 +439,6 @@ const RoundsControl: React.FC<RoundsControlProps> = ({ onBack }) => {
                     <div className="w-full max-w-sm bg-white rounded-[2.5rem] overflow-hidden shadow-2xl">
                         <div className="relative aspect-[3/4] bg-slate-100">
                             <img src={photoPreview} className="w-full h-full object-cover" alt="Preview" />
-                            <div className="absolute top-4 left-4 inline-flex items-center gap-2 px-3 py-1 bg-black/50 text-white rounded-full text-[10px] font-black backdrop-blur-sm">
-                                <MapPin size={12} />
-                                {currentPos?.coords.latitude.toFixed(6)}, {currentPos?.coords.longitude.toFixed(6)}
-                            </div>
                         </div>
                         <div className="p-6 flex gap-3">
                             <button

@@ -4,7 +4,7 @@ import {
   ClipboardList, Copy, CheckCircle, FileText, Send,
   Clock, UserPlus, FileSearch, Upload, Loader2, Table as TableIcon,
   History, Calendar, Users as UsersIcon, ChevronRight, X, Sparkles, Search, MapPin,
-  Briefcase, DollarSign, Download, Building2, Camera, ArrowLeft
+  Briefcase, DollarSign, Download, Building2, Camera, ArrowLeft, Bell
 } from 'lucide-react';
 import SmartAutofill from '../components/SmartAutofill';
 import { GoogleGenAI } from "@google/genai";
@@ -12,6 +12,7 @@ import * as XLSX from 'xlsx';
 import { ComparisonRecord } from '../types';
 import AdvancePayroll from '../components/AdvancePayroll';
 import GalileoExtractor from '../components/GalileoExtractor';
+import RemindersModule from '../components/RemindersModule';
 import { Banknote } from 'lucide-react';
 import { getToken, onMessage } from "firebase/messaging";
 import { messaging } from '../lib/firebase';
@@ -23,7 +24,7 @@ const TasksPage: React.FC = () => {
     currentUser, supervisorTasks, updateSupervisorTask,
     registerFCMToken
   } = useAppStore();
-  const [activeTask, setActiveTask] = useState<'info_reemplazo' | 'comparar_f30' | 'smart_autofill' | 'generar_contrato' | 'plataforma_falabella' | 'nomina_anticipos' | 'formalizar_servicio' | 'supervision_sucursal' | 'informar_renuncia' | 'extractor_galileo' | null>(null);
+  const [activeTask, setActiveTask] = useState<'info_reemplazo' | 'comparar_f30' | 'smart_autofill' | 'generar_contrato' | 'plataforma_falabella' | 'nomina_anticipos' | 'formalizar_servicio' | 'supervision_sucursal' | 'informar_renuncia' | 'extractor_galileo' | 'tareas_con_recordatorio' | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [viewingRecord, setViewingRecord] = useState<ComparisonRecord | null>(null);
 
@@ -739,6 +740,7 @@ Documentos que se adjuntan.
     { id: 'smart_autofill', title: 'Auto-llenado Inteligente', icon: <Sparkles className="text-amber-500" />, desc: 'Extracción de datos con IA para formularios web.' },
     { id: 'formalizar_servicio', title: 'Formalizar Servicio', icon: <ClipboardList className="text-rose-500" />, desc: 'Generar tabla de requerimiento de servicio Falabella.' },
     { id: 'extractor_galileo', title: 'Extractor de Turnos Galileo', icon: <TableIcon className="text-blue-600" />, desc: 'Extrae datos de notificaciones Galileo para planilla de cobros.' },
+    { id: 'tareas_con_recordatorio', title: 'Tareas con Recordatorio', icon: <Bell className="text-amber-500" />, desc: 'Gestión simple de pendientes con fecha de vencimiento.' },
     { id: 'nomina_anticipos', title: 'Nómina Anticipos', icon: <Banknote className="text-amber-600" />, desc: 'Ingreso masivo de anticipos por sucursal para el día 15.', hidden: currentUser && currentUser.role === 'worker' },
     { id: 'supervision_sucursal', title: 'Supervisión de Sucursal', icon: <Building2 className="text-indigo-600" />, desc: 'Checklists de supervisión asignados por administración.', hidden: currentUser && currentUser.role === 'worker' },
     { id: 'informar_renuncia', title: 'Informar Renuncia', icon: <X className="text-rose-600" />, desc: 'Reportar renuncia de un trabajador con documentos adjuntos.', hidden: currentUser && currentUser.role === 'worker' },
@@ -781,6 +783,8 @@ Documentos que se adjuntan.
         <AdvancePayroll onBack={() => setActiveTask(null)} />
       ) : activeTask === 'extractor_galileo' ? (
         <GalileoExtractor onBack={() => setActiveTask(null)} />
+      ) : activeTask === 'tareas_con_recordatorio' ? (
+        <RemindersModule onBack={() => setActiveTask(null)} />
       ) : activeTask === 'supervision_sucursal' ? (
         <div className="animate-in slide-in-from-bottom-4 duration-300 space-y-6 pb-24">
           <div className="flex items-center gap-4">

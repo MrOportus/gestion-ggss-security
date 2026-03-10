@@ -353,8 +353,23 @@ const RouteMapModal: React.FC<RouteMapModalProps> = ({ round, onClose }) => {
                                         className="group relative bg-white rounded-2xl overflow-hidden shadow-sm hover:shadow-md transition-all cursor-pointer border border-slate-100"
                                         onClick={() => setSelectedPhotoIndex(idx)}
                                     >
-                                        <div className="aspect-[4/3] relative">
-                                            <img src={evidence.photoUrl} className="w-full h-full object-cover transition-transform group-hover:scale-105" alt={`Evidencia ${idx}`} />
+                                        <div className="aspect-[4/3] relative bg-slate-100 flex items-center justify-center">
+                                            <img
+                                                src={evidence.photoUrl}
+                                                className="w-full h-full object-cover transition-transform group-hover:scale-105"
+                                                alt={`Evidencia ${idx}`}
+                                                onError={(e) => {
+                                                    const target = e.target as HTMLImageElement;
+                                                    target.style.display = 'none';
+                                                    const parent = target.parentElement;
+                                                    if (parent) {
+                                                        const placeholder = document.createElement('div');
+                                                        placeholder.className = "flex flex-col items-center justify-center text-slate-300 gap-1";
+                                                        placeholder.innerHTML = `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg><span class="text-[8px] font-black uppercase">Falla</span>`;
+                                                        parent.appendChild(placeholder);
+                                                    }
+                                                }}
+                                            />
                                             <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
                                             <div className="absolute bottom-2 left-2 right-2 flex items-center justify-between text-white opacity-0 group-hover:opacity-100 transition-opacity">
                                                 <div className="flex items-center gap-1">

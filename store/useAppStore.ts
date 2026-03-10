@@ -1277,10 +1277,21 @@ export const useAppStore = create<AppState>()(
           console.log(`Zustand: Iniciando upload a ${path} (Type: ${file.type}, Size: ${file.size})...`);
           const storageRef = ref(storage, path);
 
-          // Forzar contentType para evitar problemas de detección automática
-          const metadata = {
-            contentType: file instanceof File ? file.type : 'application/pdf'
-          };
+          // Determinar contentType: priorizar file.type, pero usar extensión del path como respaldo
+          // para evitar que Blobs sin tipo se suban como 'application/pdf'
+          let contentType = file.type;
+          if (!contentType || contentType === 'application/octet-stream') {
+            const ext = path.split('.').pop()?.toLowerCase();
+            if (ext === 'jpg' || ext === 'jpeg') contentType = 'image/jpeg';
+            else if (ext === 'png') contentType = 'image/png';
+            else if (ext === 'gif') contentType = 'image/gif';
+            else if (ext === 'webp') contentType = 'image/webp';
+            else if (ext === 'pdf') contentType = 'application/pdf';
+            else contentType = 'application/octet-stream';
+          }
+
+          const metadata = { contentType };
+          console.log(`Zustand: contentType resuelto: ${contentType}`);
 
           const snapshot = await uploadBytes(storageRef, file, metadata);
           console.log("Zustand: Upload exitoso, obteniendo URL...");

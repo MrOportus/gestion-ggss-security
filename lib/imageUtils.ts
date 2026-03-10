@@ -28,8 +28,15 @@ export const compressImage = (file: File, quality = 0.6, maxWidth = 1024): Promi
 
                 canvas.toBlob(
                     (blob) => {
-                        if (blob) resolve(blob);
-                        else reject(new Error('Canvas toBlob failed'));
+                        if (blob) {
+                            // Forzar tipo MIME correcto independientemente del dispositivo/navegador
+                            const jpegBlob = blob.type === 'image/jpeg'
+                                ? blob
+                                : new Blob([blob], { type: 'image/jpeg' });
+                            resolve(jpegBlob);
+                        } else {
+                            reject(new Error('Canvas toBlob failed'));
+                        }
                     },
                     'image/jpeg',
                     quality
