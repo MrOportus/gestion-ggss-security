@@ -46,6 +46,7 @@ const RoundsControl: React.FC<RoundsControlProps> = ({ onBack }) => {
     const [capturedPhoto, setCapturedPhoto] = useState<Blob | null>(null);
     const [photoPreview, setPhotoPreview] = useState<string | null>(null);
     const [showResultModal, setShowResultModal] = useState(false);
+    const [roundNotes, setRoundNotes] = useState('');
     const [tempEndLocation, setTempEndLocation] = useState<{ lat: number; lng: number; accuracy: number } | null>(null);
 
     const timerRef = useRef<NodeJS.Timeout | null>(null);
@@ -247,11 +248,13 @@ const RoundsControl: React.FC<RoundsControlProps> = ({ onBack }) => {
                 endTime: new Date().toISOString(),
                 endLocation: tempEndLocation || undefined,
                 status: 'COMPLETED',
-                result
+                result,
+                notes: roundNotes.trim() || undefined
             });
 
             setActiveRound(null);
             setShowResultModal(false);
+            setRoundNotes('');
             setTempEndLocation(null);
             await noSleep.disable();
             showNotification("Ronda finalizada con éxito", "success");
@@ -362,17 +365,17 @@ const RoundsControl: React.FC<RoundsControlProps> = ({ onBack }) => {
 
     return (
         <div className="flex flex-col h-full animate-in fade-in duration-500 pb-20">
-            {/* Header local */}
-            <div className="flex items-center gap-4 mb-6">
+            {/* Header local mejorado */}
+            <div className="bg-white/80 backdrop-blur-md rounded-[2rem] p-4 mb-8 flex items-center gap-4 border border-white shadow-sm ring-1 ring-slate-100">
                 <button
                     onClick={onBack}
-                    className="p-3 bg-white rounded-2xl shadow-sm border border-slate-100 text-slate-500 active:scale-90 transition-all"
+                    className="p-3 bg-blue-600 rounded-2xl shadow-lg shadow-blue-200 text-white active:scale-90 transition-all flex items-center justify-center shrink-0"
                 >
                     <ArrowLeft size={20} />
                 </button>
-                <div>
-                    <h2 className="text-xl font-black text-slate-800 tracking-tight">Rondas de Vigilancia</h2>
-                    <p className="text-xs text-slate-400 font-bold uppercase tracking-widest">{site?.name || 'Cargando...'}</p>
+                <div className="min-w-0">
+                    <h2 className="text-lg font-black text-slate-800 tracking-tight leading-none mb-1">Rondas de Vigilancia</h2>
+                    <p className="text-[10px] text-slate-500 font-black uppercase tracking-widest truncate opacity-60">{site?.name || 'Cargando...'}</p>
                 </div>
             </div>
 
@@ -526,7 +529,17 @@ const RoundsControl: React.FC<RoundsControlProps> = ({ onBack }) => {
                             <p className="text-xs text-slate-400 font-bold uppercase tracking-widest">Seleccione el resultado de la vigilancia</p>
                         </div>
 
-                        <div className="grid grid-cols-1 gap-4">
+                        <div className="space-y-2">
+                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Notas de la ronda (Opcional)</label>
+                            <textarea
+                                value={roundNotes}
+                                onChange={(e) => setRoundNotes(e.target.value)}
+                                placeholder="Agregar notas de ronda opcional"
+                                className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl text-sm focus:ring-2 focus:ring-blue-500 outline-none resize-none h-24 placeholder:text-slate-300 font-medium"
+                            />
+                        </div>
+
+                        <div className="grid grid-cols-1 gap-3">
                             <button
                                 onClick={() => confirmStopRound('SIN_NOVEDAD')}
                                 disabled={loading}

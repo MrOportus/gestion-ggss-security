@@ -5,7 +5,7 @@ import { collection, query, where, onSnapshot, orderBy } from 'firebase/firestor
 import { db } from '../lib/firebase';
 import { Employee, Reminder } from '../types';
 import {
-  Users, FileCheck, MapPin, Search, Eye, AlertCircle, ShieldAlert, FileWarning, LogOut, Bell, Clock
+  Users, FileCheck, MapPin, Search, Eye, AlertCircle, ShieldAlert, FileWarning, LogOut, Bell, Clock, Calendar
 } from 'lucide-react';
 import EmployeeModal from '../components/EmployeeModal';
 
@@ -660,36 +660,79 @@ const AdminDashboard: React.FC = () => {
               <table className="w-full text-left text-sm text-slate-600">
                 <thead className="bg-slate-50 text-slate-700 font-bold sticky top-0 z-10 shadow-sm">
                   <tr>
-                    <th className="px-6 py-4">Tarea</th>
-                    <th className="px-6 py-4">Vencimiento</th>
-                    <th className="px-6 py-4 text-right">Estado</th>
+                    <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Colaborador / Tarea</th>
+                    <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Descripción</th>
+                    <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">Vencimiento</th>
+                    <th className="px-6 py-4 text-right text-[10px] font-black text-slate-400 uppercase tracking-widest">Estado</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {reminders.length === 0 ? (
                     <tr>
-                      <td colSpan={3} className="px-6 py-20 text-center text-slate-400">
+                      <td colSpan={4} className="px-6 py-20 text-center text-slate-400">
                         <Bell size={48} className="mx-auto mb-4 opacity-20" />
                         <p>No hay recordatorios pendientes.</p>
                       </td>
                     </tr>
                   ) : (
-                    reminders.map(reminder => (
-                      <tr key={reminder.id} className="hover:bg-slate-50 transition-colors">
-                        <td className="px-6 py-4">
-                          <p className="font-bold text-slate-900">{reminder.text}</p>
-                        </td>
-                        <td className="px-6 py-4">
-                          <div className="flex items-center gap-2 text-slate-500">
-                            <Clock size={14} />
-                            <span>{reminder.dueDate?.toDate()?.toLocaleDateString() || 'N/A'}</span>
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 text-right">
-                          <span className="px-2 py-1 bg-amber-100 text-amber-700 text-[10px] font-bold rounded-full uppercase">Pendiente</span>
-                        </td>
-                      </tr>
-                    ))
+                    (() => {
+                        const now = new Date();
+                        now.setHours(0, 0, 0, 0);
+                        
+                        const endOfWeek = new Date(now);
+                        endOfWeek.setDate(now.getDate() + (7 - now.getDay()));
+                        endOfWeek.setHours(23, 59, 59, 999);
+                        
+                        const endOfNextWeek = new Date(endOfWeek);
+                        endOfNextWeek.setDate(endOfNextWeek.getDate() + 7);
+                        
+                        const grouped = reminders.reduce((acc, rem) => {
+                            const date = rem.dueDate.toDate();
+                            if (date <= endOfWeek) acc.thisWeek.push(rem);
+                            else if (date <= endOfNextWeek) acc.nextWeek.push(rem);
+                            else acc.later.push(rem);
+                            return acc;
+                        }, { thisWeek: [] as Reminder[], nextWeek: [] as Reminder[], later: [] as Reminder[] });
+
+                        return [
+                            { label: 'TAREAS PARA ESTA SEMANA', list: grouped.thisWeek, color: 'text-red-600', bg: 'bg-red-50/50', icon: Clock },
+                            { label: 'TAREAS PRÓXIMA SEMANA', list: grouped.nextWeek, color: 'text-orange-600', bg: 'bg-orange-50/50', icon: Calendar },
+                            { label: 'RESTO DE TAREAS PENDIENTES', list: grouped.later, color: 'text-slate-500', bg: 'bg-slate-50/50', icon: Bell }
+                        ].map((group, groupIdx) => (
+                            group.list.length > 0 && (
+                                <React.Fragment key={groupIdx}>
+                                    <tr className={`${group.bg} border-y border-slate-100`}>
+                                        <td colSpan={4} className="px-6 py-2">
+                                            <div className={`flex items-center gap-2 text-[10px] font-black tracking-widest ${group.color}`}>
+                                                <group.icon size={12} />
+                                                {group.label} ({group.list.length})
+                                            </div>
+                                        </td>
+                                    </tr>
+                                    {group.list.map(reminder => (
+                                        <tr key={reminder.id} className="hover:bg-slate-50 transition-colors">
+                                            <td className="px-6 py-4">
+                                                <p className="font-bold text-slate-900 leading-tight">{reminder.text}</p>
+                                                <p className="text-[10px] text-slate-400 font-medium mt-1">Recordatorio Interno</p>
+                                            </td>
+                                            <td className="px-6 py-4">
+                                                <p className="text-xs text-slate-600 italic line-clamp-2">{reminder.description || 'Sin descripción adicional'}</p>
+                                            </td>
+                                            <td className="px-6 py-4 text-center">
+                                                <div className="inline-flex items-center gap-2 text-slate-700 bg-slate-100 px-3 py-1 rounded-lg">
+                                                    <Clock size={12} className="text-slate-400" />
+                                                    <span className="font-bold text-xs">{reminder.dueDate?.toDate()?.toLocaleDateString() || 'N/A'}</span>
+                                                </div>
+                                            </td>
+                                            <td className="px-6 py-4 text-right">
+                                                <span className="px-2 py-1 bg-amber-100 text-amber-700 text-[10px] font-bold rounded-full uppercase">Pendiente</span>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </React.Fragment>
+                            )
+                        ));
+                    })()
                   )}
                 </tbody>
               </table>

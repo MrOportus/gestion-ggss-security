@@ -19,8 +19,13 @@ const AttendancePage: React.FC = () => {
     const [searchTerm, setSearchTerm] = useState('');
     const [selectedSiteId, setSelectedSiteId] = useState<string | number | 'all'>('all');
     const [filterType, setFilterType] = useState<'all' | 'day' | 'week' | 'month' | 'range'>('day');
-    const [startDate, setStartDate] = useState(new Date().toISOString().split('T')[0]);
-    const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
+    const getTodayStr = () => {
+        const d = new Date();
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    };
+
+    const [startDate, setStartDate] = useState(getTodayStr());
+    const [endDate, setEndDate] = useState(getTodayStr());
     const [selectedPhoto, setSelectedPhoto] = useState<string | null>(null);
 
     // Helpers for Date logic
@@ -272,8 +277,34 @@ const AttendancePage: React.FC = () => {
                                                                     </a>
                                                                 ) : <span className="text-slate-300 text-[10px] font-black uppercase italic">N/A</span>}
                                                             </td>
-                                                            <td className="px-6 py-5 text-right">
-                                                                {log.photoUrl && <button onClick={() => setSelectedPhoto(log.photoUrl)} className="p-2.5 bg-slate-50 hover:bg-blue-600 text-slate-400 hover:text-white rounded-xl transition-all border border-slate-100"><Camera size={18} /></button>}
+                                                             <td className="px-6 py-5 text-right">
+                                                                <div className="flex items-center justify-end gap-3">
+                                                                    <div className="flex flex-col items-end">
+                                                                        {log.isManual ? (
+                                                                            <span className="text-[9px] font-black text-amber-600 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-100 uppercase tracking-tighter">
+                                                                                Registro Manual
+                                                                            </span>
+                                                                        ) : (
+                                                                            <span className="text-[9px] font-black text-blue-600 bg-blue-50 px-2 py-0.5 rounded-md border border-blue-100 uppercase tracking-tighter">
+                                                                                App Móvil
+                                                                            </span>
+                                                                        )}
+                                                                        {log.systemNote && (
+                                                                            <span className="text-[8px] text-slate-400 font-bold truncate max-w-[100px]" title={log.systemNote}>
+                                                                                {log.systemNote}
+                                                                            </span>
+                                                                        )}
+                                                                    </div>
+                                                                    {log.photoUrl && (
+                                                                        <button 
+                                                                            onClick={() => setSelectedPhoto(log.photoUrl)} 
+                                                                            className="p-2.5 bg-slate-50 hover:bg-blue-600 text-slate-400 hover:text-white rounded-xl transition-all border border-slate-100"
+                                                                            title="Ver Evidencia"
+                                                                        >
+                                                                            <Camera size={18} />
+                                                                        </button>
+                                                                    )}
+                                                                </div>
                                                             </td>
                                                         </tr>
                                                     )

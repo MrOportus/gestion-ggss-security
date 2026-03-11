@@ -22,7 +22,8 @@ import {
   query,
   where,
   orderBy,
-  limit
+  limit,
+  Timestamp
 } from 'firebase/firestore';
 
 interface AppState {
@@ -230,11 +231,24 @@ export const useAppStore = create<AppState>()(
       login: async (email, pass) => {
         set({ isLoading: true });
         try {
-          await signInWithEmailAndPassword(auth, email, pass);
-          // El listener onAuthStateChanged manejará el estado
+          const userCredential = await signInWithEmailAndPassword(auth, email, pass);
+          const uid = userCredential.user.uid;
+          
+          // Limpiar flag de forceLogout si existe al iniciar sesión
+          try {
+            const docRef = doc(db, "Colaboradores", uid);
+            const docSnap = await getDoc(docRef);
+            if (docSnap.exists() && docSnap.data().forceLogout) {
+              await updateDoc(docRef, { forceLogout: false });
+            }
+          } catch (e) {
+            console.error("Error clearing forceLogout flag:", e);
+          }
+          
+          // El listener onAuthStateChanged manejará el resto del estado
         } catch (error: any) {
           console.error("Login error:", error);
-          throw error; // Propagar error para mostrar en UI
+          throw error;
         } finally {
           set({ isLoading: false });
         }
@@ -418,14 +432,14 @@ export const useAppStore = create<AppState>()(
 
       addAttendanceLog: async (log) => {
         const id = "att_" + Date.now();
+        const timestamp = (log as any).timestamp || new Date().toISOString();
         const newLogEntry: AttendanceLog = {
           ...log,
           id,
-          timestamp: (log as any).timestamp || new Date().toISOString(),
+          timestamp,
         };
 
-        // Sanitizar el objeto para eliminar campos con valor 'undefined', 
-        // ya que Firebase v9+ lanza error si encuentra uno.
+        // Sanitizar el objeto para eliminar campos con valor 'undefined'
         Object.keys(newLogEntry).forEach(key => {
           if (newLogEntry[key as keyof AttendanceLog] === undefined) {
             delete newLogEntry[key as keyof AttendanceLog];
@@ -434,6 +448,20 @@ export const useAppStore = create<AppState>()(
 
         try {
           await setDoc(doc(db, 'Asistencia', id), newLogEntry);
+          
+          // SINCRONIZACIÓN CON GESTIÓN DE TURNOS (asistencia_digital)
+          if (log.type === 'check_in') {
+            const todayStr = timestamp.split('T')[0];
+            const digId = `${log.siteId}_${log.employeeId}_${todayStr}`;
+            await setDoc(doc(db, 'asistencia_digital', digId), {
+              employeeId: log.employeeId,
+              siteId: log.siteId,
+              timestamp: Timestamp.fromDate(new Date(timestamp)),
+              isValidated: true,
+              type: 'check_in'
+            });
+          }
+
           set((state) => ({ attendanceLogs: [newLogEntry, ...state.attendanceLogs] }));
         } catch (error) {
           console.error("Error saving attendance:", error);
@@ -474,21 +502,60 @@ export const useAppStore = create<AppState>()(
 
       forceCloseAttendance: async (logId, endTimestamp, note) => {
         try {
-          const docRef = doc(db, 'Asistencia', logId);
-          const updateData: Partial<AttendanceLog> = {
+          // 1. Marcar el log de ingreso original como completado (sin cambiar su tipo)
+          const checkInRef = doc(db, 'Asistencia', logId);
+          const checkInSnap = await getDoc(checkInRef);
+          
+          if (!checkInSnap.exists()) return;
+          const checkInData = checkInSnap.data() as AttendanceLog;
+
+          await updateDoc(checkInRef, { 
             status: 'completed',
-            endTime: endTimestamp,
-            type: 'check_out' // Mantener coherencia con sistema actual
+            endTime: endTimestamp
+          });
+
+          // 2. Crear un NUEVO log de salida (check_out)
+          const checkOutId = "att_out_" + Date.now();
+          const checkOutLog: AttendanceLog = {
+            ...checkInData,
+            id: checkOutId,
+            type: 'check_out',
+            timestamp: endTimestamp,
+            status: 'completed' as const,
+            isManual: true,
+            systemNote: note || "Cierre forzado por administrador"
           };
-          if (note) updateData.systemNote = note;
+          
+          await setDoc(doc(db, 'Asistencia', checkOutId), checkOutLog);
 
-          await updateDoc(docRef, updateData);
+          // 3. Forzar el logout del empleado
+          const empRef = doc(db, 'Colaboradores', checkInData.employeeId);
+          await updateDoc(empRef, { 
+            forceLogout: true,
+            lastForceLogout: new Date().toISOString()
+          });
 
+          // 4. Registrar en asistencia_manual para que aparezca en el mapa de turnos
+          const dateStr = endTimestamp.split('T')[0];
+          const manualDocId = `manual_${checkInData.employeeId}_${dateStr}`;
+          await setDoc(doc(db, 'asistencia_manual', manualDocId), {
+            employeeId: checkInData.employeeId,
+            date: dateStr,
+            status: 'presente',
+            type: 'forced_checkout',
+            updatedAt: Timestamp.fromDate(new Date())
+          }, { merge: true });
+
+          // 5. Actualizar estado local
           set(state => ({
-            attendanceLogs: state.attendanceLogs.map(log =>
-              log.id === logId ? { ...log, ...updateData } : log
-            )
+            attendanceLogs: [
+              checkOutLog,
+              ...state.attendanceLogs.map(log =>
+                log.id === logId ? { ...log, status: 'completed' as const, endTime: endTimestamp } : log
+              )
+            ]
           }));
+
         } catch (error) {
           console.error("Error force closing attendance:", error);
           throw error;

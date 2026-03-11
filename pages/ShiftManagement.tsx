@@ -333,8 +333,11 @@ const ShiftManagement: React.FC = () => {
 
                     // 2. Crear un log en "Asistencia" para que aparezca en el Control de Asistencia
                     if (emp && site) {
-                        const attId = `manual_att_${empId}_${dateStr}`;
+                        const type = status === 'asistio_manual_completed' ? 'check_out' : 'check_in';
+                        const attId = `manual_att_${type}_${empId}_${dateStr}`;
                         const attRef = doc(db, 'Asistencia', attId);
+                        
+                        console.log("Generating manual attendance log:", type, attId);
 
                         // Determinar horario según programación (X o N)
                         const progKey = `${siteId}_${empId}_${dateStr}`;
@@ -371,6 +374,7 @@ const ShiftManagement: React.FC = () => {
                             startTime: startTimestamp,
                             endTime: isCompleted ? endTimestamp : null,
                             createdBy: 'admin',
+                            systemNote: 'Registro manual desde Gestión de Turnos',
                             shiftId: progDocId
                         }, { merge: true }));
                     }
@@ -383,17 +387,25 @@ const ShiftManagement: React.FC = () => {
                         updatedAt: new Date()
                     }, { merge: true }));
 
-                    // Eliminar log manual si existía
-                    const attId = `manual_att_${empId}_${dateStr}`;
-                    batchPromises.push(deleteDoc(doc(db, 'Asistencia', attId)));
+                    // Eliminar logs manuales si existían (ambos tipos)
+                    batchPromises.push(deleteDoc(doc(db, 'Asistencia', `manual_att_check_in_${empId}_${dateStr}`)));
+                    batchPromises.push(deleteDoc(doc(db, 'Asistencia', `manual_att_check_out_${empId}_${dateStr}`)));
+
+                    // Eliminar log digital si existía
+                    const digId = `${siteId}_${empId}_${dateStr}`;
+                    batchPromises.push(deleteDoc(doc(db, 'asistencia_digital', digId)));
 
                 } else if (status === null) {
                     batchPromises.push(deleteDoc(progRef));
                     batchPromises.push(deleteDoc(manualRef));
 
-                    // Eliminar log manual si existía
-                    const attId = `manual_att_${empId}_${dateStr}`;
-                    batchPromises.push(deleteDoc(doc(db, 'Asistencia', attId)));
+                    // Eliminar logs manuales si existían (ambos tipos)
+                    batchPromises.push(deleteDoc(doc(db, 'Asistencia', `manual_att_check_in_${empId}_${dateStr}`)));
+                    batchPromises.push(deleteDoc(doc(db, 'Asistencia', `manual_att_check_out_${empId}_${dateStr}`)));
+
+                    // Eliminar log digital si existía
+                    const digId = `${siteId}_${empId}_${dateStr}`;
+                    batchPromises.push(deleteDoc(doc(db, 'asistencia_digital', digId)));
                 }
             }
             await Promise.all(batchPromises);

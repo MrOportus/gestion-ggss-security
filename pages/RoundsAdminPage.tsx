@@ -124,8 +124,33 @@ const RoundsAdminPage: React.FC = () => {
                                             </div>
                                         </div>
 
-                                        {/* Time Info */}
-                                        <div className="grid grid-cols-2 lg:flex items-center gap-4 sm:gap-8 bg-slate-50/50 p-4 rounded-2xl lg:bg-transparent lg:p-0">
+                                        {/* Round Notes - Swapped to middle */}
+                                        {round.notes ? (
+                                            <div className="flex-1 min-w-0">
+                                                <div className="bg-amber-100/70 border border-amber-200 p-3 rounded-xl relative group/note">
+                                                    <p className="text-[9px] font-black text-amber-800 uppercase tracking-tighter mb-1 select-none">Nota de Ronda:</p>
+                                                    <div className="text-[11px] text-amber-900 font-bold leading-relaxed">
+                                                        <span className="italic">"{round.notes.length > 120 ? round.notes.substring(0, 120) + '...' : round.notes}"</span>
+                                                        {round.notes.length > 120 && (
+                                                            <button 
+                                                                onClick={() => {
+                                                                    const fullNote = round.notes;
+                                                                    alert(fullNote);
+                                                                }}
+                                                                className="ml-1 text-amber-700 hover:text-amber-900 underline cursor-pointer"
+                                                            >
+                                                                Ver Más
+                                                            </button>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        ) : (
+                                            <div className="flex-1 hidden lg:block"></div>
+                                        )}
+
+                                        {/* Time Info - Swapped to right-middle */}
+                                        <div className="grid grid-cols-2 lg:flex items-center gap-4 sm:gap-6 bg-slate-50/50 lg:bg-transparent p-4 lg:p-0 rounded-2xl shrink-0">
                                             <div className="space-y-1">
                                                 <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Inicio</p>
                                                 <div className="flex items-center gap-2 text-slate-700 font-bold text-sm">
@@ -157,7 +182,7 @@ const RoundsAdminPage: React.FC = () => {
                                         </div>
 
                                         {/* Actions */}
-                                        <div className="flex flex-row items-center gap-3 w-full lg:w-auto">
+                                        <div className="flex flex-row items-center gap-3 w-full lg:w-auto shrink-0 pr-2">
                                             <button
                                                 onClick={() => setSelectedRound(round)}
                                                 className="flex-1 lg:flex-none inline-flex items-center justify-center gap-2 px-6 py-4 lg:py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl text-[10px] md:text-xs font-black uppercase tracking-widest transition-all active:scale-95 shadow-lg shadow-blue-100 shrink-0"
@@ -165,18 +190,18 @@ const RoundsAdminPage: React.FC = () => {
                                                 <ExternalLink size={14} /> Ver Recorrido
                                             </button>
 
-                                            <div className="hidden xl:block h-10 w-px bg-slate-100 mx-2"></div>
+                                            <div className="hidden xl:block h-10 w-px bg-slate-100 mx-1"></div>
 
-                                            <div className="flex gap-6 shrink-0">
-                                                <div className="flex flex-col items-end">
+                                            <div className="flex gap-4 shrink-0">
+                                                <div className="flex flex-col items-end min-w-[35px]">
                                                     <p className="text-[10px] font-black text-slate-300 uppercase">GPS</p>
-                                                    <p className="text-base md:text-lg font-black text-slate-800 leading-none">{(round.path?.length || 0)}</p>
+                                                    <p className="text-sm md:text-base font-black text-slate-800 leading-none">{(round.path?.length || 0)}</p>
                                                 </div>
-                                                <div className="flex flex-col items-end">
+                                                <div className="flex flex-col items-end min-w-[45px]">
                                                     <p className="text-[10px] font-black text-slate-300 uppercase">Fotos</p>
                                                     <div className="flex items-center gap-1">
                                                         <Camera size={14} className={(round.evidences?.length || 0) > 0 ? "text-amber-500" : "text-slate-300"} />
-                                                        <p className={`text-base md:text-lg font-black leading-none ${(round.evidences?.length || 0) > 0 ? "text-slate-800" : "text-slate-300"}`}>
+                                                        <p className={`text-sm md:text-base font-black leading-none ${(round.evidences?.length || 0) > 0 ? "text-slate-800" : "text-slate-300"}`}>
                                                             {(round.evidences?.length || 0)}
                                                         </p>
                                                     </div>

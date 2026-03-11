@@ -275,6 +275,7 @@ export interface GuardRound {
   path?: { lat: number; lng: number; timestamp: string; accuracy?: number }[];
   evidences?: RoundEvidence[];
   result?: 'SIN_NOVEDAD' | 'CON_NOVEDAD' | 'SOSPECHA';
+  notes?: string;
 }
 
 export interface LoanInstallment {
@@ -302,6 +303,7 @@ export interface Loan {
 export interface Reminder {
   id: string;
   text: string;
+  description?: string;
   dueDate: any; // Firestore Timestamp
   completed: boolean;
   userId: string;

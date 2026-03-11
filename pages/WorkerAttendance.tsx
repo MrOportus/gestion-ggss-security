@@ -28,7 +28,7 @@ import {
 
 import DocumentsPage from './DocumentsPage';
 import { db } from '../lib/firebase';
-import { collection, query, where, getDocs } from 'firebase/firestore';
+import { collection, query, where, getDocs, onSnapshot, doc as firestoreDoc } from 'firebase/firestore';
 
 import RoundsControl from '../components/RoundsControl';
 
@@ -130,7 +130,21 @@ const WorkerAttendance: React.FC = () => {
     requestLocation().catch(() => {
       console.log("Ubicación inicial no obtenida. Se solicitará al confirmar.");
     });
-  }, []);
+
+    // LISTENER PARA CIERRE FORZADO DE SESIÓN
+    if (currentUser?.uid) {
+      const unsub = onSnapshot(firestoreDoc(db, 'Colaboradores', currentUser.uid), (snapshot) => {
+        if (snapshot.exists()) {
+          const data = snapshot.data();
+          if (data.forceLogout === true) {
+            console.log("Sesión finalizada por el administrador.");
+            logout();
+          }
+        }
+      });
+      return () => unsub();
+    }
+  }, [currentUser?.uid]);
 
 
   // Format RUT helpers
@@ -201,7 +215,7 @@ const WorkerAttendance: React.FC = () => {
 
     try {
       const today = new Date();
-      const dateStr = today.toISOString().split('T')[0];
+      const dateStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
 
       // Intentar obtener la programación de hoy para este trabajador
       const q = query(
@@ -287,17 +301,18 @@ const WorkerAttendance: React.FC = () => {
   );
 
   const currentSite = sites.find(s => s.id === employee.currentSiteId);
+  const displayShortName = employee ? `${employee.firstName} ${employee.lastNamePaterno.charAt(0).toUpperCase()}.` : '';
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col font-sans">
 
       {/* HEADER SECTION */}
       {step !== 'settings' && (
-        <div className={`bg-gradient-to-br from-blue-700 to-blue-900 text-white p-6 ${step === 'keypad' ? 'pb-4 rounded-b-[2rem]' : 'pb-12 rounded-b-[3rem]'} shadow-2xl relative overflow-hidden transition-all duration-500 ease-in-out`}>
-          <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full -mr-16 -mt-16 blur-2xl"></div>
-          <div className="absolute bottom-0 left-0 w-24 h-24 bg-blue-400/10 rounded-full -ml-12 -mb-12 blur-xl"></div>
+        <div className={`bg-gradient-to-br from-blue-700 to-blue-900 text-white relative overflow-hidden transition-all duration-200 ease-out will-change-transform transform-gpu shadow-2xl ${step === 'keypad' ? 'p-3 rounded-b-[1.5rem]' : 'p-6 pb-12 rounded-b-[3rem]'}`}>
+          <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full -mr-16 -mt-16 blur-2xl pointer-events-none"></div>
+          <div className="absolute bottom-0 left-0 w-24 h-24 bg-blue-400/10 rounded-full -ml-12 -mb-12 blur-xl pointer-events-none"></div>
 
-          <div className={`flex justify-between items-start relative z-10 transition-all duration-500 ${step === 'keypad' ? 'opacity-0 -translate-y-10 h-0 pointer-events-none' : 'opacity-100 translate-y-0'}`}>
+          <div className={`flex justify-between items-start relative z-10 transition-all duration-200 ease-out will-change-[transform,opacity] ${step === 'keypad' || step === 'rounds' ? 'opacity-0 scale-95 pointer-events-none absolute h-0 overflow-hidden' : 'opacity-100 scale-100'}`}>
             <div className="flex items-center gap-4">
               <button
                 onClick={() => setIsSidebarOpen(!isSidebarOpen)}
@@ -312,11 +327,11 @@ const WorkerAttendance: React.FC = () => {
             </div>
 
             <div className="w-14 h-14">
-              <img src="/logo-transparencia.png" alt="GGSS" className="w-full h-full object-contain" />
+              <img src="/logo-transparencia.png" alt="GGSS" className="w-full h-full object-contain" width="56" height="56" />
             </div>
           </div>
 
-          <div className={`bg-blue-950/40 p-4 rounded-2xl flex items-center gap-4 backdrop-blur-sm border border-white/10 transition-all duration-500 ${step === 'keypad' ? 'opacity-0 scale-95 -mt-16 h-0 overflow-hidden pointer-events-none' : 'opacity-100 scale-100 mt-8'}`}>
+          <div className={`bg-blue-950/40 p-4 rounded-2xl flex items-center gap-4 backdrop-blur-sm border border-white/10 transition-all duration-200 ease-out will-change-[transform,opacity] ${step === 'keypad' || step === 'rounds' ? 'opacity-0 scale-90 invisible pointer-events-none absolute h-0 overflow-hidden' : 'opacity-100 scale-100 visible mt-8'}`}>
             <div className="w-10 h-10 bg-blue-500/20 rounded-xl flex items-center justify-center text-blue-300">
               <MapPin size={22} />
             </div>
@@ -326,20 +341,22 @@ const WorkerAttendance: React.FC = () => {
             </div>
           </div>
 
-          {/* Mini version for identification step */}
-          {step === 'keypad' && (
-            <div className="flex items-center justify-center pt-2 animate-in fade-in slide-in-from-top-4 duration-500">
-              <div className="w-12 h-12">
-                <img src="/logo-transparencia.png" alt="GGSS" className="w-full h-full object-contain" />
+          {/* Mini version for Identification/Rounds - Extremely compact */}
+          {(step === 'keypad' || step === 'rounds') && (
+            <div className="flex items-center justify-center py-1 mt-1 animate-in fade-in duration-200 zoom-in-95 will-change-transform">
+               <div className="w-10 h-10 bg-amber-400/20 rounded-xl flex items-center justify-center text-amber-400 border border-amber-400/30">
+                <ShieldCheck size={24} />
               </div>
-              <h1 className="ml-3 text-sm font-black tracking-widest opacity-90 uppercase">Validación de Turno</h1>
+              <h1 className="ml-3 text-sm font-black tracking-widest opacity-90 uppercase">
+                {step === 'keypad' ? 'Validación de Turno' : 'Monitoreo Activo'}
+              </h1>
             </div>
           )}
         </div>
       )}
 
       {/* MAIN ACTION AREA */}
-      <div className={`flex-1 transition-all duration-500 ${step === 'keypad' ? 'mt-2' : (step === 'settings' ? 'mt-0' : '-mt-6')} px-6 relative z-20 overflow-y-auto pb-10`}>
+      <div className={`flex-1 transition-all duration-200 ease-out will-change-transform ${step === 'keypad' || step === 'rounds' ? 'mt-2' : (step === 'settings' ? 'mt-0' : '-mt-6')} px-6 relative z-20 overflow-y-auto pb-10`}>
 
         {step === 'status' && (
           <div className="space-y-6 animate-in fade-in slide-in-from-bottom-5 duration-500 h-full flex flex-col items-center justify-center min-h-[400px]">
@@ -532,8 +549,8 @@ const WorkerAttendance: React.FC = () => {
               <CheckCircle size={64} className="text-emerald-500" />
             </div>
             <div className="text-center space-y-2">
-              <h2 className="text-3xl font-black text-slate-800 tracking-tighter uppercase">¡Registro Exitoso!</h2>
-              <p className="text-slate-400 font-bold">Tu asistencia ha sido guardada correctamente.</p>
+              <h2 className="text-3xl font-black text-slate-800 tracking-tighter uppercase leading-tight">¡Bienvenido <br/> <span className="text-blue-600">{displayShortName}</span>!</h2>
+              <p className="text-slate-400 font-bold">Tu registro se ha realizado con éxito.</p>
             </div>
             <div className="p-4 bg-emerald-50 rounded-2xl border border-emerald-100 text-[10px] font-black uppercase tracking-[0.2em] text-emerald-600">
               {lastAction === 'check_in' ? 'Iniciando turno...' : 'Finalizando turno...'}
