@@ -140,6 +140,7 @@ interface AppState {
   fetchAttendanceLogs: () => Promise<void>;
   uploadAttendancePhoto: (file: Blob, filename: string) => Promise<string>;
   forceCloseAttendance: (logId: string, endTimestamp: string, note?: string) => Promise<void>;
+  checkAndCloseStaleShifts: () => Promise<void>;
 
   // Round Actions
   guardRounds: GuardRound[];
@@ -491,7 +492,47 @@ export const useAppStore = create<AppState>()(
           const logs: AttendanceLog[] = [];
           snapshot.forEach(doc => logs.push({ ...doc.data(), id: doc.id } as AttendanceLog));
           set({ attendanceLogs: logs });
+
+          // Ejecutar limpieza de turnos antiguos (>24h) de manera asíncrona
+          if (currentUser.role === 'admin' || currentUser.role === 'supervisor') {
+            get().checkAndCloseStaleShifts();
+          }
         } catch (error) { console.error("Error fetching attendance logs:", error); }
+      },
+
+      checkAndCloseStaleShifts: async () => {
+        try {
+          // Bucar registros 'active'
+          const q = query(
+            collection(db, "Asistencia"), 
+            where("status", "==", "active"),
+            where("type", "==", "check_in")
+          );
+          const snapshot = await getDocs(q);
+          const now = new Date();
+          const limit = 24 * 60 * 60 * 1000; // 24 horas en ms
+
+          for (const docSnap of snapshot.docs) {
+            const data = docSnap.data() as AttendanceLog;
+            const startTime = new Date(data.timestamp).getTime();
+            
+            if (now.getTime() - startTime > limit) {
+              console.log(`Auto-cerrando turno stale para: ${data.employeeName}`);
+              
+              // Calcular una hora de salida lógica (12 horas después del inicio o ahora mismo)
+              // Usaremos 12 horas después del inicio como "fin de jornada teórica" o el límite de 24h
+              const autoEndTime = new Date(startTime + (14 * 60 * 60 * 1000)).toISOString(); // 14h después por ejemplo
+              
+              await get().forceCloseAttendance(
+                docSnap.id, 
+                autoEndTime, 
+                "Cierre automático: sesión abierta más de 24 horas"
+              );
+            }
+          }
+        } catch (e) {
+          console.error("Error in checkAndCloseStaleShifts:", e);
+        }
       },
 
       uploadAttendancePhoto: async (file, filename) => {
