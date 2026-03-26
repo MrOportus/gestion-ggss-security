@@ -352,9 +352,16 @@ const RemindersModule: React.FC<RemindersModuleProps> = ({ onBack }) => {
                                                         {reminder.description && (
                                                             <p className="text-[11px] mt-1 opacity-80 line-clamp-2">{reminder.description}</p>
                                                         )}
-                                                        <div className="flex items-center gap-1.5 mt-2 opacity-70">
-                                                            <Clock size={12} />
-                                                            <span className="text-[10px] font-bold uppercase tracking-tighter">Vence el {formatDate(reminder.dueDate)}</span>
+                                                        <div className="flex items-center justify-between mt-2">
+                                                            <div className="flex items-center gap-1.5 opacity-70">
+                                                                <Clock size={12} />
+                                                                <span className="text-[10px] font-bold uppercase tracking-tighter">Vence el {formatDate(reminder.dueDate)}</span>
+                                                            </div>
+                                                            {reminder.dueDate?.toDate() < now ? (
+                                                                <span className="px-2 py-0.5 bg-rose-100 text-rose-700 text-[9px] font-black rounded uppercase tracking-wider">Vencida</span>
+                                                            ) : (
+                                                                <span className="px-2 py-0.5 bg-amber-100 text-amber-700 text-[9px] font-black rounded uppercase tracking-wider">Pendiente</span>
+                                                            )}
                                                         </div>
                                                     </div>
                                                 </div>

@@ -133,7 +133,16 @@ const WorkerAttendance: React.FC = () => {
 
     // LISTENER PARA CIERRE FORZADO DE SESIÓN
     if (currentUser?.uid) {
+      let isInitialSnapshot = true;
       const unsub = onSnapshot(firestoreDoc(db, 'Colaboradores', currentUser.uid), (snapshot) => {
+        // Saltar el snapshot inicial para evitar race condition con el login
+        // El primer snapshot contiene el estado actual del documento, no un cambio real.
+        // Si forceLogout estaba true de una sesión anterior, el initializeAuthListener
+        // ya lo limpió antes de setear currentUser.
+        if (isInitialSnapshot) {
+          isInitialSnapshot = false;
+          return;
+        }
         if (snapshot.exists()) {
           const data = snapshot.data();
           if (data.forceLogout === true) {
@@ -215,28 +224,40 @@ const WorkerAttendance: React.FC = () => {
 
     try {
       const today = new Date();
+      // Usar componentes locales para la fecha (no UTC) — Chile es UTC-3
+      // toISOString() devuelve UTC, lo que puede cambiar el día después de las 21:00 local
       const dateStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+      const actionTimestamp = today.toISOString();
+      // Pasar dateStr explícitamente como localDate para la sincronización de turnos
+      const localDate = dateStr;
 
-      // Intentar obtener la programación de hoy para este trabajador
-      const q = query(
-        collection(db, 'programacion'),
-        where('employeeId', '==', employee.id),
-        where('date', '==', dateStr)
-      );
-      const progSnapshot = await getDocs(q);
-      const shiftDoc = progSnapshot.docs[0];
-      const shiftId = shiftDoc ? `prog_${employee.currentSiteId}_${employee.id}_${dateStr}` : null;
+      let shiftId = null;
+      if (actionType === 'check_in') {
+        const q = query(
+          collection(db, 'programacion'),
+          where('employeeId', '==', employee.id),
+          where('date', '==', dateStr)
+        );
+        const progSnapshot = await getDocs(q);
+        const shiftDoc = progSnapshot.docs[0];
+        shiftId = shiftDoc ? `prog_${employee.currentSiteId}_${employee.id}_${dateStr}` : null;
+      } else {
+        // En check_out preservamos el shiftId EXACTO del inicio para sincronización
+        shiftId = lastLog?.shiftId || null;
+      }
 
       await addAttendanceLog({
         employeeId: employee.id,
         employeeName: `${employee.firstName} ${employee.lastNamePaterno}`,
         rut: employee.rut,
         type: actionType,
+        timestamp: actionTimestamp, 
         locationLat: finalCoords.lat,
         locationLng: finalCoords.lng,
         siteId: employee.currentSiteId ?? null,
         siteName: sites.find(s => s.id === employee.currentSiteId)?.name || 'Sin Sucursal',
-        shiftId: shiftId
+        shiftId: shiftId,
+        localDate: localDate  // Fecha local explícita para sincronización de turnos
       } as any);
 
       setLastAction(actionType);

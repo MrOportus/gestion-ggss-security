@@ -16,7 +16,8 @@ import {
     Eraser,
     Users,
     Plus,
-    UserMinus
+    UserMinus,
+    Circle
 } from 'lucide-react';
 import ManageStaffModal from '../components/ManageStaffModal';
 
@@ -53,7 +54,10 @@ interface AsistenciaManualDoc {
 
 // Helper to format date YYYY-MM-DD
 const formatDateKey = (date: Date) => {
-    return date.toISOString().split('T')[0];
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
 };
 
 const ShiftManagement: React.FC = () => {
@@ -127,8 +131,8 @@ const ShiftManagement: React.FC = () => {
         const unsubDig = onSnapshot(digQuery, (snapshot) => {
             const map: Record<string, AsistenciaDigitalDoc> = {};
             snapshot.docs.forEach(doc => {
-                const data = doc.data() as AsistenciaDigitalDoc;
-                const dateStr = formatDateKey(data.timestamp.toDate());
+                const data = doc.data() as any;
+                const dateStr = data.date || formatDateKey(data.timestamp.toDate());
                 const key = `${data.siteId}_${data.employeeId}_${dateStr}`;
                 map[key] = { ...data, id: doc.id };
             });
@@ -182,17 +186,19 @@ const ShiftManagement: React.FC = () => {
     const getCellStatus = (empId: string, day: Date): {
         type: 'empty' | 'programado' | 'noche' | 'descanso' | 'digital' | 'manual_present' | 'manual_absent',
         details?: any,
-        completed?: boolean
+        completed?: boolean,
+        programmedStatus?: 'programado' | 'noche' | 'descanso'
     } => {
         const dateKey = formatDateKey(day);
         const key = getCellKey(empId, day);
+        const progStatus = programmingMap[key]?.status;
 
         if (pendingChanges[key] !== undefined) {
             if (pendingChanges[key] === 'programado') return { type: 'programado' };
             if (pendingChanges[key] === 'noche') return { type: 'noche' };
             if (pendingChanges[key] === 'descanso') return { type: 'descanso' };
-            if (pendingChanges[key] === 'asistio_manual') return { type: 'manual_present' };
-            if (pendingChanges[key] === 'asistio_manual_completed') return { type: 'manual_present', completed: true };
+            if (pendingChanges[key] === 'asistio_manual') return { type: 'manual_present', programmedStatus: progStatus };
+            if (pendingChanges[key] === 'asistio_manual_completed') return { type: 'manual_present', completed: true, programmedStatus: progStatus };
             if (pendingChanges[key] === 'ausente') return { type: 'manual_absent' };
             if (pendingChanges[key] === null) return { type: 'empty' };
         }
@@ -201,13 +207,13 @@ const ShiftManagement: React.FC = () => {
         if (manualAttendanceMap[manualKey]) {
             const doc = manualAttendanceMap[manualKey];
             if (doc.status === 'presente') {
-                return { type: 'manual_present', details: doc };
+                return { type: 'manual_present', details: doc, programmedStatus: progStatus };
             }
             if (doc.status === 'ausente') return { type: 'manual_absent', details: doc };
         }
 
         if (digitalAttendanceMap[key]) {
-            return { type: 'digital', details: digitalAttendanceMap[key] };
+            return { type: 'digital', details: digitalAttendanceMap[key], programmedStatus: progStatus };
         }
 
         if (programmingMap[key]) {
@@ -669,14 +675,14 @@ const ShiftManagement: React.FC = () => {
                                                         </div>
                                                     )}
                                                     {status.type === 'digital' && (
-                                                        <div className="w-8 h-8 flex items-center justify-center bg-green-50 text-green-600 rounded border border-green-200 shadow-sm relative overflow-hidden">
-                                                            <div className="absolute top-0 right-0 w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-                                                            <CheckCircle2 size={16} />
+                                                        <div className={`w-8 h-8 flex items-center justify-center rounded border shadow-sm relative overflow-hidden ${status.programmedStatus === 'noche' ? 'bg-blue-600 border-blue-700' : 'bg-green-50 border-green-200'}`}>
+                                                            <div className={`absolute top-0 right-0 w-2 h-2 rounded-full animate-pulse ${status.programmedStatus === 'noche' ? 'bg-green-400' : 'bg-green-500'}`}></div>
+                                                            <Circle size={16} className={`${status.programmedStatus === 'noche' ? 'text-green-400' : 'text-green-500'}`} fill="currentColor" />
                                                         </div>
                                                     )}
                                                     {status.type === 'manual_present' && (
-                                                        <div className="w-8 h-8 flex items-center justify-center bg-green-100 text-green-700 rounded font-black border border-green-300">
-                                                            ✓
+                                                        <div className={`w-8 h-8 flex items-center justify-center rounded border shadow-sm ${status.programmedStatus === 'noche' ? 'bg-blue-600 border-blue-700' : 'bg-green-100 border-green-300'}`}>
+                                                            <CheckCircle2 size={18} className={`${status.programmedStatus === 'noche' ? 'text-green-300' : 'text-green-600'}`} />
                                                         </div>
                                                     )}
                                                     {status.type === 'manual_absent' && (

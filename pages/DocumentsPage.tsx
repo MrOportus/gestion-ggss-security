@@ -18,6 +18,7 @@ import {
     MapPin,
     RotateCw,
     Smartphone,
+    ChevronLeft,
     ChevronRight,
     FileCheck
 } from 'lucide-react';
@@ -66,6 +67,15 @@ const DocumentsPage: React.FC = () => {
     const [showAssigneeDropdown, setShowAssigneeDropdown] = useState(false);
     const [signingStep, setSigningStep] = useState<'instructions' | 'position' | 'canvas'>('instructions');
 
+    // Paginación
+    const [currentPage, setCurrentPage] = useState(1);
+    const itemsPerPage = 8; // Trabajadores por página
+
+    // Resetear página al buscar o cambiar tab
+    useEffect(() => {
+        setCurrentPage(1);
+    }, [searchTerm, activeTab]);
+
     // Estado para posicionamiento de firma
     const [numPages, setNumPages] = useState<number | null>(null);
     const [signaturePosition, setSignaturePosition] = useState<{
@@ -89,17 +99,47 @@ const DocumentsPage: React.FC = () => {
         // Filtro por Tab
         docs = docs.filter(d => d.status === (activeTab === 'pending' ? 'pending' : 'signed'));
 
-        // Filtro por búsqueda
+        // Filtro por búsqueda (Título, Tipo o Nombre del Colaborador)
         if (searchTerm) {
-            const term = searchTerm.toLowerCase();
-            docs = docs.filter(d =>
-                d.title.toLowerCase().includes(term) ||
-                d.type.toLowerCase().includes(term)
-            );
+            const term = normalizeText(searchTerm);
+            docs = docs.filter(d => {
+                const docMatches = normalizeText(d.title).includes(term) || normalizeText(d.type).includes(term);
+                const assignee = employees.find(e => e.id === d.assignedTo);
+                const nameMatches = assignee ? normalizeText(`${assignee.firstName} ${assignee.lastNamePaterno}`).includes(term) : false;
+                const rutMatches = assignee ? normalizeText(assignee.rut).includes(term) : false;
+                return docMatches || nameMatches || rutMatches;
+            });
         }
 
         return docs;
-    }, [digitalDocuments, currentUser, activeTab, searchTerm]);
+    }, [digitalDocuments, currentUser, activeTab, searchTerm, employees]);
+
+    // Agrupación y Paginación
+    const groupedDocs = useMemo(() => {
+        const groups: Record<string, DigitalDocument[]> = {};
+        
+        filteredDocs.forEach(doc => {
+            const key = doc.assignedTo;
+            if (!groups[key]) groups[key] = [];
+            groups[key].push(doc);
+        });
+
+        // Ordenar trabajadores por nombre
+        const allGroups = Object.entries(groups).sort((a, b) => {
+            const empA = employees.find(e => e.id === a[0]);
+            const empB = employees.find(e => e.id === b[0]);
+            const nameA = empA ? `${empA.firstName} ${empA.lastNamePaterno}` : 'ZZZ';
+            const nameB = empB ? `${empB.firstName} ${empB.lastNamePaterno}` : 'ZZZ';
+            return nameA.localeCompare(nameB);
+        });
+
+        const totalPages = Math.ceil(allGroups.length / itemsPerPage);
+        const paginatedGroups = allGroups.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+
+        return { paginatedGroups, totalPages, totalCount: allGroups.length };
+    }, [filteredDocs, employees, currentPage, itemsPerPage]);
+
+    const { paginatedGroups, totalPages, totalCount } = groupedDocs;
 
     // FORMULARIO DE CARGA (ADMIN)
     const [uploadForm, setUploadForm] = useState({
@@ -331,114 +371,146 @@ const DocumentsPage: React.FC = () => {
                 </div>
             </div>
 
-            {/* LISTA DE DOCUMENTOS */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {filteredDocs.length === 0 ? (
-                    <div className="col-span-full py-20 flex flex-col items-center justify-center bg-white rounded-3xl border-2 border-dashed border-slate-200">
+            {/* LISTA DE DOCUMENTOS AGRUPADOS (LISTADO COMPLETO) */}
+            <div className="space-y-6">
+                {paginatedGroups.length === 0 ? (
+                    <div className="py-20 flex flex-col items-center justify-center bg-white rounded-3xl border-2 border-dashed border-slate-200">
                         <div className="w-16 h-16 bg-slate-50 rounded-full flex items-center justify-center mb-4 text-slate-300">
                             <FileText size={32} />
                         </div>
-                        <p className="text-slate-400 font-medium text-lg">No hay documentos en esta sección</p>
-                        <p className="text-slate-400 text-sm">Todo está al día por aquí</p>
+                        <p className="text-slate-400 font-medium text-lg">No hay registros</p>
+                        <p className="text-slate-400 text-sm">Prueba con otra búsqueda o sección</p>
                     </div>
                 ) : (
-                    filteredDocs.map((doc) => {
-                        const assignee = employees.find(e => e.id === doc.assignedTo);
+                    paginatedGroups.map(([employeeId, docs]) => {
+                        const assignee = employees.find(e => e.id === employeeId);
+                        const initials = assignee ? `${assignee.firstName[0]}${assignee.lastNamePaterno[0]}` : 'U';
 
                         return (
-                            <div key={doc.id} className="bg-white rounded-3xl p-6 shadow-sm border border-slate-100 hover:shadow-xl hover:shadow-slate-200/50 transition-all group">
-                                <div className="flex items-start justify-between mb-4">
-                                    <div className={`p-3 rounded-2xl ${doc.status === 'signed' ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'}`}>
-                                        <FileText size={24} />
-                                    </div>
-                                    {doc.status === 'signed' ? (
-                                        <span className="flex items-center gap-1 text-[10px] font-black uppercase tracking-widest text-emerald-600 bg-emerald-50 px-2 py-1 rounded-lg">
-                                            <CheckCircle size={12} /> Firmado
-                                        </span>
-                                    ) : (
-                                        <span className="flex items-center gap-1 text-[10px] font-black uppercase tracking-widest text-amber-600 bg-amber-50 px-2 py-1 rounded-lg">
-                                            <Clock size={12} /> Pendiente
-                                        </span>
-                                    )}
-                                </div>
-
-                                <div className="space-y-2 mb-6">
-                                    <h3 className="font-bold text-slate-800 text-lg leading-tight group-hover:text-blue-600 transition-colors">
-                                        {doc.title}
-                                    </h3>
-                                    <div className="flex items-center gap-2 text-xs font-medium text-slate-400">
-                                        <span className="px-2 py-0.5 bg-slate-100 rounded-md">{doc.type}</span>
-                                        <span>•</span>
-                                        <span className="flex items-center gap-1">
-                                            <Calendar size={12} /> {new Date(doc.createdAt).toLocaleDateString()}
-                                        </span>
-                                    </div>
-                                </div>
-
-                                {currentUser?.role === 'admin' && (
-                                    <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-2xl mb-6 border border-slate-100">
-                                        <div className="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center text-white font-bold text-xs">
-                                            {assignee?.firstName?.[0] || 'U'}
+                            <div key={employeeId} className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-300">
+                                {/* Header del Grupo (Trabajador) - Más compacto */}
+                                <div className="p-4 bg-slate-50/50 flex items-center justify-between border-b border-slate-100">
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-10 h-10 rounded-xl bg-blue-600 flex items-center justify-center text-white font-black text-sm shadow-md shadow-blue-100">
+                                            {initials}
                                         </div>
-                                        <div className="flex-1 min-w-0">
-                                            <p className="text-xs font-bold text-slate-700 truncate">
-                                                {assignee ? `${assignee.firstName} ${assignee.lastNamePaterno}` : 'Usuario desconocido'}
-                                            </p>
-                                            <p className="text-[10px] text-slate-400 font-medium">Asignado a</p>
+                                        <div>
+                                            <h2 className="text-sm font-black text-slate-800 leading-tight">
+                                                {assignee ? `${assignee.firstName} ${assignee.lastNamePaterno}` : 'Usuario Desconocido'}
+                                            </h2>
+                                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{assignee?.rut || 'RUT N/R'}</p>
                                         </div>
                                     </div>
-                                )}
+                                    <span className="text-[10px] font-black uppercase tracking-widest text-blue-600 bg-blue-100/50 px-2 py-1 rounded-lg">
+                                        {docs.length} {docs.length === 1 ? 'Doc' : 'Docs'}
+                                    </span>
+                                </div>
 
-                                <div className="flex gap-2">
-                                    {doc.status === 'pending' ? (
-                                        <>
-                                            <a
-                                                href={doc.originalUrl}
-                                                target="_blank"
-                                                rel="noopener noreferrer"
-                                                className="flex-1 flex items-center justify-center gap-2 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-sm font-bold transition-all"
-                                            >
-                                                <Eye size={16} /> Revisar
-                                            </a>
-                                            <button
-                                                onClick={() => {
-                                                    setSelectedDocToSign(doc);
-                                                    setSigningStep('instructions');
-                                                    setSignaturePosition(null);
-                                                }}
-                                                className="flex-1 flex items-center justify-center gap-2 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-bold transition-all shadow-lg shadow-blue-100"
-                                            >
-                                                <PenTool size={16} /> Firmar
-                                            </button>
-                                        </>
-                                    ) : (
-                                        <>
-                                            <a
-                                                href={doc.signedUrl}
-                                                target="_blank"
-                                                rel="noopener noreferrer"
-                                                className="flex-1 flex items-center justify-center gap-2 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-sm font-bold transition-all shadow-lg shadow-emerald-100"
-                                            >
-                                                <Download size={16} /> Descargar Firmado
-                                            </a>
-                                            {currentUser?.role === 'admin' && (
-                                                <button
-                                                    onClick={() => {
-                                                        if (window.confirm("¿Seguro que deseas eliminar este registro?")) deleteDigitalDocument(doc.id);
-                                                    }}
-                                                    className="p-3 bg-red-50 hover:bg-red-100 text-red-500 rounded-xl transition-all"
-                                                >
-                                                    <Trash2 size={16} />
-                                                </button>
-                                            )}
-                                        </>
-                                    )}
+                                {/* Listado de Documentos (Filas Simples) */}
+                                <div className="divide-y divide-slate-50">
+                                    {docs.map((doc) => (
+                                        <div key={doc.id} className="p-3 sm:px-6 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-slate-50 transition-colors">
+                                            <div className="flex items-center gap-4">
+                                                <div className={`p-2 rounded-lg ${doc.status === 'signed' ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'}`}>
+                                                    <FileText size={18} />
+                                                </div>
+                                                <div className="min-w-0">
+                                                    <h3 className="font-bold text-slate-700 text-sm truncate">{doc.title}</h3>
+                                                    <div className="flex items-center gap-2 text-[10px] font-medium text-slate-400">
+                                                        <span className="bg-slate-100 px-1.5 py-0.5 rounded uppercase tracking-tighter">{doc.type}</span>
+                                                        <span>•</span>
+                                                        <span>{new Date(doc.createdAt).toLocaleDateString()}</span>
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            <div className="flex items-center gap-2 sm:justify-end">
+                                                {doc.status === 'pending' ? (
+                                                    <div className="flex gap-2 w-full sm:w-auto">
+                                                        <a
+                                                            href={doc.originalUrl}
+                                                            target="_blank"
+                                                            rel="noopener noreferrer"
+                                                            className="flex-1 sm:flex-none p-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg transition-all"
+                                                            title="Ver Original"
+                                                        >
+                                                            <Eye size={16} />
+                                                        </a>
+                                                        <button
+                                                            onClick={() => {
+                                                                setSelectedDocToSign(doc);
+                                                                setSigningStep('instructions');
+                                                                setSignaturePosition(null);
+                                                            }}
+                                                            className="flex-1 sm:flex-none px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-[11px] font-black uppercase tracking-widest transition-all shadow-lg shadow-blue-100 flex items-center justify-center gap-2"
+                                                        >
+                                                            <PenTool size={14} /> Firmar
+                                                        </button>
+                                                    </div>
+                                                ) : (
+                                                    <div className="flex gap-2 w-full sm:w-auto">
+                                                        <a
+                                                            href={doc.signedUrl}
+                                                            target="_blank"
+                                                            rel="noopener noreferrer"
+                                                            className="flex-1 sm:flex-none px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[11px] font-black uppercase tracking-widest transition-all shadow-lg shadow-emerald-100 flex items-center justify-center gap-2"
+                                                        >
+                                                            <Download size={14} /> Descargar
+                                                        </a>
+                                                        {currentUser?.role === 'admin' && (
+                                                            <button
+                                                                onClick={() => {
+                                                                    if (window.confirm("¿Seguro que deseas eliminar este registro?")) deleteDigitalDocument(doc.id);
+                                                                }}
+                                                                className="p-2 bg-rose-50 hover:bg-rose-100 text-rose-500 rounded-lg transition-all"
+                                                            >
+                                                                <Trash2 size={16} />
+                                                            </button>
+                                                        )}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    ))}
                                 </div>
                             </div>
                         );
                     })
                 )}
             </div>
+
+            {/* PAGINACIÓN */}
+            {totalPages > 1 && (
+                <div className="flex items-center justify-center gap-4 mt-8 bg-white p-4 rounded-2xl border border-slate-100 shadow-sm w-fit mx-auto">
+                    <button
+                        onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                        disabled={currentPage === 1}
+                        className="p-2 text-slate-400 hover:text-blue-600 disabled:opacity-30 disabled:hover:text-slate-400 transition-colors"
+                    >
+                        <ChevronLeft size={24} />
+                    </button>
+                    
+                    <div className="flex items-center gap-2">
+                        {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => (
+                            <button
+                                key={page}
+                                onClick={() => setCurrentPage(page)}
+                                className={`w-8 h-8 rounded-lg text-xs font-black transition-all ${currentPage === page ? 'bg-blue-600 text-white shadow-lg shadow-blue-100' : 'text-slate-400 hover:bg-slate-50'}`}
+                            >
+                                {page}
+                            </button>
+                        ))}
+                    </div>
+
+                    <button
+                        onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                        disabled={currentPage === totalPages}
+                        className="p-2 text-slate-400 hover:text-blue-600 disabled:opacity-30 disabled:hover:text-slate-400 transition-colors"
+                    >
+                        <ChevronRight size={24} />
+                    </button>
+                </div>
+            )}
 
             {/* MODAL DE CARGA (ADMIN) */}
             {showUploadModal && (

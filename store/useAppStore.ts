@@ -200,6 +200,18 @@ export const useAppStore = create<AppState>()(
 
               if (docSnap.exists()) {
                 const empData = docSnap.data() as Employee;
+                
+                // IMPORTANTE: Limpiar forceLogout ANTES de setear currentUser
+                // para evitar que el listener de WorkerAttendance dispare logout() inmediatamente
+                if (empData.forceLogout === true) {
+                  try {
+                    await updateDoc(docRef, { forceLogout: false });
+                    console.log("[AUTH] forceLogout limpiado antes de setear usuario");
+                  } catch (e) {
+                    console.error("[AUTH] Error limpiando forceLogout:", e);
+                  }
+                }
+                
                 set({
                   currentUser: {
                     uid: firebaseUser.uid,
@@ -207,14 +219,8 @@ export const useAppStore = create<AppState>()(
                     role: empData.role || 'worker'
                   }
                 });
-                // Si es admin, cargar datos
-                if (empData.role === 'admin') {
-                  get().fetchInitialData();
-                } else {
-                  // Si es worker, cargar solo lo necesario o sus datos
-                  // Por ahora cargamos todo para simplificar la vista WorkerAttendance que filtra localmente
-                  get().fetchInitialData();
-                }
+                // Cargar datos iniciales para cualquier rol
+                get().fetchInitialData();
               } else {
                 // Ocurre la primera vez. Asumimos rol admin si no existe ficha pero entró.
                 // (Idealmente se crea la ficha manualmente en la consola de Firebase)
@@ -450,17 +456,65 @@ export const useAppStore = create<AppState>()(
         try {
           await setDoc(doc(db, 'Asistencia', id), newLogEntry);
           
-          // SINCRONIZACIÓN CON GESTIÓN DE TURNOS (asistencia_digital)
+          // SINCRONIZACIÓN CON GESTIÓN DE TURNOS
+          
+          // DETERMINAR FECHA DE LA JORNADA:
+          // 1. Usar localDate explícita si viene (fecha local del cliente)
+          // 2. Usar fecha del shiftId si existe (prog_site_emp_YYYY-MM-DD)
+          // 3. Calcular fecha local como fallback (NO usar timestamp.split('T')[0] que es UTC)
+          let jornadaDate = (log as any).localDate || '';
+          
+          // Si no hay localDate, calcular desde componentes locales de Date
+          if (!jornadaDate) {
+            const localNow = new Date();
+            jornadaDate = `${localNow.getFullYear()}-${String(localNow.getMonth() + 1).padStart(2, '0')}-${String(localNow.getDate()).padStart(2, '0')}`;
+          }
+          
+          if (log.shiftId && typeof log.shiftId === 'string' && log.shiftId.includes('_')) {
+            const parts = log.shiftId.split('_');
+            const datePart = parts[parts.length - 1]; 
+            if (datePart.match(/^\d{4}-\d{2}-\d{2}$/)) {
+              jornadaDate = datePart;
+            }
+          }
+
+          const siteId = log.siteId || 'sin_sucursal';
+          const digId = `${siteId}_${log.employeeId}_${jornadaDate}`;
+
+          console.log("[SYNC TURNOS] Tipo:", log.type, "| digId:", digId, "| jornadaDate:", jornadaDate, "| siteId:", siteId, "| shiftId:", log.shiftId);
+
           if (log.type === 'check_in') {
-            const todayStr = timestamp.split('T')[0];
-            const digId = `${log.siteId}_${log.employeeId}_${todayStr}`;
-            await setDoc(doc(db, 'asistencia_digital', digId), {
-              employeeId: log.employeeId,
-              siteId: log.siteId,
-              timestamp: Timestamp.fromDate(new Date(timestamp)),
-              isValidated: true,
-              type: 'check_in'
-            });
+            try {
+              await setDoc(doc(db, 'asistencia_digital', digId), {
+                employeeId: log.employeeId,
+                siteId: siteId,
+                timestamp: Timestamp.fromDate(new Date()),
+                isValidated: true,
+                type: 'check_in',
+                date: jornadaDate
+              });
+              console.log("[SYNC TURNOS] ✅ asistencia_digital creado con éxito:", digId);
+            } catch (syncError) {
+              console.error("[SYNC TURNOS] ❌ Error escribiendo asistencia_digital:", digId, syncError);
+            }
+          } else if (log.type === 'check_out') {
+            try {
+              // Eliminar pulso y marcar ticket en el día que corresponde a la jornada
+              await deleteDoc(doc(db, 'asistencia_digital', digId));
+              console.log("[SYNC TURNOS] ✅ asistencia_digital eliminado:", digId);
+              
+              const manualDocId = `manual_${log.employeeId}_${jornadaDate}`;
+              await setDoc(doc(db, 'asistencia_manual', manualDocId), {
+                employeeId: log.employeeId,
+                date: jornadaDate,
+                status: 'presente',
+                type: 'digital_checkout',
+                updatedAt: Timestamp.fromDate(new Date())
+              }, { merge: true });
+              console.log("[SYNC TURNOS] ✅ asistencia_manual creado con éxito:", manualDocId);
+            } catch (syncError) {
+              console.error("[SYNC TURNOS] ❌ Error en sincronización check_out:", digId, syncError);
+            }
           }
 
           set((state) => ({ attendanceLogs: [newLogEntry, ...state.attendanceLogs] }));
@@ -502,10 +556,11 @@ export const useAppStore = create<AppState>()(
 
       checkAndCloseStaleShifts: async () => {
         try {
-          // Bucar registros 'active'
+          // Buscar todos los registros 'check_in'
+          // Nota: quitamos el filtro de status "active" porque algunos logs antiguos 
+          // podrían no tenerlo seteado, pero siguen sin tener 'completed'
           const q = query(
             collection(db, "Asistencia"), 
-            where("status", "==", "active"),
             where("type", "==", "check_in")
           );
           const snapshot = await getDocs(q);
@@ -514,14 +569,17 @@ export const useAppStore = create<AppState>()(
 
           for (const docSnap of snapshot.docs) {
             const data = docSnap.data() as AttendanceLog;
+            
+            // Solo procesar si NO está completado
+            if (data.status === 'completed') continue;
+
             const startTime = new Date(data.timestamp).getTime();
             
             if (now.getTime() - startTime > limit) {
-              console.log(`Auto-cerrando turno stale para: ${data.employeeName}`);
+              console.log(`Auto-cerrando turno stale para: ${data.employeeName || 'Usuario'}`);
               
-              // Calcular una hora de salida lógica (12 horas después del inicio o ahora mismo)
-              // Usaremos 12 horas después del inicio como "fin de jornada teórica" o el límite de 24h
-              const autoEndTime = new Date(startTime + (14 * 60 * 60 * 1000)).toISOString(); // 14h después por ejemplo
+              // 14 horas después del inicio como fin teórico
+              const autoEndTime = new Date(startTime + (14 * 60 * 60 * 1000)).toISOString();
               
               await get().forceCloseAttendance(
                 docSnap.id, 
@@ -577,7 +635,9 @@ export const useAppStore = create<AppState>()(
           });
 
           // 4. Registrar en asistencia_manual para que aparezca en el mapa de turnos
-          const dateStr = endTimestamp.split('T')[0];
+          // Usar fecha LOCAL (no UTC) para consistencia con la gestión de turnos
+          const endObj = new Date(endTimestamp);
+          const dateStr = `${endObj.getFullYear()}-${String(endObj.getMonth() + 1).padStart(2, '0')}-${String(endObj.getDate()).padStart(2, '0')}`;
           const manualDocId = `manual_${checkInData.employeeId}_${dateStr}`;
           await setDoc(doc(db, 'asistencia_manual', manualDocId), {
             employeeId: checkInData.employeeId,

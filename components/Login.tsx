@@ -1,19 +1,14 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { useAppStore } from '../store/useAppStore';
 import { Mail, Lock } from 'lucide-react';
 
 const Login: React.FC = () => {
-  const { login, initializeAuthListener } = useAppStore();
+  const { login } = useAppStore();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-
-  // Inicializar listener de auth al montar el componente de login
-  useEffect(() => {
-    initializeAuthListener();
-  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

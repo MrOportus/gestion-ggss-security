@@ -24,7 +24,7 @@ interface ExtractedData {
 }
 
 const SmartAutofill: React.FC<{ onBack: () => void }> = ({ onBack }) => {
-    const { employees } = useAppStore();
+    const { employees, sites } = useAppStore();
     const [activeTab, setActiveTab] = useState<'search' | 'text'>('search');
     const [searchTerm, setSearchTerm] = useState('');
     const [inputText, setInputText] = useState('');
@@ -36,7 +36,9 @@ const SmartAutofill: React.FC<{ onBack: () => void }> = ({ onBack }) => {
         fechaNacimiento: '',
         sexo: ''
     });
-    const [os10Info, setOs10Info] = useState<string>('OS10 no ingresado');
+    const [os10Info, setOs10Info] = useState<string>('Sin Información');
+    const [os10Date, setOs10Date] = useState<string | null>(null);
+    const [siteInfo, setSiteInfo] = useState<string>('Sin sucursal asignada');
     const [scriptCopied, setScriptCopied] = useState(false);
 
     // Use env var or manual input
@@ -89,10 +91,16 @@ const SmartAutofill: React.FC<{ onBack: () => void }> = ({ onBack }) => {
 
         // OS10 Logic
         if (emp.fechaVencimientoOS10) {
-            setOs10Info(`Vigencia OS10: ${formatDate(emp.fechaVencimientoOS10)}`);
+            setOs10Info(formatDate(emp.fechaVencimientoOS10));
+            setOs10Date(emp.fechaVencimientoOS10);
         } else {
-            setOs10Info('OS10 no ingresado');
+            setOs10Info('Sin Registrar');
+            setOs10Date(null);
         }
+
+        // Site Logic
+        const site = sites.find(s => s.id === emp.currentSiteId);
+        setSiteInfo(site ? site.name : 'Sin sucursal asignada');
 
         setSearchTerm(''); // Clear search on select or keep? Let's clear for cleaner UI
     };
@@ -150,7 +158,9 @@ const SmartAutofill: React.FC<{ onBack: () => void }> = ({ onBack }) => {
 
             const result = JSON.parse(response.text || "{}");
             setExtractedData(result);
-            setOs10Info('OS10 no ingresado'); // Reset for non-DB data
+            setOs10Info('Sin Información'); // Reset for non-DB data
+            setOs10Date(null);
+            setSiteInfo('Sin sucursal asignada');
 
         } catch (error) {
             console.error("Error extracting data:", error);
@@ -285,7 +295,7 @@ const SmartAutofill: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                             onClick={() => setActiveTab('text')}
                             className={`flex-1 py-2 text-xs font-bold uppercase tracking-widest rounded-lg transition-all flex items-center justify-center gap-2 ${activeTab === 'text' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-400 hover:text-slate-600'}`}
                         >
-                            <Sparkles size={14} /> Texto con I.A.
+                            <Sparkles size={14} /> Texto desde Contrato
                         </button>
                     </div>
 
@@ -330,14 +340,14 @@ const SmartAutofill: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                     ) : (
                         <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4 h-[400px]">
                             <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
-                                <Sparkles size={14} /> Pegar Texto Desestructurado
+                                <Sparkles size={14} /> Texto desde Contrato
                             </h3>
                             <div className="relative group h-full pb-8">
                                 <textarea
                                     value={inputText}
                                     onChange={(e) => setInputText(e.target.value)}
                                     onPaste={handlePaste}
-                                    placeholder="Pegue aquí correos, chats o notas..."
+                                    placeholder="Copia y pega la informacion del trabajador directamente desde su contrato."
                                     className="w-full h-full bg-slate-50 border border-slate-200 rounded-xl p-4 text-sm focus:ring-2 focus:ring-blue-500 outline-none transition resize-none"
                                 />
                                 <div className="absolute bottom-10 right-4 flex gap-2">
@@ -346,7 +356,9 @@ const SmartAutofill: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                                             onClick={() => {
                                                 setInputText('');
                                                 setExtractedData({ nombre: '', rut: '', edad: '', fechaNacimiento: '', sexo: '' });
-                                                setOs10Info('OS10 no ingresado');
+                                                setOs10Info('Sin Información');
+                                                setOs10Date(null);
+                                                setSiteInfo('Sin sucursal asignada');
                                             }}
                                             className="p-2 bg-white text-slate-400 hover:text-rose-500 rounded-lg shadow-sm border border-slate-200 transition"
                                             title="Limpiar"
@@ -391,16 +403,55 @@ const SmartAutofill: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                 <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col h-full">
                     <div className="p-4 bg-slate-50 border-b border-slate-100 flex justify-between items-center">
                         <h3 className="text-xs font-black text-slate-800 uppercase tracking-widest">2. Verificación de Datos</h3>
-                        <div className="flex gap-2">
-                            {/* OS10 INFO BOX */}
-                            <div className="bg-gray-200 border border-black px-2 py-0.5 rounded text-[10px] font-bold text-blue-900 uppercase shadow-sm">
-                                {os10Info}
-                            </div>
-                            {extractedData.rut && <span className="text-[10px] bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-bold uppercase">Datos Listos</span>}
-                        </div>
+                        {extractedData.rut && <span className="text-[10px] bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-bold uppercase">Datos Listos</span>}
                     </div>
 
                     <div className="p-6 flex-1 space-y-6">
+                        {/* Highlighted Status Section for High Readability */}
+                        <div className="grid grid-cols-2 gap-3">
+                            {/* OS10 BOX */}
+                            {(() => {
+                                let bgColor = 'bg-slate-900';
+                                let borderColor = 'border-slate-700';
+                                let textColor = 'text-amber-500';
+
+                                if (os10Date) {
+                                    const expiry = new Date(os10Date);
+                                    const today = new Date();
+                                    today.setHours(0, 0, 0, 0);
+
+                                    const twoMonthsLater = new Date(today);
+                                    twoMonthsLater.setMonth(today.getMonth() + 2);
+
+                                    if (expiry < today) {
+                                        bgColor = 'bg-rose-600';
+                                        borderColor = 'border-rose-700';
+                                        textColor = 'text-rose-100';
+                                    } else if (expiry < twoMonthsLater) {
+                                        bgColor = 'bg-amber-500';
+                                        borderColor = 'border-amber-600';
+                                        textColor = 'text-amber-950';
+                                    } else {
+                                        bgColor = 'bg-emerald-600';
+                                        borderColor = 'border-emerald-700';
+                                        textColor = 'text-emerald-100';
+                                    }
+                                }
+
+                                return (
+                                    <div className={`${bgColor} text-white p-4 rounded-2xl shadow-lg border-b-4 ${borderColor} animate-in zoom-in-95 duration-500 flex flex-col justify-center`}>
+                                        <p className={`text-[9px] font-black ${textColor} uppercase tracking-wider mb-0.5`}>Vigencia OS10</p>
+                                        <p className="text-xl font-black">{os10Info}</p>
+                                    </div>
+                                );
+                            })()}
+
+                            {/* SITE BOX */}
+                            <div className="bg-blue-600 text-white p-4 rounded-2xl shadow-lg border-b-4 border-blue-800 animate-in zoom-in-95 duration-500 delay-100 flex flex-col justify-center">
+                                <p className="text-[9px] font-black text-blue-200 uppercase tracking-wider mb-0.5">Sucursal Contrato</p>
+                                <p className="text-sm font-black uppercase leading-tight line-clamp-2">{siteInfo}</p>
+                            </div>
+                        </div>
 
                         {/* Nombre */}
                         <div className="space-y-1">

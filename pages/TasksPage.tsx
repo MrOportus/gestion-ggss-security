@@ -1385,7 +1385,7 @@ Documentos que se adjuntan.
                     <div className="grid grid-cols-2 gap-y-2 text-[11px]">
                       <div><span className="text-slate-500">RUT:</span> <span className="font-bold">{formalizarEmp.rut}</span></div>
                       <div><span className="text-slate-500">Sexo:</span> <span className="font-bold">{formalizarEmp.sexo || 'N/R'}</span></div>
-                      <div><span className="text-slate-500">Nacimiento:</span> <span className="font-bold">{formalizarEmp.fechaNacimiento || 'N/R'}</span></div>
+                      <div><span className="text-slate-500">Nacimiento:</span> <span className="font-bold">{formatDateForText(formalizarEmp.fechaNacimiento || '')}</span></div>
                       <div><span className="text-slate-500">Teléfono:</span> <span className="font-bold">{formalizarEmp.phone || 'N/R'}</span></div>
                     </div>
                   </div>
@@ -1406,13 +1406,13 @@ Documentos que se adjuntan.
                     motivo: formalizarData.motivo,
                     sucursal: formalizarSite.name,
                     direccion: formalizarSite.address,
-                    fechaInicio: formalizarData.fechaInicio,
-                    fechaTermino: formalizarData.fechaTermino,
+                    fechaInicio: formatDateForText(formalizarData.fechaInicio),
+                    fechaTermino: formatDateForText(formalizarData.fechaTermino),
                     horaInicio: formalizarData.horaInicio,
                     horaTermino: formalizarData.horaTermino,
                     rut: formalizarEmp.rut,
                     nombre: `${formalizarEmp.firstName} ${formalizarEmp.lastNamePaterno} ${formalizarEmp.lastNameMaterno || ''}`.trim(),
-                    fechaNacimiento: formalizarEmp.fechaNacimiento || '',
+                    fechaNacimiento: formatDateForText(formalizarEmp.fechaNacimiento || ''),
                     sexo: formalizarEmp.sexo || '',
                     telefono: formalizarEmp.phone || ''
                   };

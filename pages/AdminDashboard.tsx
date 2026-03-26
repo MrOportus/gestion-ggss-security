@@ -12,12 +12,15 @@ import EmployeeModal from '../components/EmployeeModal';
 type DashboardFilter = 'active_total' | 'os10_all' | 'contracts_all' | 'reminders_all';
 
 const AdminDashboard: React.FC = () => {
-  const { employees, attendanceLogs, sites } = useAppStore();
+  const { employees, attendanceLogs, sites, forceCloseAttendance } = useAppStore();
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<string | null>(null);
   const [activeFilter, setActiveFilter] = useState<DashboardFilter>('active_total');
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedSiteId, setSelectedSiteId] = useState<string | number>('all');
-  const { forceCloseAttendance } = useAppStore();
+
+  const [programming, setProgramming] = React.useState<{ employeeId: string; siteId: string | number; isManualPresent?: boolean }[]>([]);
+  const [localAttendanceLogs, setLocalAttendanceLogs] = React.useState(attendanceLogs);
+  const [reminders, setReminders] = useState<Reminder[]>([]);
 
   const [closingLogInfo, setClosingLogInfo] = useState<{ id: string; name: string; timestamp: string } | null>(null);
   const [exitTime, setExitTime] = useState('');
@@ -140,17 +143,24 @@ const AdminDashboard: React.FC = () => {
 
   // --- 3. Lógica Monitor en Vivo ---
   const liveStatusEmployees = activeEmployees.map(emp => {
-    const empLogs = attendanceLogs.filter(log => log.employeeId === emp.id);
+    // Usamos localAttendanceLogs que contiene todos los logs (sin limite de 200)
+    const empLogs = localAttendanceLogs.filter(log => log.employeeId === emp.id);
     if (empLogs.length === 0) return null;
-    const sortedLogs = empLogs.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+    
+    // El onSnapshot ya nos da los logs ordenados por timestamp desc, 
+    // pero nos aseguramos por si acaso
+    const sortedLogs = [...empLogs].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
     const lastLog = sortedLogs[0];
 
-    if (lastLog.type === 'check_in') {
+    // IMPORTANTE: Consideramos "En Turno" si el ultimo log es check_in y no esta completado
+    // Independiente de si fue hoy, ayer o hace una semana (Fantasmas)
+    if (lastLog.type === 'check_in' && lastLog.status !== 'completed') {
       const site = sites.find(s => s.id === lastLog.siteId);
       return {
         ...emp,
-        siteName: site ? site.name : 'Ubicación Desconocida',
-        lastCheckIn: lastLog.timestamp
+        siteName: site ? site.name : lastLog.siteName || 'Ubicación Desconocida',
+        lastCheckIn: lastLog.timestamp,
+        activeLogId: lastLog.id
       };
     }
     return null;
@@ -159,10 +169,6 @@ const AdminDashboard: React.FC = () => {
   const selectedEmployee = selectedEmployeeId ? employees.find(e => e.id === selectedEmployeeId) : null;
 
   // --- 4. Lógica de Sincronización con Programación (Gestión de Turnos) ---
-  const [programming, setProgramming] = React.useState<{ employeeId: string; siteId: string | number; isManualPresent?: boolean }[]>([]);
-  const [localAttendanceLogs, setLocalAttendanceLogs] = React.useState(attendanceLogs);
-  const [reminders, setReminders] = useState<Reminder[]>([]);
-
   React.useEffect(() => {
     // 1. Sincronizar logs de asistencia en tiempo real
     const qLogs = query(collection(db, 'Asistencia'));
@@ -248,31 +254,34 @@ const AdminDashboard: React.FC = () => {
 
   const liveBySite = activeSites.reduce((acc, site) => {
     // 1. Encontrar empleados programados o con asistencia manual hoy en esta sucursal
-    const programmedForSite = programming.filter(p =>
-      String(p.siteId) === String(site.id) ||
-      (p.siteId === 'all' && employees.find(e => e.id === p.employeeId)?.currentSiteId === site.id)
+    const programmedForSiteIds = new Set(programming
+      .filter(p => 
+        String(p.siteId) === String(site.id) || 
+        (p.siteId === 'all' && employees.find(e => e.id === p.employeeId)?.currentSiteId === site.id)
+      )
+      .map(p => p.employeeId)
     );
 
-    const uniqueProgrammedIds = Array.from(new Set(programmedForSite.map(p => p.employeeId)));
-    const assignedEmps = activeEmployees.filter(emp => uniqueProgrammedIds.includes(emp.id));
+    // 2. Encontrar empleados que están "Live" en esta sucursal (según liveStatusEmployees calculado arriba)
+    const liveHereIds = new Set(
+      liveStatusEmployees
+        .filter(le => le.siteName === site.name)
+        .map(le => le.id)
+    );
 
-    // 2. Determinar estado de cada uno (En Turno vs Espera)
+    // Unimos ambos conjuntos para tener a todos los relevantes
+    const allRelevantIds = new Set([...programmedForSiteIds, ...liveHereIds]);
+    const assignedEmps = activeEmployees.filter(emp => allRelevantIds.has(emp.id));
+
+    // 3. Determinar estado de cada uno (En Turno vs Espera)
     const empsWithStatus = assignedEmps.map(emp => {
-      // Buscar el log más reciente para este empleado hoy o ayer (para turnos noche)
-      const yesterday = new Date(today);
-      yesterday.setDate(today.getDate() - 1);
-      const yesterdayStr = yesterday.toISOString().split('T')[0];
-
-      const empLogs = localAttendanceLogs.filter(log =>
-        log.employeeId === emp.id &&
-        (log.timestamp.startsWith(todayStr) || log.timestamp.startsWith(yesterdayStr))
-      );
-      const sortedLogs = empLogs.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+      // Buscamos el log más reciente (en todos los logs disponibles)
+      const empLogs = localAttendanceLogs.filter(log => log.employeeId === emp.id);
+      const sortedLogs = [...empLogs].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
       const lastLog = sortedLogs[0];
 
       // Un empleado está "En Turno" si su último log es check_in Y no está marcado como completed
       const isLive = lastLog ? (lastLog.type === 'check_in' && lastLog.status !== 'completed') : false;
-
 
       return {
         ...emp,
@@ -476,8 +485,10 @@ const AdminDashboard: React.FC = () => {
                 </div>
               </div>
 
-              <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest bg-slate-50 px-3 py-1.5 rounded-full border border-slate-100 text-center shrink-0">
-                Total Operativos: <span className="text-emerald-600 font-black">{liveStatusEmployees.length}</span>
+              <div className="flex items-center gap-3">
+                <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest bg-slate-50 px-3 py-1.5 rounded-full border border-slate-100 text-center shrink-0">
+                  Total Operativos: <span className="text-emerald-600 font-black">{liveStatusEmployees.length}</span>
+                </div>
               </div>
             </div>
 
@@ -688,13 +699,15 @@ const AdminDashboard: React.FC = () => {
                         
                         const grouped = reminders.reduce((acc, rem) => {
                             const date = rem.dueDate.toDate();
-                            if (date <= endOfWeek) acc.thisWeek.push(rem);
+                            if (date < now) acc.overdue.push(rem);
+                            else if (date <= endOfWeek) acc.thisWeek.push(rem);
                             else if (date <= endOfNextWeek) acc.nextWeek.push(rem);
                             else acc.later.push(rem);
                             return acc;
-                        }, { thisWeek: [] as Reminder[], nextWeek: [] as Reminder[], later: [] as Reminder[] });
+                        }, { overdue: [] as Reminder[], thisWeek: [] as Reminder[], nextWeek: [] as Reminder[], later: [] as Reminder[] });
 
                         return [
+                            { label: 'TAREAS VENCIDAS', list: grouped.overdue, color: 'text-rose-600', bg: 'bg-rose-50/50', icon: AlertCircle },
                             { label: 'TAREAS PARA ESTA SEMANA', list: grouped.thisWeek, color: 'text-red-600', bg: 'bg-red-50/50', icon: Clock },
                             { label: 'TAREAS PRÓXIMA SEMANA', list: grouped.nextWeek, color: 'text-orange-600', bg: 'bg-orange-50/50', icon: Calendar },
                             { label: 'RESTO DE TAREAS PENDIENTES', list: grouped.later, color: 'text-slate-500', bg: 'bg-slate-50/50', icon: Bell }
@@ -725,7 +738,11 @@ const AdminDashboard: React.FC = () => {
                                                 </div>
                                             </td>
                                             <td className="px-6 py-4 text-right">
-                                                <span className="px-2 py-1 bg-amber-100 text-amber-700 text-[10px] font-bold rounded-full uppercase">Pendiente</span>
+                                                {reminder.dueDate?.toDate() < now ? (
+                                                    <span className="px-2 py-1 bg-red-100 text-red-700 text-[10px] font-bold rounded-full uppercase">Tarea Vencida</span>
+                                                ) : (
+                                                    <span className="px-2 py-1 bg-amber-100 text-amber-700 text-[10px] font-bold rounded-full uppercase">Pendiente</span>
+                                                )}
                                             </td>
                                         </tr>
                                     ))}
