@@ -6,13 +6,13 @@ import { getMessaging } from "firebase/messaging";
 import { getStorage } from "firebase/storage";
 
 const firebaseConfig = {
-  apiKey: "AIzaSyBJ-1CfRG63DvsD5Enp2Eys-WvGrenMljE",
-  authDomain: "gen-lang-client-08607869-461c2.firebaseapp.com",
-  projectId: "gen-lang-client-08607869-461c2",
-  storageBucket: "gen-lang-client-08607869-461c2.firebasestorage.app",
-  messagingSenderId: "1058074609900",
-  appId: "1:1058074609900:web:a31516306067f7b55ffdc9",
-  measurementId: "G-0WBLMDBZW2"
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID,
+  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID
 };
 
 // 1. Inicializar App Principal
