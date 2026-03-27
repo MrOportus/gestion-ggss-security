@@ -58,6 +58,8 @@ export interface Employee {
   contactoFamiliar?: string;
   tempPasswordLog?: string; // Nuevo campo para auditoría de contraseña temporal
   fcmTokens?: string[]; // Para notificaciones push
+  forceLogout?: boolean; // Para cerrar sesión remota
+  lastForceLogout?: string; // ISO timestamp
 }
 
 export interface AttendanceLog {
@@ -152,11 +154,13 @@ export interface AppConfirmation {
 }
 
 export interface ContractRecord {
-  id: number;
+  id: string;
   timestamp: string;
   workerName: string;
   siteName: string;
   downloadUrl: string;
+  fechaInicio?: string;
+  fechaTermino?: string;
 }
 
 export interface Advance {

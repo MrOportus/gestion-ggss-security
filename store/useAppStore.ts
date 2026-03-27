@@ -67,7 +67,8 @@ interface AppState {
 
   bulkAddEmployees: (employees: any[]) => Promise<void>; // Actualizado tipo
   saveF30Comparison: (record: Omit<ComparisonRecord, 'id' | 'timestamp'>) => void;
-  saveContractRecord: (record: Omit<ContractRecord, 'id' | 'timestamp'>) => void;
+  saveContractRecord: (record: Omit<ContractRecord, 'id' | 'timestamp'>) => Promise<void>;
+  fetchContractHistory: () => Promise<void>;
 
   // Site Actions
   addSite: (site: Omit<Site, 'id'>) => Promise<void>;
@@ -347,6 +348,7 @@ export const useAppStore = create<AppState>()(
             get().fetchBoardNotes();
             get().fetchDailyPayments();
             get().fetchAdvances();
+            get().fetchContractHistory();
           }
 
         } catch (error) {
@@ -753,9 +755,37 @@ export const useAppStore = create<AppState>()(
         set(state => ({ f30History: [newRecord, ...state.f30History].slice(0, 12) }));
       },
 
-      saveContractRecord: (record) => {
-        const newRecord = { ...record, id: Date.now(), timestamp: new Date().toISOString() };
-        set(state => ({ contractHistory: [newRecord, ...state.contractHistory].slice(0, 15) }));
+      saveContractRecord: async (record) => {
+        const id = "contract_" + Date.now();
+        const newRecord: ContractRecord = { 
+          ...record, 
+          id, 
+          timestamp: new Date().toISOString() 
+        };
+        try {
+          await setDoc(doc(db, "HistoricoContratos", id), newRecord);
+          set(state => ({ contractHistory: [newRecord, ...state.contractHistory].slice(0, 12) }));
+        } catch (error) {
+          console.error("Error saving contract record:", error);
+        }
+      },
+
+      fetchContractHistory: async () => {
+        try {
+          const q = query(
+            collection(db, "HistoricoContratos"), 
+            orderBy("timestamp", "desc"), 
+            limit(12)
+          );
+          const snapshot = await getDocs(q);
+          const history: ContractRecord[] = [];
+          snapshot.forEach(doc => {
+            history.push({ ...doc.data(), id: doc.id } as ContractRecord);
+          });
+          set({ contractHistory: history });
+        } catch (error) {
+          console.error("Error fetching contract history:", error);
+        }
       },
 
       // --- SITE ACTIONS (Igual que antes pero con v9) ---

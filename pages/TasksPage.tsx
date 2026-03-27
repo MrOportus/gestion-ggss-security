@@ -54,7 +54,7 @@ const TasksPage: React.FC = () => {
     horarioA: '08:30 AM a 18:30 PM',
     horarioB: '18:00 PM a 09:00 AM',
     tipoContrato: 'Falabella Part-Time',
-    sueldo: '529000'
+    sueldo: '539000'
   });
   const [contratoEmpSearch, setContratoEmpSearch] = useState('');
   const [contratoSiteSearch, setContratoSiteSearch] = useState('');
@@ -290,8 +290,14 @@ const TasksPage: React.FC = () => {
       const idToken = await user.getIdToken();
 
       // 3. Llamar a la Cloud Function via fetch con Bearer token
-      const CF_URL = 'https://generarcontrato-swpow5orca-uc.a.run.app';
+      const CF_URL = import.meta.env.VITE_CF_GENERATE_CONTRACT_URL;
+      if (!CF_URL) {
+        showNotification("Error: URL de automatización no configurada.", "error");
+        return;
+      }
+
       const response = await fetch(CF_URL, {
+
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -310,7 +316,9 @@ const TasksPage: React.FC = () => {
         saveContractRecord({
           workerName: `${contratoEmp.firstName} ${contratoEmp.lastNamePaterno}`,
           siteName: contratoSite.name,
-          downloadUrl: result.url
+          downloadUrl: result.url,
+          fechaInicio: contratoData.fechaInicio,
+          fechaTermino: contratoData.fechaTermino || 'Indefinido'
         });
         showNotification("¡Contrato generado exitosamente!", "success");
         window.open(result.url, '_blank');
@@ -331,15 +339,7 @@ const TasksPage: React.FC = () => {
     return `${day}-${month}-${year}`;
   };
 
-  const formatLongDate = (dateStr: string) => {
-    if (!dateStr) return '';
-    const months = [
-      "enero", "febrero", "marzo", "abril", "mayo", "junio",
-      "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"
-    ];
-    const [year, month, day] = dateStr.split('-');
-    return `${day} de ${months[parseInt(month) - 1]} del ${year}`;
-  };
+
 
   const generatedReemplazoText = `Estimados.
 Banco Falabella
@@ -1561,7 +1561,7 @@ Documentos que se adjuntan.
                         key={e.id}
                         className="px-4 py-2 hover:bg-violet-50 cursor-pointer border-b border-slate-50"
                         onClick={() => {
-                          setContratoData({ ...contratoData, empleadoId: String(e.id), sueldo: String(e.sueldoLiquido || '') });
+                          setContratoData({ ...contratoData, empleadoId: String(e.id), sueldo: String(e.sueldoLiquido || '539000') });
                           setContratoEmpSearch(`${e.firstName} ${e.lastNamePaterno}`);
                           setShowContratoEmpList(false);
                         }}
@@ -1669,7 +1669,7 @@ Documentos que se adjuntan.
 
               {/* SUELDO */}
               <div className="flex flex-col space-y-1">
-                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Sueldo Líquido</label>
+                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Sueldo Base</label>
                 <div className="relative">
                   <DollarSign className="absolute left-3 top-2.5 text-slate-400" size={14} />
                   <input
@@ -1726,7 +1726,7 @@ Documentos que se adjuntan.
           <div className="space-y-6">
             <div className="flex items-center gap-3 border-b border-slate-200 pb-4">
               <History className="text-slate-400" />
-              <h2 className="text-xl font-bold text-slate-800">Últimos Contratos Generados (Máx 15)</h2>
+              <h2 className="text-xl font-bold text-slate-800">Últimos Contratos Generados (Máx 12)</h2>
             </div>
 
             {contractHistory.length === 0 ? (
@@ -1754,9 +1754,19 @@ Documentos que se adjuntan.
                     </p>
 
                     <div className="space-y-2 mt-auto">
-                      <div className="flex items-center gap-2 text-[10px] text-slate-500 font-medium">
-                        <Calendar size={12} className="text-slate-400" />
-                        {new Date(record.timestamp).toLocaleString('es-CL', { dateStyle: 'medium', timeStyle: 'short' })}
+                      <div className="flex flex-col gap-1 mb-2">
+                        <div className="flex items-center gap-1.5 text-[10px] text-slate-600 font-bold">
+                          <span className="text-slate-400 uppercase font-black text-[8px]">Desde:</span>
+                          {record.fechaInicio ? formatDateForText(record.fechaInicio) : 'N/R'}
+                        </div>
+                        <div className="flex items-center gap-1.5 text-[10px] text-slate-600 font-bold">
+                          <span className="text-slate-400 uppercase font-black text-[8px]">Hasta:</span>
+                          {record.fechaTermino ? (record.fechaTermino === 'Indefinido' ? 'Indefinido' : formatDateForText(record.fechaTermino)) : 'N/R'}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 text-[9px] text-slate-400 italic">
+                        <Clock size={10} />
+                        Genereado: {new Date(record.timestamp).toLocaleString('es-CL', { dateStyle: 'short', timeStyle: 'short' })}
                       </div>
                     </div>
 
