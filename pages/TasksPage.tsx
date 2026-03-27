@@ -15,7 +15,7 @@ import GalileoExtractor from '../components/GalileoExtractor';
 import RemindersModule from '../components/RemindersModule';
 import { Banknote } from 'lucide-react';
 import { getToken, onMessage } from "firebase/messaging";
-import { messaging } from '../lib/firebase';
+import { messaging, auth as firebaseAuth } from '../lib/firebase';
 
 const TasksPage: React.FC = () => {
   const {
@@ -87,12 +87,15 @@ const TasksPage: React.FC = () => {
   useEffect(() => {
     const setupNotifications = async () => {
       if (currentUser && (currentUser.role === 'supervisor' || currentUser.role === 'admin')) {
+        const vapidKey = import.meta.env.VITE_FIREBASE_VAPID_KEY;
+        if (!vapidKey) {
+          console.warn("[PUSH] VITE_FIREBASE_VAPID_KEY no configurada, notificaciones push deshabilitadas.");
+          return;
+        }
         try {
           const permission = await Notification.requestPermission();
           if (permission === 'granted') {
-            const token = await getToken(messaging, {
-              vapidKey: 'BD6p9B2G2_YOUR_VAPID_KEY_PLACEHOLDER' // Reemplazar con clave real de Firebase Console
-            });
+            const token = await getToken(messaging, { vapidKey });
 
             if (token) {
               await registerFCMToken(currentUser.uid, token);
@@ -239,6 +242,11 @@ const TasksPage: React.FC = () => {
   const formalizarEmp = employees.find(e => String(e.id) === formalizarData.empleadoId);
   const formalizarSite = sites.find(s => String(s.id) === formalizarData.sucursalId);
 
+  // Mapeo de IDs de Google Docs para contratos
+  const CONTRACT_TEMPLATES: Record<string, string> = {
+    'Falabella Part-Time': '1w7CcoD-upGn7LoNH35KJ5bo-N4vmucG3H01bF_no4IQ'
+  };
+
   const handleGenerateContract = async () => {
     if (!contratoEmp || !contratoSite || !contratoData.fechaInicio) {
       showNotification("Por favor seleccione un colaborador, una sucursal y la fecha de inicio.", "warning");
@@ -247,56 +255,71 @@ const TasksPage: React.FC = () => {
 
     setIsProcessing(true);
     try {
+      const templateId = CONTRACT_TEMPLATES[contratoData.tipoContrato];
+
+      // 1. Preparar payload
       const payload = {
-        tipo_contrato: contratoData.tipoContrato,
-        Nombre: `${contratoEmp.firstName} ${contratoEmp.lastNamePaterno} ${contratoEmp.lastNameMaterno || ''}`.trim(),
+        colaboradorId: contratoEmp.id,
+        templateId: templateId || '1Y0U_ID_H3R3',
+        tipoContrato: contratoData.tipoContrato,
+        nombre: `${contratoEmp.firstName} ${contratoEmp.lastNamePaterno} ${contratoEmp.lastNameMaterno || ''}`.trim(),
         rut: contratoEmp.rut,
+        fecha_inicio: contratoData.fechaInicio,
+        fecha_termino: contratoData.fechaTermino || 'Indefinido',
         fecha_nacimiento: contratoEmp.fechaNacimiento || '',
-        nacionalidad: contratoEmp.nacionalidad || '',
-        estado_civil: contratoEmp.estadoCivil || '',
+        nacionalidad: contratoEmp.nacionalidad || 'Chilena',
+        direccion: contratoEmp.direccion || '',
+        estado_civil: contratoEmp.estadoCivil || 'Soltero',
         telefono: contratoEmp.phone || '',
         salud: contratoEmp.salud || '',
         afp: contratoEmp.afp || '',
-        sucursal: contratoSite.name,
-        direccion_sucursal: contratoSite.address,
-        Horario_A: contratoData.horarioA,
-        Horario_B: contratoData.horarioB,
-        Sueldo: contratoData.sueldo || contratoEmp.sueldoLiquido || 0,
-        Fecha_inicio: contratoData.fechaInicio,
-        Fecha_inicio2: formatLongDate(contratoData.fechaInicio),
-        Fecha_termino: contratoData.fechaTermino
+        sucursal_name: contratoSite.name,
+        sucursal_address: contratoSite.address,
+        empresa: contratoSite.empresa || 'GGSS Security',
+        horarioA: contratoData.horarioA,
+        horarioB: contratoData.horarioB,
+        sueldo: contratoData.sueldo || contratoEmp.sueldoLiquido || 0
       };
 
-      // Nota: URL del webhook de n8n. Debería configurarse en .env
-      const webhookUrl = (import.meta as any).env?.VITE_N8N_CONTRACT_WEBHOOK_URL || 'https://n8n.webhook.com/generar-contrato';
+      // 2. Obtener token de autenticación
+      const user = firebaseAuth.currentUser;
+      if (!user) {
+        showNotification("Sesión expirada. Inicie sesión nuevamente.", "error");
+        return;
+      }
+      const idToken = await user.getIdToken();
 
-      const response = await fetch(webhookUrl, {
+      // 3. Llamar a la Cloud Function via fetch con Bearer token
+      const CF_URL = 'https://generarcontrato-swpow5orca-uc.a.run.app';
+      const response = await fetch(CF_URL, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': `Bearer ${idToken}`
         },
-        body: JSON.stringify(payload),
+        body: JSON.stringify(payload)
       });
 
-      if (!response.ok) throw new Error('Error al enviar al webhook');
-
       const result = await response.json();
-      const downloadUrl = result.url || result.download_url || result.link || '';
 
-      if (downloadUrl) {
+      if (!response.ok) {
+        throw new Error(result.error || 'Error del servidor');
+      }
+
+      if (result.url) {
         saveContractRecord({
           workerName: `${contratoEmp.firstName} ${contratoEmp.lastNamePaterno}`,
           siteName: contratoSite.name,
-          downloadUrl: downloadUrl
+          downloadUrl: result.url
         });
-        showNotification("¡Contrato generado exitosamente! Iniciando descarga...", "success");
-        window.open(downloadUrl, '_blank');
+        showNotification("¡Contrato generado exitosamente!", "success");
+        window.open(result.url, '_blank');
       } else {
-        showNotification("Contrato generado, pero no se recibió link de descarga.", "warning");
+        showNotification("No se recibió enlace de descarga.", "warning");
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error generating contract:", error);
-      showNotification("Error de conexión con el servidor de automatización.", "error");
+      showNotification(error.message || "Error al generar contrato.", "error");
     } finally {
       setIsProcessing(false);
     }
