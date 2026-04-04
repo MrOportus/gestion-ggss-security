@@ -99,6 +99,11 @@ service cloud.firestore {
       allow write: if isAdmin() || isSupervisor();
     }
 
+    match /HistoricoContratos/{id} {
+      allow read: if request.auth != null;
+      allow write: if isAdmin() || isSupervisor();
+    }
+
     // Reglas por defecto para cualquier otra colección
     match /{document=**} {
       allow read: if request.auth != null;

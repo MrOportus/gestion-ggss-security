@@ -23,7 +23,10 @@ import {
   where,
   orderBy,
   limit,
-  Timestamp
+  onSnapshot,
+  Timestamp,
+  QuerySnapshot,
+  DocumentData
 } from 'firebase/firestore';
 
 interface AppState {
@@ -160,7 +163,7 @@ interface AppState {
   addDigitalDocument: (doc: Omit<DigitalDocument, 'id' | 'createdAt' | 'status'>) => Promise<void>;
   signDigitalDocument: (id: string, signedUrl: string, metadata: DigitalDocument['metadata']) => Promise<void>;
   deleteDigitalDocument: (id: string) => Promise<void>;
-
+  unsubDigitalDocuments: () => void;
 }
 
 export const useAppStore = create<AppState>()(
@@ -187,9 +190,9 @@ export const useAppStore = create<AppState>()(
       digitalDocuments: [],
       notifications: [],
 
-
       confirmation: null,
       isLoading: false,
+      unsubDigitalDocuments: () => { },
 
       initializeAuthListener: () => {
         onAuthStateChanged(auth, async (firebaseUser) => {
@@ -265,6 +268,7 @@ export const useAppStore = create<AppState>()(
       logout: async () => {
         try {
           await signOut(auth);
+          get().unsubDigitalDocuments();
           set({ currentUser: null, employees: [] });
         } catch (error) {
           console.error("Logout error:", error);
@@ -1329,11 +1333,14 @@ export const useAppStore = create<AppState>()(
 
       registerFCMToken: async (employeeId, token) => {
         try {
-          const docRef = doc(db, "Employees", employeeId);
-          const emp = get().employees.find(e => e.id === employeeId);
-          if (!emp) return;
+          const docRef = doc(db, "Colaboradores", employeeId);
+          const docSnap = await getDoc(docRef);
+          
+          if (!docSnap.exists()) return;
 
-          const currentTokens = emp.fcmTokens || [];
+          const empData = docSnap.data();
+          const currentTokens = empData.fcmTokens || [];
+          
           if (!currentTokens.includes(token)) {
             const updatedTokens = [...currentTokens, token];
             await updateDoc(docRef, { fcmTokens: updatedTokens });
@@ -1508,8 +1515,11 @@ export const useAppStore = create<AppState>()(
 
       // --- DIGITAL DOCUMENTS ACTIONS ---
       fetchDigitalDocuments: async () => {
-        const { currentUser } = get();
+        const { currentUser, unsubDigitalDocuments } = get();
         if (!currentUser) return;
+
+        // Limpiar suscripción previa si existe
+        if (unsubDigitalDocuments) unsubDigitalDocuments();
 
         try {
           let q;
@@ -1522,11 +1532,19 @@ export const useAppStore = create<AppState>()(
               orderBy("createdAt", "desc")
             );
           }
-          const snapshot = await getDocs(q);
-          const docs: DigitalDocument[] = [];
-          snapshot.forEach(doc => docs.push({ ...doc.data(), id: doc.id } as DigitalDocument));
-          set({ digitalDocuments: docs });
-        } catch (error) { console.error("Error fetching digital documents:", error); }
+
+          const unsubscribe = onSnapshot(q, (snapshot: QuerySnapshot<DocumentData>) => {
+            const docs: DigitalDocument[] = [];
+            snapshot.forEach((doc) => docs.push({ ...doc.data(), id: doc.id } as DigitalDocument));
+            set({ digitalDocuments: docs });
+          }, (error) => {
+            console.error("Error in digital documents listener:", error);
+          });
+
+          set({ unsubDigitalDocuments: unsubscribe });
+        } catch (error) {
+          console.error("Error setting up digital documents listener:", error);
+        }
       },
 
       addDigitalDocument: async (docData) => {
@@ -1539,7 +1557,7 @@ export const useAppStore = create<AppState>()(
         };
         try {
           await setDoc(doc(db, "documents", id), newDoc);
-          set(state => ({ digitalDocuments: [newDoc, ...state.digitalDocuments] }));
+          // Ya no hacemos set manual porque onSnapshot se encarga
         } catch (error) { console.error("Error adding digital document:", error); }
       },
 
@@ -1554,16 +1572,14 @@ export const useAppStore = create<AppState>()(
         try {
           const docRef = doc(db, "documents", id);
           await updateDoc(docRef, updateData);
-          set(state => ({
-            digitalDocuments: state.digitalDocuments.map(d => d.id === id ? { ...d, ...updateData } : d)
-          }));
+          // Ya no hacemos set manual porque onSnapshot se encarga
         } catch (error) { console.error("Error signing digital document:", error); }
       },
 
       deleteDigitalDocument: async (id) => {
         try {
           await deleteDoc(doc(db, "documents", id));
-          set(state => ({ digitalDocuments: state.digitalDocuments.filter(d => d.id !== id) }));
+          // Ya no hacemos set manual porque onSnapshot se encarga
         } catch (error) { console.error("Error deleting digital document:", error); }
       },
 

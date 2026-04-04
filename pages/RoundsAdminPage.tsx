@@ -19,6 +19,8 @@ import RouteMapModal from '../components/RouteMapModal';
 const RoundsAdminPage: React.FC = () => {
     const { guardRounds, sites } = useAppStore();
     const [searchTerm, setSearchTerm] = useState('');
+    const [notesSearch, setNotesSearch] = useState('');
+    const [resultFilter, setResultFilter] = useState<'all' | 'SIN_NOVEDAD' | 'CON_NOVEDAD' | 'SOSPECHA'>('all');
     const [dateFilter, setDateFilter] = useState('');
     const [selectedSiteId, setSelectedSiteId] = useState<string | 'all'>('all');
     const [selectedRound, setSelectedRound] = useState<any | null>(null);
@@ -29,10 +31,14 @@ const RoundsAdminPage: React.FC = () => {
             round.workerName.toLowerCase().includes(searchTerm.toLowerCase()) ||
             round.siteName.toLowerCase().includes(searchTerm.toLowerCase());
 
+        const matchesNotes = !notesSearch || (round.notes && round.notes.toLowerCase().includes(notesSearch.toLowerCase()));
+
+        const matchesResult = resultFilter === 'all' || round.result === resultFilter;
+
         const matchesDate = !dateFilter || round.startTime.startsWith(dateFilter);
         const matchesSite = selectedSiteId === 'all' || round.siteId.toString() === selectedSiteId;
 
-        return matchesSearch && matchesDate && matchesSite;
+        return matchesSearch && matchesNotes && matchesResult && matchesDate && matchesSite;
     });
 
     return (
@@ -51,9 +57,20 @@ const RoundsAdminPage: React.FC = () => {
                             <input
                                 type="text"
                                 placeholder="Buscar guardia..."
-                                className="pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none w-full lg:w-48"
+                                className="pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none w-full lg:w-44"
                                 value={searchTerm}
                                 onChange={(e) => setSearchTerm(e.target.value)}
+                            />
+                        </div>
+
+                        <div className="relative w-full">
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                            <input
+                                type="text"
+                                placeholder="Buscar en notas..."
+                                className="pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none w-full lg:w-44"
+                                value={notesSearch}
+                                onChange={(e) => setNotesSearch(e.target.value)}
                             />
                         </div>
 
@@ -68,7 +85,18 @@ const RoundsAdminPage: React.FC = () => {
                         </div>
 
                         <select
-                            className="px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none font-bold text-slate-700 w-full sm:col-span-2 lg:col-span-1 lg:w-auto"
+                            className="px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none font-bold text-slate-700 w-full lg:w-44"
+                            value={resultFilter}
+                            onChange={(e) => setResultFilter(e.target.value as any)}
+                        >
+                            <option value="all">Todos los resultados</option>
+                            <option value="SIN_NOVEDAD">Sin Novedad</option>
+                            <option value="CON_NOVEDAD">Con Novedad</option>
+                            <option value="SOSPECHA">Sospecha</option>
+                        </select>
+
+                        <select
+                            className="px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none font-bold text-slate-700 w-full sm:col-span-2 lg:col-span-1 lg:w-44"
                             value={selectedSiteId}
                             onChange={(e) => setSelectedSiteId(e.target.value)}
                         >

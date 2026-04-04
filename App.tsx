@@ -18,11 +18,13 @@ import ShiftManagement from './pages/ShiftManagement';
 import LoansPage from './pages/LoansPage';
 import DocumentsPage from './pages/DocumentsPage';
 import { StickyNote, Navigation, CalendarDays, Receipt, ShieldCheck } from 'lucide-react';
+import { getToken, onMessage } from "firebase/messaging";
+import { messaging } from './lib/firebase';
 
 
 
 const App: React.FC = () => {
-  const { currentUser, logout, fetchInitialData, isLoading, initializeAuthListener } = useAppStore();
+  const { currentUser, logout, fetchInitialData, isLoading, initializeAuthListener, registerFCMToken, showNotification } = useAppStore();
   const [currentView, setCurrentView] = useState<'dashboard' | 'employees' | 'tasks' | 'sites' | 'payments' | 'supervisor_mgmt' | 'notes' | 'attendance' | 'rounds' | 'shift_management' | 'loans' | 'documents'>('dashboard');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [authInitialized, setAuthInitialized] = useState(false);
@@ -34,6 +36,42 @@ const App: React.FC = () => {
     const timer = setTimeout(() => setAuthInitialized(true), 1000);
     return () => clearTimeout(timer);
   }, []);
+
+  // --- CONFIGURACIÓN DE NOTIFICACIONES PUSH (FCM) ---
+  useEffect(() => {
+    if (!currentUser) return;
+
+    const setupNotifications = async () => {
+      const vapidKey = import.meta.env.VITE_FIREBASE_VAPID_KEY;
+      if (!vapidKey) {
+        console.warn("[PUSH] VITE_FIREBASE_VAPID_KEY no configurada, notificaciones push deshabilitadas.");
+        return;
+      }
+      try {
+        const permission = await Notification.requestPermission();
+        if (permission === 'granted') {
+          const token = await getToken(messaging, { vapidKey });
+          if (token) {
+            await registerFCMToken(currentUser.uid, token);
+            console.log("FCM Token registrado para:", currentUser.email);
+          }
+        }
+      } catch (error) {
+        console.error("Error setting up notifications:", error);
+      }
+    };
+
+    setupNotifications();
+
+    const unsubscribe = onMessage(messaging, (payload) => {
+      console.log('Mensaje recibido en primer plano: ', payload);
+      if (payload.notification) {
+        showNotification(`${payload.notification.title}: ${payload.notification.body}`, 'info');
+      }
+    });
+
+    return () => unsubscribe();
+  }, [currentUser, registerFCMToken, showNotification]);
 
   // Pantalla de carga inicial mientras Firebase verifica la sesión
   if (!authInitialized) {

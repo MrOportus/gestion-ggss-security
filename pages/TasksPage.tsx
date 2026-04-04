@@ -14,15 +14,13 @@ import AdvancePayroll from '../components/AdvancePayroll';
 import GalileoExtractor from '../components/GalileoExtractor';
 import RemindersModule from '../components/RemindersModule';
 import { Banknote } from 'lucide-react';
-import { getToken, onMessage } from "firebase/messaging";
-import { messaging, auth as firebaseAuth } from '../lib/firebase';
+import { auth as firebaseAuth } from '../lib/firebase';
 
 const TasksPage: React.FC = () => {
   const {
     employees, sites, f30History, contractHistory,
     saveF30Comparison, saveContractRecord, showNotification,
-    currentUser, supervisorTasks, updateSupervisorTask,
-    registerFCMToken
+    currentUser, supervisorTasks, updateSupervisorTask
   } = useAppStore();
   const [activeTask, setActiveTask] = useState<'info_reemplazo' | 'comparar_f30' | 'smart_autofill' | 'generar_contrato' | 'plataforma_falabella' | 'nomina_anticipos' | 'formalizar_servicio' | 'supervision_sucursal' | 'informar_renuncia' | 'extractor_galileo' | 'tareas_con_recordatorio' | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -83,42 +81,7 @@ const TasksPage: React.FC = () => {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // --- NOTIFICACIONES PUSH ---
-  useEffect(() => {
-    const setupNotifications = async () => {
-      if (currentUser && (currentUser.role === 'supervisor' || currentUser.role === 'admin')) {
-        const vapidKey = import.meta.env.VITE_FIREBASE_VAPID_KEY;
-        if (!vapidKey) {
-          console.warn("[PUSH] VITE_FIREBASE_VAPID_KEY no configurada, notificaciones push deshabilitadas.");
-          return;
-        }
-        try {
-          const permission = await Notification.requestPermission();
-          if (permission === 'granted') {
-            const token = await getToken(messaging, { vapidKey });
 
-            if (token) {
-              await registerFCMToken(currentUser.uid, token);
-              console.log("FCM Token registrado");
-            }
-          }
-        } catch (error) {
-          console.error("Error setting up notifications:", error);
-        }
-      }
-    };
-
-    setupNotifications();
-
-    const unsubscribe = onMessage(messaging, (payload) => {
-      console.log('Message received in foreground: ', payload);
-      if (payload.notification) {
-        showNotification(`${payload.notification.title}: ${payload.notification.body}`, 'info');
-      }
-    });
-
-    return () => unsubscribe();
-  }, [currentUser, registerFCMToken, showNotification]);
 
   // --- ESTADOS COMPARAR F30 ---
   const [f30FileBase64, setF30FileBase64] = useState<string | null>(null);
@@ -278,7 +241,8 @@ const TasksPage: React.FC = () => {
         empresa: contratoSite.empresa || 'GGSS Security',
         horarioA: contratoData.horarioA,
         horarioB: contratoData.horarioB,
-        sueldo: contratoData.sueldo || contratoEmp.sueldoLiquido || 0
+        sueldo: contratoData.sueldo || contratoEmp.sueldoLiquido || 0,
+        codigo_interno: contratoEmp.codigo || '10'
       };
 
       // 2. Obtener token de autenticación

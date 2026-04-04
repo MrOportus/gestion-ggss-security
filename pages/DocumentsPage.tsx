@@ -66,6 +66,8 @@ const DocumentsPage: React.FC = () => {
     const [assigneeSearch, setAssigneeSearch] = useState('');
     const [showAssigneeDropdown, setShowAssigneeDropdown] = useState(false);
     const [signingStep, setSigningStep] = useState<'instructions' | 'position' | 'canvas'>('instructions');
+    const [isCanvasEmpty, setIsCanvasEmpty] = useState(true);
+    const [showRotationOverlay, setShowRotationOverlay] = useState(false);
 
     // Paginación
     const [currentPage, setCurrentPage] = useState(1);
@@ -194,7 +196,45 @@ const DocumentsPage: React.FC = () => {
     // LOGICA DE FIRMA
     const sigPad = useRef<SignatureCanvas>(null);
 
-    // Corregir bug de detección de trazos al abrir el modal (esperar a que termine la animación)
+    // Bloqueo de orientación landscape al entrar al canvas de firma
+    useEffect(() => {
+        if (selectedDocToSign && signingStep === 'canvas') {
+            const isPortrait = window.innerHeight > window.innerWidth;
+            if (isPortrait) {
+                setShowRotationOverlay(true);
+            }
+
+            // Intentar bloquear orientación landscape (Screen Orientation API)
+            const lockLandscape = async () => {
+                try {
+                    if (screen.orientation && typeof (screen.orientation as any).lock === 'function') {
+                        await (screen.orientation as any).lock('landscape');
+                    }
+                } catch (_) { /* No disponible en todos los navegadores */ }
+            };
+            lockLandscape();
+
+            const handleOrientationChange = () => {
+                const nowLandscape = window.innerWidth > window.innerHeight;
+                if (nowLandscape) setShowRotationOverlay(false);
+            };
+            window.addEventListener('resize', handleOrientationChange);
+
+            return () => {
+                window.removeEventListener('resize', handleOrientationChange);
+                // Restaurar a portrait al salir
+                try {
+                    if (screen.orientation && typeof (screen.orientation as any).unlock === 'function') {
+                        (screen.orientation as any).unlock();
+                    }
+                } catch (_) { }
+            };
+        } else {
+            setShowRotationOverlay(false);
+        }
+    }, [selectedDocToSign, signingStep]);
+
+    // Corregir bug de detección de trazos al abrir el modal
     useEffect(() => {
         const resizeCanvas = () => {
             if (selectedDocToSign && signingStep === 'canvas' && sigPad.current) {
@@ -203,7 +243,8 @@ const DocumentsPage: React.FC = () => {
                     const { offsetWidth, offsetHeight } = canvas.parentElement;
                     canvas.width = offsetWidth;
                     canvas.height = offsetHeight;
-                    sigPad.current.clear(); // Refresca el contexto
+                    sigPad.current.clear();
+                    setIsCanvasEmpty(true);
                 }
             }
         };
@@ -605,9 +646,7 @@ const DocumentsPage: React.FC = () => {
                                             )}
                                         </div>
                                     )}
-                                    {/* Close dropdown when clicking outside (simple version using translucent overlay if needed, or just leave as is for now as it's inside a modal) */}
                                 </div>
-
                             </div>
 
                             <div className="space-y-2">
@@ -630,6 +669,15 @@ const DocumentsPage: React.FC = () => {
                                         <p className="text-[10px] text-slate-400 uppercase tracking-widest font-black">Máximo 10MB</p>
                                     </div>
                                 </div>
+                                {/* Ayuda iPhone */}
+                                {/iPhone|iPad|iPod/i.test(navigator.userAgent) && (
+                                    <div className="p-3 bg-blue-50/50 border border-blue-100 rounded-2xl flex gap-2 items-center">
+                                        <Info size={14} className="text-blue-500 shrink-0" />
+                                        <p className="text-[9px] font-bold text-blue-700 leading-tight italic">
+                                            iPhone: Para recibir notificaciones, usa "Añadir a pantalla de inicio" desde Compartir.
+                                        </p>
+                                    </div>
+                                )}
                             </div>
 
                             <button
@@ -683,30 +731,32 @@ const DocumentsPage: React.FC = () => {
 
                             {/* PASO 1: INSTRUCCIONES */}
                             {signingStep === 'instructions' && (
-                                <div className="h-full flex flex-col items-center justify-center p-10 text-center space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-                                    <div className="w-24 h-24 bg-blue-50 text-blue-600 rounded-[2rem] flex items-center justify-center shadow-inner">
-                                        <Info size={48} />
-                                    </div>
-                                    <div className="max-w-md space-y-4">
-                                        <h3 className="text-2xl font-black text-slate-800 uppercase tracking-tight">Instrucciones de Firma</h3>
-                                        <div className="space-y-3 text-left bg-white p-6 rounded-3xl border border-slate-100 shadow-sm">
-                                            <div className="flex gap-4 items-start">
-                                                <div className="w-6 h-6 bg-blue-600 text-white rounded-full flex items-center justify-center text-[10px] font-black shrink-0 mt-0.5">1</div>
-                                                <p className="text-sm font-bold text-slate-600 leading-snug">Selecciona la <span className="text-blue-600">ubicación</span> en el documento.</p>
-                                            </div>
-                                            <div className="flex gap-4 items-start">
-                                                <div className="w-6 h-6 bg-blue-600 text-white rounded-full flex items-center justify-center text-[10px] font-black shrink-0 mt-0.5">2</div>
-                                                <p className="text-sm font-bold text-slate-600 leading-snug">La pantalla se <span className="text-blue-600">girará horizontalmente</span> para que firmes con más espacio.</p>
-                                            </div>
-                                            <div className="flex gap-4 items-start">
-                                                <div className="w-6 h-6 bg-blue-600 text-white rounded-full flex items-center justify-center text-[10px] font-black shrink-0 mt-0.5">3</div>
-                                                <p className="text-sm font-bold text-slate-600 leading-snug">Usa tu dedo para dibujar tu firma de forma natural.</p>
+                                <div className="h-full flex flex-col p-4 text-center animate-in fade-in slide-in-from-bottom-4 duration-500">
+                                    <div className="flex flex-col items-center justify-center h-full space-y-5">
+                                        <div className="w-16 h-16 bg-blue-50 text-blue-600 rounded-[1.5rem] flex items-center justify-center shadow-inner">
+                                            <Info size={32} />
+                                        </div>
+                                        <div className="max-w-md space-y-4 w-full">
+                                            <h3 className="text-xl font-black text-slate-800 uppercase tracking-tight">Instrucciones de Firma</h3>
+                                            <div className="space-y-3 text-left bg-white p-5 rounded-3xl border border-slate-100 shadow-sm">
+                                                <div className="flex gap-4 items-start">
+                                                    <div className="w-6 h-6 bg-blue-600 text-white rounded-full flex items-center justify-center text-[10px] font-black shrink-0 mt-0.5">1</div>
+                                                    <p className="text-sm font-bold text-slate-600 leading-snug">Toca sobre el documento para ubicar tu firma.</p>
+                                                </div>
+                                                <div className="flex gap-4 items-start">
+                                                    <div className="w-6 h-6 bg-blue-600 text-white rounded-full flex items-center justify-center text-[10px] font-black shrink-0 mt-0.5">2</div>
+                                                    <p className="text-sm font-bold text-slate-600 leading-snug">Gira el celular de forma horizontal si te lo pide.</p>
+                                                </div>
+                                                <div className="flex gap-4 items-start">
+                                                    <div className="w-6 h-6 bg-blue-600 text-white rounded-full flex items-center justify-center text-[10px] font-black shrink-0 mt-0.5">3</div>
+                                                    <p className="text-sm font-bold text-slate-600 leading-snug">Dibuja tu firma y presiona en Confirmar.</p>
+                                                </div>
                                             </div>
                                         </div>
                                     </div>
                                     <button
                                         onClick={() => setSigningStep('position')}
-                                        className="w-full max-w-sm py-4 bg-blue-600 text-white rounded-2xl font-black uppercase tracking-widest shadow-xl shadow-blue-200 active:scale-95 transition-all"
+                                        className="w-full mt-4 py-4 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl font-black uppercase tracking-widest shadow-xl shadow-blue-200 active:scale-95 transition-all text-sm shrink-0"
                                     >
                                         Entendido, Comenzar
                                     </button>
@@ -715,28 +765,31 @@ const DocumentsPage: React.FC = () => {
 
                             {/* PASO 2: SELECCIÓN DE POSICIÓN */}
                             {signingStep === 'position' && (
-                                <div className="h-full flex flex-col animate-in fade-in slide-in-from-right-4 duration-500">
-                                    <div className="bg-amber-50 p-4 border-b border-amber-100 flex items-center gap-3 shrink-0">
-                                        <div className="w-8 h-8 bg-amber-500 rounded-lg flex items-center justify-center text-white shrink-0">
-                                            <MapPin size={18} />
+                                <div className="h-full flex flex-col animate-in fade-in slide-in-from-right-4 duration-500 relative">
+                                    <div className="bg-amber-50 p-4 border-b border-amber-100 flex flex-col items-center gap-2 shrink-0 z-10">
+                                        <div className="flex items-center gap-3">
+                                            <div className="w-8 h-8 bg-amber-500 rounded-lg flex items-center justify-center text-white shrink-0">
+                                                <MapPin size={18} />
+                                            </div>
+                                            <p className="text-xs font-bold text-amber-800">Toca el lugar exacto en el documento para firmar.</p>
                                         </div>
-                                        <p className="text-xs font-bold text-amber-800">Toca el lugar exacto en el documento para posicionar tu firma.</p>
                                     </div>
 
-                                    <div className="flex-1 overflow-y-auto bg-slate-900/5 p-4 md:p-8 flex justify-center">
-                                        <Document
-                                            file={selectedDocToSign.originalUrl}
-                                            onLoadSuccess={({ numPages }) => setNumPages(numPages)}
-                                            loading={<div className="flex flex-col items-center gap-4 mt-20"><Loader2 className="animate-spin text-blue-600" size={40} /><p className="text-slate-400 font-bold uppercase tracking-widest text-xs">Cargando PDF...</p></div>}
-                                        >
-                                            {Array.from(new Array(numPages), (_, index) => (
-                                                <div key={`page_${index}`} className="relative mb-6 shadow-2xl cursor-crosshair transition-all hover:ring-4 ring-blue-500/10 rounded-sm overflow-hidden" onClick={(e) => handlePageClick(index, e)}>
-                                                    <Page
-                                                        pageNumber={index + 1}
-                                                        width={window.innerWidth < 768 ? window.innerWidth - 48 : 600}
-                                                        renderAnnotationLayer={false}
-                                                        renderTextLayer={false}
-                                                    />
+                                    <div className="flex-1 overflow-y-auto bg-slate-100 p-2 md:p-4 pb-24 flex justify-center">
+                                        <div className="w-full max-w-3xl">
+                                            <Document
+                                                file={selectedDocToSign.originalUrl}
+                                                onLoadSuccess={({ numPages }) => setNumPages(numPages)}
+                                                loading={<div className="flex flex-col items-center gap-4 mt-20"><Loader2 className="animate-spin text-blue-600" size={40} /><p className="text-slate-400 font-bold uppercase tracking-widest text-xs">Cargando PDF...</p></div>}
+                                            >
+                                                {Array.from(new Array(numPages), (_, index) => (
+                                                    <div key={`page_${index}`} className="relative mb-6 shadow-2xl cursor-crosshair transition-all hover:ring-4 ring-blue-500/10 rounded-lg overflow-hidden flex flex-col items-center bg-white" onClick={(e) => handlePageClick(index, e)}>
+                                                        <Page
+                                                            pageNumber={index + 1}
+                                                            width={window.innerWidth < 768 ? window.innerWidth - 20 : 800}
+                                                            renderAnnotationLayer={false}
+                                                            renderTextLayer={false}
+                                                        />
                                                     {signaturePosition?.pageIndex === index && (
                                                         <div
                                                             className="absolute border-2 border-blue-600 bg-blue-100/60 rounded-xl pointer-events-none flex flex-col items-center justify-center shadow-2xl animate-in zoom-in duration-200 backdrop-blur-[2px]"
@@ -755,104 +808,109 @@ const DocumentsPage: React.FC = () => {
                                                 </div>
                                             ))}
                                         </Document>
+                                        </div>
                                     </div>
 
-                                    <div className="p-6 border-t border-slate-100 bg-white shrink-0">
+                                    {/* Botón Flotante para Continuar */}
+                                    <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-white via-white/80 to-transparent pointer-events-none z-20 flex justify-center">
                                         <button
                                             onClick={() => setSigningStep('canvas')}
                                             disabled={!signaturePosition}
-                                            className="w-full py-4 bg-blue-600 disabled:bg-slate-200 text-white rounded-2xl font-black uppercase tracking-widest shadow-xl shadow-blue-100 active:scale-95 transition-all flex items-center justify-center gap-2"
+                                            className="w-full max-w-md py-4 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 disabled:shadow-none text-white rounded-2xl font-black text-sm uppercase tracking-widest shadow-xl shadow-blue-200 active:scale-95 transition-all flex items-center justify-center gap-2 pointer-events-auto"
                                         >
-                                            Firmar
-                                            <ChevronRight size={20} />
+                                            {signaturePosition ? 'Continuar' : 'Primero toca el documento'}
+                                            {signaturePosition && <ChevronRight size={20} />}
                                         </button>
                                     </div>
                                 </div>
                             )}
 
-                            {/* PASO 3: LIENZO DE FIRMA (ULTRA-MAXIMIZADO) */}
+                            {/* PASO 3: LIENZO DE FIRMA (FULL-SCREEN EXPERIENCE) */}
                             {signingStep === 'canvas' && (
-                                <div className="fixed inset-0 bg-white z-[200] flex flex-col md:relative md:inset-auto md:h-full overflow-hidden">
+                                <div className="fixed inset-0 bg-slate-100 z-[200] flex flex-col overflow-hidden animate-in fade-in duration-300">
 
-                                    {/* AVISO DE ROTACIÓN PARA MÓVILES PORTRAIT */}
-                                    <div className="md:hidden fixed inset-0 z-[210] bg-slate-900 flex flex-col items-center justify-center p-10 text-center landscape:hidden">
-                                        <div className="relative mb-10">
-                                            <Smartphone size={80} className="text-white animate-bounce opacity-20" />
-                                            <div className="absolute inset-0 flex items-center justify-center">
-                                                <RotateCw size={40} className="text-blue-400 animate-spin-slow" />
-                                            </div>
-                                        </div>
-                                        <h3 className="text-xl font-black text-white uppercase tracking-tight mb-4">Gira tu teléfono</h3>
-                                        <p className="text-slate-400 font-bold text-sm leading-relaxed">Para firmar con comodidad, por favor <span className="text-blue-400">coloca tu celular en posición horizontal</span>.</p>
+                                    {/* HEADER MÍNIMO */}
+                                    <div className="bg-white px-4 py-3 shadow-sm flex items-center justify-between z-10 shrink-0">
                                         <button
-                                            onClick={() => setSigningStep('position')}
-                                            className="mt-10 px-6 py-3 border border-slate-700 text-slate-500 rounded-xl font-bold uppercase tracking-widest text-xs"
+                                            onClick={() => {
+                                                setSigningStep('position');
+                                                setIsCanvasEmpty(true);
+                                            }}
+                                            className="w-10 h-10 bg-slate-100 text-slate-500 rounded-full flex items-center justify-center active:scale-95 shrink-0"
                                         >
-                                            Cancelar
+                                            <X size={20} />
+                                        </button>
+                                        <h3 className="font-black text-slate-800 uppercase tracking-widest text-sm text-center">Firma Digital</h3>
+                                        <div className="w-10" />
+                                    </div>
+
+                                    {/* ÁREA DE DIBUJO — ocupa todo el espacio disponible, padding inferior para botones */}
+                                    <div className="flex-1 relative bg-white mx-3 mt-3 mb-0 rounded-t-2xl md:rounded-t-[2rem] shadow-inner border-4 border-b-0 border-slate-200 touch-none overflow-hidden" style={{ paddingBottom: '96px' }}>
+                                        <SignatureCanvas
+                                            ref={sigPad}
+                                            penColor='black'
+                                            canvasProps={{
+                                                className: 'absolute inset-0 w-full h-full cursor-crosshair'
+                                            }}
+                                            onBegin={() => setIsCanvasEmpty(false)}
+                                        />
+
+                                        {/* Guías visuales */}
+                                        <div className="absolute inset-x-4 lg:inset-x-32 top-1/2 -translate-y-1/2 border-b-2 border-dashed border-slate-300 pointer-events-none z-0" />
+                                        <div className="absolute top-4 left-0 right-0 text-center pointer-events-none opacity-20 select-none z-0">
+                                            <span className="text-sm font-black uppercase tracking-[0.5rem] text-slate-500">Firma aquí</span>
+                                        </div>
+                                    </div>
+
+                                    {/* BOTONES FLOTANTES SIEMPRE VISIBLES */}
+                                    <div
+                                        className="absolute bottom-0 left-0 right-0 z-[210] flex items-center justify-center gap-4 px-6 py-5"
+                                        style={{
+                                            background: 'linear-gradient(to top, rgba(241,245,249,1) 70%, rgba(241,245,249,0))',
+                                        }}
+                                    >
+                                        <button
+                                            onClick={() => {
+                                                sigPad.current?.clear();
+                                                setIsCanvasEmpty(true);
+                                            }}
+                                            style={{
+                                                minWidth: 48,
+                                                minHeight: 48,
+                                                borderRadius: 12,
+                                                boxShadow: '0 4px 12px rgba(0,0,0,0.10)'
+                                            }}
+                                            className="flex-1 max-w-[160px] flex items-center justify-center gap-2 px-4 py-3 bg-white border-2 border-blue-500 text-blue-600 font-black text-sm uppercase tracking-widest active:scale-95 transition-all"
+                                        >
+                                            🗑 Limpiar
+                                        </button>
+                                        <button
+                                            onClick={handleSignDocument}
+                                            disabled={isSigning || isCanvasEmpty}
+                                            style={{
+                                                minWidth: 48,
+                                                minHeight: 48,
+                                                borderRadius: 12,
+                                                boxShadow: '0 4px 16px rgba(37,99,235,0.35)'
+                                            }}
+                                            className="flex-1 max-w-[200px] flex items-center justify-center gap-2 px-6 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 disabled:shadow-none disabled:opacity-50 text-white font-black text-sm uppercase tracking-widest active:scale-95 transition-all"
+                                        >
+                                            {isSigning ? <Loader2 size={18} className="animate-spin" /> : <><CheckCircle size={18} /> Confirmar</>}
                                         </button>
                                     </div>
 
-                                    {/* INTERFAZ DE FIRMA (Visible solo en landscape o desktop) */}
-                                    <div className="flex-1 flex flex-col h-full portrait:opacity-0 portrait:pointer-events-none transition-opacity duration-300 relative bg-white">
-
-                                        {/* CONTROLES FLOTANTES SUPERIORES */}
-                                        <div className="absolute top-4 left-4 right-4 z-20 flex justify-between items-center pointer-events-none">
-                                            <div className="bg-slate-900/40 backdrop-blur-md px-3 py-1.5 rounded-full border border-white/10 hidden md:flex items-center gap-2">
-                                                <PenTool size={14} className="text-blue-400" />
-                                                <span className="text-[10px] font-black text-white uppercase tracking-widest">Dibujar Firma Digital</span>
+                                    {/* OVERLAY DE ROTACIÓN */}
+                                    {showRotationOverlay && (
+                                        <div className="absolute inset-0 z-[220] bg-slate-900/95 flex flex-col items-center justify-center gap-6 text-white animate-in fade-in duration-300">
+                                            <div className="animate-spin" style={{ animationDuration: '2s' }}>
+                                                <RotateCw size={64} className="text-blue-400" />
                                             </div>
-
-                                            <div className="flex items-center gap-2 pointer-events-auto ml-auto">
-                                                <button
-                                                    onClick={() => sigPad.current?.clear()}
-                                                    className="w-10 h-10 bg-white border border-slate-200 shadow-xl rounded-full flex items-center justify-center text-slate-400 active:scale-90 transition-all"
-                                                    title="Limpiar"
-                                                >
-                                                    <RotateCw size={18} />
-                                                </button>
-                                                <button
-                                                    onClick={() => setSigningStep('position')}
-                                                    className="w-10 h-10 bg-white border border-slate-200 shadow-xl rounded-full flex items-center justify-center text-slate-400 active:scale-90 transition-all"
-                                                    title="Cerrar"
-                                                >
-                                                    <X size={18} />
-                                                </button>
+                                            <div className="text-center space-y-2">
+                                                <p className="text-xl font-black uppercase tracking-widest">Gira tu dispositivo</p>
+                                                <p className="text-sm text-slate-400 font-medium">para firmar necesitas modo horizontal</p>
                                             </div>
                                         </div>
-
-                                        {/* ÁREA DE DIBUJO AL 100% */}
-                                        <div className="flex-1 touch-none">
-                                            <SignatureCanvas
-                                                ref={sigPad}
-                                                penColor='black'
-                                                canvasProps={{
-                                                    className: 'w-full h-full cursor-crosshair'
-                                                }}
-                                            />
-                                            {/* Marca de agua sutil */}
-                                            <div className="absolute inset-x-0 bottom-24 flex justify-center pointer-events-none opacity-[0.03] select-none">
-                                                <span className="text-6xl font-black uppercase tracking-[1rem] -rotate-6">Doc Firmado</span>
-                                            </div>
-                                        </div>
-
-                                        {/* BOTÓN DE ACCIÓN FLOTANTE INFERIOR */}
-                                        <div className="absolute bottom-4 left-0 right-0 flex justify-center px-4 pointer-events-none">
-                                            <button
-                                                onClick={handleSignDocument}
-                                                disabled={isSigning}
-                                                className="w-full max-w-sm py-3.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-[2rem] font-black uppercase tracking-widest shadow-2xl shadow-emerald-500/30 active:scale-95 transition-all flex items-center justify-center gap-3 text-xs md:text-sm pointer-events-auto"
-                                            >
-                                                {isSigning ? (
-                                                    <Loader2 size={24} className="animate-spin" />
-                                                ) : (
-                                                    <>
-                                                        <FileCheck size={18} />
-                                                        Guardar Firma
-                                                    </>
-                                                )}
-                                            </button>
-                                        </div>
-                                    </div>
+                                    )}
                                 </div>
                             )}
 
