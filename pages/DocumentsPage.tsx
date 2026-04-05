@@ -1,4 +1,5 @@
 import React, { useState, useRef, useMemo, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { useAppStore } from '../store/useAppStore';
 import {
     FileText,
@@ -234,30 +235,62 @@ const DocumentsPage: React.FC = () => {
         }
     }, [selectedDocToSign, signingStep]);
 
-    // Corregir bug de detección de trazos al abrir el modal
+    // Sincronizar resolución del canvas con su tamaño visual real (fix coordenadas en móvil)
     useEffect(() => {
-        const resizeCanvas = () => {
+        let resizeObserver: ResizeObserver | null = null;
+
+        const syncCanvasSize = () => {
             if (selectedDocToSign && signingStep === 'canvas' && sigPad.current) {
                 const canvas = sigPad.current.getCanvas();
                 if (canvas && canvas.parentElement) {
-                    const { offsetWidth, offsetHeight } = canvas.parentElement;
-                    canvas.width = offsetWidth;
-                    canvas.height = offsetHeight;
-                    sigPad.current.clear();
-                    setIsCanvasEmpty(true);
+                    const rect = canvas.parentElement.getBoundingClientRect();
+                    const w = Math.floor(rect.width);
+                    const h = Math.floor(rect.height);
+                    if (canvas.width !== w || canvas.height !== h) {
+                        canvas.width = w;
+                        canvas.height = h;
+                        sigPad.current.clear();
+                        setIsCanvasEmpty(true);
+                    }
                 }
             }
         };
 
         if (selectedDocToSign && signingStep === 'canvas') {
-            const timer = setTimeout(resizeCanvas, 300);
-            window.addEventListener('resize', resizeCanvas);
+            // Doble RAF para asegurar que el layout está completo antes de medir
+            const timer = setTimeout(() => requestAnimationFrame(() => requestAnimationFrame(syncCanvasSize)), 50);
+            const parent = sigPad.current?.getCanvas()?.parentElement;
+            if (parent) {
+                resizeObserver = new ResizeObserver(() => requestAnimationFrame(syncCanvasSize));
+                resizeObserver.observe(parent);
+            }
+            window.addEventListener('resize', syncCanvasSize);
+            window.addEventListener('orientationchange', syncCanvasSize);
             return () => {
                 clearTimeout(timer);
-                window.removeEventListener('resize', resizeCanvas);
+                window.removeEventListener('resize', syncCanvasSize);
+                window.removeEventListener('orientationchange', syncCanvasSize);
+                if (resizeObserver) resizeObserver.disconnect();
             };
         }
     }, [selectedDocToSign, signingStep]);
+
+    // Bloquear scroll del body al firmar — evita el bounce de iOS al tocar bordes
+    useEffect(() => {
+        if (signingStep === 'canvas' && selectedDocToSign) {
+            const htmlElement = document.documentElement;
+            const originalHtmlOverflow = htmlElement.style.overflow;
+            const originalBodyOverflow = document.body.style.overflow;
+
+            htmlElement.style.overflow = 'hidden';
+            document.body.style.overflow = 'hidden';
+
+            return () => {
+                htmlElement.style.overflow = originalHtmlOverflow;
+                document.body.style.overflow = originalBodyOverflow;
+            };
+        }
+    }, [signingStep, selectedDocToSign]);
 
     const handlePageClick = (pageIndex: number, e: React.MouseEvent) => {
         const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
@@ -825,98 +858,127 @@ const DocumentsPage: React.FC = () => {
                                 </div>
                             )}
 
-                            {/* PASO 3: LIENZO DE FIRMA (FULL-SCREEN EXPERIENCE) */}
-                            {signingStep === 'canvas' && (
-                                <div className="fixed inset-0 bg-slate-100 z-[200] flex flex-col overflow-hidden animate-in fade-in duration-300">
-
-                                    {/* HEADER MÍNIMO */}
-                                    <div className="bg-white px-4 py-3 shadow-sm flex items-center justify-between z-10 shrink-0">
-                                        <button
-                                            onClick={() => {
-                                                setSigningStep('position');
-                                                setIsCanvasEmpty(true);
-                                            }}
-                                            className="w-10 h-10 bg-slate-100 text-slate-500 rounded-full flex items-center justify-center active:scale-95 shrink-0"
-                                        >
-                                            <X size={20} />
-                                        </button>
-                                        <h3 className="font-black text-slate-800 uppercase tracking-widest text-sm text-center">Firma Digital</h3>
-                                        <div className="w-10" />
-                                    </div>
-
-                                    {/* ÁREA DE DIBUJO — ocupa todo el espacio disponible, padding inferior para botones */}
-                                    <div className="flex-1 relative bg-white mx-3 mt-3 mb-0 rounded-t-2xl md:rounded-t-[2rem] shadow-inner border-4 border-b-0 border-slate-200 touch-none overflow-hidden" style={{ paddingBottom: '96px' }}>
-                                        <SignatureCanvas
-                                            ref={sigPad}
-                                            penColor='black'
-                                            canvasProps={{
-                                                className: 'absolute inset-0 w-full h-full cursor-crosshair'
-                                            }}
-                                            onBegin={() => setIsCanvasEmpty(false)}
-                                        />
-
-                                        {/* Guías visuales */}
-                                        <div className="absolute inset-x-4 lg:inset-x-32 top-1/2 -translate-y-1/2 border-b-2 border-dashed border-slate-300 pointer-events-none z-0" />
-                                        <div className="absolute top-4 left-0 right-0 text-center pointer-events-none opacity-20 select-none z-0">
-                                            <span className="text-sm font-black uppercase tracking-[0.5rem] text-slate-500">Firma aquí</span>
-                                        </div>
-                                    </div>
-
-                                    {/* BOTONES FLOTANTES SIEMPRE VISIBLES */}
-                                    <div
-                                        className="absolute bottom-0 left-0 right-0 z-[210] flex items-center justify-center gap-4 px-6 py-5"
-                                        style={{
-                                            background: 'linear-gradient(to top, rgba(241,245,249,1) 70%, rgba(241,245,249,0))',
-                                        }}
-                                    >
-                                        <button
-                                            onClick={() => {
-                                                sigPad.current?.clear();
-                                                setIsCanvasEmpty(true);
-                                            }}
-                                            style={{
-                                                minWidth: 48,
-                                                minHeight: 48,
-                                                borderRadius: 12,
-                                                boxShadow: '0 4px 12px rgba(0,0,0,0.10)'
-                                            }}
-                                            className="flex-1 max-w-[160px] flex items-center justify-center gap-2 px-4 py-3 bg-white border-2 border-blue-500 text-blue-600 font-black text-sm uppercase tracking-widest active:scale-95 transition-all"
-                                        >
-                                            🗑 Limpiar
-                                        </button>
-                                        <button
-                                            onClick={handleSignDocument}
-                                            disabled={isSigning || isCanvasEmpty}
-                                            style={{
-                                                minWidth: 48,
-                                                minHeight: 48,
-                                                borderRadius: 12,
-                                                boxShadow: '0 4px 16px rgba(37,99,235,0.35)'
-                                            }}
-                                            className="flex-1 max-w-[200px] flex items-center justify-center gap-2 px-6 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 disabled:shadow-none disabled:opacity-50 text-white font-black text-sm uppercase tracking-widest active:scale-95 transition-all"
-                                        >
-                                            {isSigning ? <Loader2 size={18} className="animate-spin" /> : <><CheckCircle size={18} /> Confirmar</>}
-                                        </button>
-                                    </div>
-
-                                    {/* OVERLAY DE ROTACIÓN */}
-                                    {showRotationOverlay && (
-                                        <div className="absolute inset-0 z-[220] bg-slate-900/95 flex flex-col items-center justify-center gap-6 text-white animate-in fade-in duration-300">
-                                            <div className="animate-spin" style={{ animationDuration: '2s' }}>
-                                                <RotateCw size={64} className="text-blue-400" />
-                                            </div>
-                                            <div className="text-center space-y-2">
-                                                <p className="text-xl font-black uppercase tracking-widest">Gira tu dispositivo</p>
-                                                <p className="text-sm text-slate-400 font-medium">para firmar necesitas modo horizontal</p>
-                                            </div>
-                                        </div>
-                                    )}
-                                </div>
-                            )}
+                            {/* Canvas: renderizado fuera del modal (ver bloque debajo del modal) */}
 
                         </div>
                     </div>
                 </div>
+            )}
+
+            {/* ================================================================
+                PASO 3: LIENZO DE FIRMA (PORTAL)
+                Renderizamos directamente en el <body> para que nada bloquee
+                el z-index ni empuje la pantalla (safe-area/transform bugs).
+                ================================================================ */}
+            {selectedDocToSign && signingStep === 'canvas' && createPortal(
+                <div
+                    className="fixed inset-0 bg-white z-[9999] flex flex-col"
+                    style={{
+                        position: 'fixed',
+                        top: 0,
+                        left: 0,
+                        right: 0,
+                        bottom: 0,
+                        width: '100%',
+                        height: '100%',
+                        overflow: 'hidden',
+                        overscrollBehavior: 'none'
+                    }}
+                    onTouchMove={(e) => e.preventDefault()}
+                >
+                    {/* ═══ BARRA SUPERIOR ═══ */}
+                    <div
+                        className="bg-white border-b border-slate-100 shrink-0 flex items-center justify-between"
+                        style={{
+                            paddingTop: 'calc(8px + env(safe-area-inset-top, 0px))',
+                            paddingBottom: '8px',
+                            paddingLeft: 'calc(12px + env(safe-area-inset-left, 0px))',
+                            paddingRight: 'calc(12px + env(safe-area-inset-right, 0px))',
+                        }}
+                    >
+                        <button
+                            onClick={() => { setSigningStep('position'); setIsCanvasEmpty(true); }}
+                            className="w-12 h-12 bg-slate-100 text-slate-500 hover:text-slate-700 rounded-full flex items-center justify-center active:scale-90 transition-all shrink-0 shadow-sm"
+                            style={{ touchAction: 'manipulation' }}
+                            aria-label="Volver"
+                        >
+                            <X size={26} />
+                        </button>
+                        <span className="flex-1 text-xs md:text-sm font-black text-slate-400 uppercase tracking-widest text-center px-2 truncate">
+                            Dibuja tu firma
+                        </span>
+                        <div className="flex items-center gap-2 shrink-0">
+                            <button
+                                onClick={() => { sigPad.current?.clear(); setIsCanvasEmpty(true); }}
+                                style={{ touchAction: 'manipulation' }}
+                                className="h-12 px-4 md:px-6 flex items-center justify-center gap-2 bg-white border-2 border-blue-500 text-blue-600 font-black text-sm uppercase tracking-wider active:scale-95 transition-all rounded-xl hover:bg-blue-50"
+                            >
+                                <span className="text-lg">🗑</span><span className="hidden sm:inline">Limpiar</span>
+                            </button>
+                            <button
+                                onClick={handleSignDocument}
+                                disabled={isSigning || isCanvasEmpty}
+                                style={{
+                                    touchAction: 'manipulation',
+                                    boxShadow: isCanvasEmpty ? 'none' : '0 4px 14px rgba(37,99,235,0.40)'
+                                }}
+                                className="h-12 px-5 md:px-8 flex items-center justify-center gap-2 bg-blue-600 disabled:bg-slate-300 disabled:opacity-60 text-white font-black text-sm uppercase tracking-wider active:scale-95 transition-all rounded-xl"
+                            >
+                                {isSigning ? <Loader2 size={24} className="animate-spin" /> : <><CheckCircle size={22} /><span className="hidden sm:inline">Confirmar</span></>}
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* ═══ LIENZO ═══ */}
+                    <div
+                        className="relative bg-white overflow-hidden"
+                        style={{
+                            flex: '1 1 0', minHeight: 0,
+                            margin: '8px calc(12px + env(safe-area-inset-left, 0px)) calc(12px + env(safe-area-inset-bottom, 0px)) calc(12px + env(safe-area-inset-left, 0px))',
+                            borderRadius: '16px',
+                            border: '2px solid #e2e8f0',
+                            touchAction: 'none'
+                        }}
+                    >
+                        <SignatureCanvas
+                            ref={sigPad}
+                            penColor="#111827"
+                            minWidth={1.5}
+                            maxWidth={4}
+                            velocityFilterWeight={0.7}
+                            canvasProps={{
+                                style: { position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', touchAction: 'none', cursor: 'crosshair' }
+                            }}
+                            onBegin={() => setIsCanvasEmpty(false)}
+                        />
+                        {isCanvasEmpty && (
+                            <>
+                                <div className="absolute left-8 right-8 border-b-2 border-dashed border-slate-300 pointer-events-none" style={{ top: '60%' }} />
+                                <div className="absolute inset-0 flex items-center justify-center pointer-events-none select-none">
+                                    <span className="text-sm md:text-base font-black uppercase tracking-[0.5rem] text-slate-300 bg-white px-4 py-2 rounded-full shadow-sm">Realiza tu firma aquí</span>
+                                </div>
+                            </>
+                        )}
+                    </div>
+
+                    {/* ═══ OVERLAY ROTACIÓN ═══ */}
+                    {showRotationOverlay && (
+                        <div
+                            className="absolute inset-0 z-[99999] bg-slate-900/95 flex flex-col items-center justify-center gap-6 text-white"
+                            style={{ touchAction: 'none' }}
+                            onTouchMove={(e) => e.preventDefault()}
+                        >
+                            <div className="animate-spin" style={{ animationDuration: '2s' }}>
+                                <RotateCw size={80} className="text-blue-400" />
+                            </div>
+                            <div className="text-center space-y-3 px-4">
+                                <p className="text-3xl font-black uppercase tracking-widest leading-none">Gira tu<br />dispositivo</p>
+                                <p className="text-lg text-slate-400 font-medium max-w-sm mx-auto">Para firmar necesitas modo horizontal</p>
+                            </div>
+                        </div>
+                    )}
+                </div>,
+                document.body
             )}
         </div>
     );
