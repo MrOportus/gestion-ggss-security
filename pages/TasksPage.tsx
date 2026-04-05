@@ -6,6 +6,7 @@ import {
   History, Calendar, Users as UsersIcon, ChevronRight, X, Sparkles, Search, MapPin,
   Briefcase, DollarSign, Download, Building2, Camera, ArrowLeft, Bell
 } from 'lucide-react';
+import { UserCheck, UserX, Eye } from 'lucide-react';
 import SmartAutofill from '../components/SmartAutofill';
 import { GoogleGenAI } from "@google/genai";
 import * as XLSX from 'xlsx';
@@ -285,7 +286,15 @@ const TasksPage: React.FC = () => {
           fechaTermino: contratoData.fechaTermino || 'Indefinido'
         });
         showNotification("¡Contrato generado exitosamente!", "success");
-        window.open(result.url, '_blank');
+        const fileIdMatch = result.url.match(/[\w-]{33,}/);
+        const directDownloadUrl = fileIdMatch ? `https://drive.google.com/uc?export=download&id=${fileIdMatch[0]}` : result.url;
+        const a = document.createElement('a');
+        a.href = directDownloadUrl;
+        a.target = '_blank';
+        a.download = `Contrato_${contratoEmp.firstName}_${contratoEmp.lastNamePaterno}.pdf`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
       } else {
         showNotification("No se recibió enlace de descarga.", "warning");
       }
@@ -1480,10 +1489,12 @@ Documentos que se adjuntan.
             <h2 className="text-xl font-bold text-slate-800">Tarea: Generar Contrato</h2>
           </div>
 
-          <div className="bg-white p-8 rounded-2xl border border-slate-200 shadow-sm space-y-8">
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            {/* Formulario (Col. Izquierda/Centro) */}
+            <div className="lg:col-span-2 bg-white p-8 rounded-2xl border border-slate-200 shadow-sm space-y-8">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
 
-              {/* BUSQUEDA COLABORADOR */}
+                {/* BUSQUEDA COLABORADOR */}
               <div className="flex flex-col space-y-1 relative" ref={contratoEmpRef} style={{ zIndex: showContratoEmpList ? 100 : 1 }}>
                 <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider flex justify-between items-center">
                   Colaborador
@@ -1525,8 +1536,17 @@ Documentos que se adjuntan.
                         key={e.id}
                         className="px-4 py-2 hover:bg-violet-50 cursor-pointer border-b border-slate-50"
                         onClick={() => {
-                          setContratoData({ ...contratoData, empleadoId: String(e.id), sueldo: String(e.sueldoLiquido || '539000') });
+                          const autofillSite = e.currentSiteId ? sites.find(s => s.id === e.currentSiteId) : null;
+                          setContratoData({ 
+                            ...contratoData, 
+                            empleadoId: String(e.id), 
+                            sueldo: String(e.sueldoLiquido || '539000'),
+                            sucursalId: autofillSite ? String(autofillSite.id) : contratoData.sucursalId
+                          });
                           setContratoEmpSearch(`${e.firstName} ${e.lastNamePaterno}`);
+                          if (autofillSite) {
+                            setContratoSiteSearch(autofillSite.name);
+                          }
                           setShowContratoEmpList(false);
                         }}
                       >
@@ -1686,6 +1706,65 @@ Documentos que se adjuntan.
             </div>
           </div>
 
+          {/* Panel Informativo de Trabajador (Col. Derecha) */}
+          <div className="lg:col-span-1">
+            {contratoEmp ? (
+              <div className="bg-slate-50 p-6 rounded-2xl border border-slate-200 sticky top-6 shadow-sm overflow-hidden relative">
+                <div className="absolute top-0 left-0 w-1 h-full bg-violet-500"></div>
+                <h3 className="text-sm font-bold text-slate-800 uppercase tracking-widest mb-6 flex items-center gap-2">
+                  <UserCheck size={16} className="text-violet-500" />
+                  Trabajador Seleccionado
+                </h3>
+                <div className="space-y-4">
+                  <div>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Nombre Completo</p>
+                    <p className="text-sm font-bold text-slate-700 truncate">{contratoEmp.firstName} {contratoEmp.lastNamePaterno}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">RUT</p>
+                    <p className="text-sm font-mono text-slate-600">{contratoEmp.rut}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Dirección</p>
+                    <p className="text-sm text-slate-600 truncate">{contratoEmp.direccion || 'Sin registro'}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Última / Actual Sucursal</p>
+                    <p className="text-sm text-slate-600 font-medium">
+                      {contratoEmp.currentSiteId ? (sites.find(s => s.id === contratoEmp.currentSiteId)?.name || 'Desconocida') : 'No asignado'}
+                    </p>
+                  </div>
+                  <div className="pt-2 border-t border-slate-200">
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Certificado OS10</p>
+                     {(() => {
+                        const hasDate = Boolean(contratoEmp.fechaVencimientoOS10);
+                        let isExpired = false;
+                        let formattedDate = '';
+                        if (hasDate) {
+                          const parts = contratoEmp.fechaVencimientoOS10!.split('-');
+                          const dateOs10 = parts[0].length === 4 ? new Date(contratoEmp.fechaVencimientoOS10!) : new Date(`${parts[2]}-${parts[1]}-${parts[0]}`);
+                          isExpired = dateOs10 < new Date();
+                          formattedDate = parts[0].length === 4 ? `${parts[2]}-${parts[1]}-${parts[0]}` : contratoEmp.fechaVencimientoOS10!;
+                        }
+                        if (!hasDate) {
+                          return <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-slate-100 text-slate-500 border border-slate-200"><UserX size={12}/> Sin Información</span>;
+                        }
+                        return isExpired ? 
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-red-100 text-red-700 border border-red-200">Vencido ({formattedDate})</span> : 
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-green-100 text-green-700 border border-green-200">Vigente ({formattedDate})</span>;
+                      })()}
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="bg-slate-50 p-6 rounded-2xl border border-slate-200 text-center flex flex-col items-center justify-center h-full min-h-[300px] text-slate-400 sticky top-6 shadow-sm">
+                <UserX size={48} className="mb-4 opacity-30" />
+                <p className="text-sm font-medium">Seleccione un trabajador para validar sus datos de contrato</p>
+              </div>
+            )}
+          </div>
+        </div>
+
           {/* HISTORIAL DE CONTRATOS */}
           <div className="space-y-6">
             <div className="flex items-center gap-3 border-b border-slate-200 pb-4">
@@ -1713,35 +1792,48 @@ Documentos que se adjuntan.
                     </div>
 
                     <h4 className="font-bold text-slate-800 mb-1 line-clamp-1">{record.workerName}</h4>
-                    <p className="text-xs text-slate-500 font-medium mb-4 flex items-center gap-1">
-                      <MapPin size={12} className="text-slate-400" /> {record.siteName}
+                    <p className="text-sm text-slate-600 font-medium mb-4 flex items-center gap-1.5">
+                      <MapPin size={14} className="text-slate-400" /> {record.siteName}
                     </p>
 
                     <div className="space-y-2 mt-auto">
-                      <div className="flex flex-col gap-1 mb-2">
-                        <div className="flex items-center gap-1.5 text-[10px] text-slate-600 font-bold">
-                          <span className="text-slate-400 uppercase font-black text-[8px]">Desde:</span>
+                      <div className="flex flex-col gap-1.5 mb-2">
+                        <div className="flex items-center gap-2 text-xs text-slate-700 font-bold">
+                          <span className="text-slate-400 uppercase font-black text-[10px]">Desde:</span>
                           {record.fechaInicio ? formatDateForText(record.fechaInicio) : 'N/R'}
                         </div>
-                        <div className="flex items-center gap-1.5 text-[10px] text-slate-600 font-bold">
-                          <span className="text-slate-400 uppercase font-black text-[8px]">Hasta:</span>
+                        <div className="flex items-center gap-2 text-xs text-slate-700 font-bold">
+                          <span className="text-slate-400 uppercase font-black text-[10px]">Hasta:</span>
                           {record.fechaTermino ? (record.fechaTermino === 'Indefinido' ? 'Indefinido' : formatDateForText(record.fechaTermino)) : 'N/R'}
                         </div>
                       </div>
-                      <div className="flex items-center gap-2 text-[9px] text-slate-400 italic">
-                        <Clock size={10} />
-                        Genereado: {new Date(record.timestamp).toLocaleString('es-CL', { dateStyle: 'short', timeStyle: 'short' })}
+                      <div className="flex items-center gap-2 text-[11px] text-slate-500 italic">
+                        <Clock size={12} />
+                        Generado: {new Date(record.timestamp).toLocaleString('es-CL', { dateStyle: 'short', timeStyle: 'short' })}
                       </div>
                     </div>
 
-                    <a
-                      href={record.downloadUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="mt-4 pt-3 border-t border-slate-50 flex items-center justify-between text-violet-600 font-bold text-xs uppercase tracking-widest hover:text-violet-800 transition-colors"
-                    >
-                      Descargar PDF <ChevronRight size={14} />
-                    </a>
+                    <div className="mt-4 pt-3 border-t border-slate-50 flex items-center justify-between">
+                      <a
+                        href={(() => {
+                           const fileIdMatch = record.downloadUrl.match(/[\w-]{33,}/);
+                           return fileIdMatch ? `https://drive.google.com/uc?export=download&id=${fileIdMatch[0]}` : record.downloadUrl;
+                        })()}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center gap-1.5 text-violet-600 font-bold text-xs uppercase tracking-widest hover:text-violet-800 transition-colors"
+                      >
+                        Descargar PDF <Download size={14} />
+                      </a>
+                      <a
+                        href={record.downloadUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center gap-1 text-indigo-900 font-bold text-xs uppercase tracking-widest hover:text-violet-800 transition-colors"
+                      >
+                        <Eye size={16} /> ver&gt;
+                      </a>
+                    </div>
                   </div>
                 ))}
               </div>
