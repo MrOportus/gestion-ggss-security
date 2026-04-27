@@ -1,18 +1,18 @@
 
 import React, { useState } from 'react';
 import { useAppStore } from '../store/useAppStore';
-import { collection, query, where, onSnapshot, orderBy } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, orderBy, doc, updateDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
-import { Employee, Reminder } from '../types';
+import { Employee, BoardNote } from '../types';
 import {
-  Users, FileCheck, MapPin, Search, Eye, AlertCircle, ShieldAlert, FileWarning, LogOut, Bell, Clock, Calendar
+  Users, FileCheck, MapPin, Search, Eye, AlertCircle, ShieldAlert, FileWarning, LogOut, Bell, Clock, Calendar, CheckCircle
 } from 'lucide-react';
 import EmployeeModal from '../components/EmployeeModal';
 
 type DashboardFilter = 'active_total' | 'os10_all' | 'contracts_all' | 'reminders_all';
 
 const AdminDashboard: React.FC = () => {
-  const { employees, attendanceLogs, sites, forceCloseAttendance } = useAppStore();
+  const { employees, attendanceLogs, sites, forceCloseAttendance, currentUser } = useAppStore();
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<string | null>(null);
   const [activeFilter, setActiveFilter] = useState<DashboardFilter>('active_total');
   const [searchTerm, setSearchTerm] = useState('');
@@ -20,7 +20,7 @@ const AdminDashboard: React.FC = () => {
 
   const [programming, setProgramming] = React.useState<{ employeeId: string; siteId: string | number; isManualPresent?: boolean }[]>([]);
   const [localAttendanceLogs, setLocalAttendanceLogs] = React.useState(attendanceLogs);
-  const [reminders, setReminders] = useState<Reminder[]>([]);
+  const [reminders, setReminders] = useState<BoardNote[]>([]);
 
   const [closingLogInfo, setClosingLogInfo] = useState<{ id: string; name: string; timestamp: string } | null>(null);
   const [exitTime, setExitTime] = useState('');
@@ -227,12 +227,14 @@ const AdminDashboard: React.FC = () => {
 
     // 3. Recordatorios
     const qReminders = query(
-      collection(db, 'reminders'),
-      where('completed', '==', false),
-      orderBy('dueDate', 'asc')
+      collection(db, 'BoardNotes'),
+      where('createdBy', '==', currentUser?.uid)
     );
     const unsubReminders = onSnapshot(qReminders, (snapshot) => {
-      const list = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id })) as Reminder[];
+      const list = snapshot.docs
+        .map(doc => ({ ...doc.data(), id: doc.id } as BoardNote))
+        .filter(n => !!n.dueDate && !n.completed) 
+        .sort((a, b) => new Date(a.dueDate!).getTime() - new Date(b.dueDate!).getTime());
       setReminders(list);
     }, (error) => {
       console.error("Error fetching reminders for dashboard:", error);
@@ -244,12 +246,14 @@ const AdminDashboard: React.FC = () => {
       unsubManual();
       unsubReminders();
     };
-  }, [employees]);
+  }, [employees, currentUser]);
 
+  const currentEmp = employees.find(e => e.id === currentUser?.uid);
   const activeSites = sites.filter(s =>
     s.active &&
     s.name !== 'Administración' &&
-    (selectedSiteId === 'all' || s.id === selectedSiteId)
+    (selectedSiteId === 'all' || s.id === selectedSiteId) &&
+    (currentUser?.role !== 'supervisor' || currentEmp?.assignedSites?.includes(s.id))
   );
 
   const liveBySite = activeSites.reduce((acc, site) => {
@@ -674,7 +678,7 @@ const AdminDashboard: React.FC = () => {
                     <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Colaborador / Tarea</th>
                     <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Descripción</th>
                     <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">Vencimiento</th>
-                    <th className="px-6 py-4 text-right text-[10px] font-black text-slate-400 uppercase tracking-widest">Estado</th>
+                    <th className="px-6 py-4 text-right text-[10px] font-black text-slate-400 uppercase tracking-widest">Acción</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -698,13 +702,14 @@ const AdminDashboard: React.FC = () => {
                         endOfNextWeek.setDate(endOfNextWeek.getDate() + 7);
                         
                         const grouped = reminders.reduce((acc, rem) => {
-                            const date = rem.dueDate.toDate();
+                            if (!rem.dueDate) return acc;
+                            const date = new Date(rem.dueDate);
                             if (date < now) acc.overdue.push(rem);
                             else if (date <= endOfWeek) acc.thisWeek.push(rem);
                             else if (date <= endOfNextWeek) acc.nextWeek.push(rem);
                             else acc.later.push(rem);
                             return acc;
-                        }, { overdue: [] as Reminder[], thisWeek: [] as Reminder[], nextWeek: [] as Reminder[], later: [] as Reminder[] });
+                        }, { overdue: [] as BoardNote[], thisWeek: [] as BoardNote[], nextWeek: [] as BoardNote[], later: [] as BoardNote[] });
 
                         return [
                             { label: 'TAREAS VENCIDAS', list: grouped.overdue, color: 'text-rose-600', bg: 'bg-rose-50/50', icon: AlertCircle },
@@ -725,24 +730,36 @@ const AdminDashboard: React.FC = () => {
                                     {group.list.map(reminder => (
                                         <tr key={reminder.id} className="hover:bg-slate-50 transition-colors">
                                             <td className="px-6 py-4">
-                                                <p className="font-bold text-slate-900 leading-tight">{reminder.text}</p>
-                                                <p className="text-[10px] text-slate-400 font-medium mt-1">Recordatorio Interno</p>
+                                                <p className="font-bold text-slate-900 leading-tight">{reminder.title || 'Nota sin título'}</p>
+                                                <p className="text-[10px] text-slate-400 font-medium mt-1">Por: {reminder.createdByName}</p>
                                             </td>
                                             <td className="px-6 py-4">
-                                                <p className="text-xs text-slate-600 italic line-clamp-2">{reminder.description || 'Sin descripción adicional'}</p>
+                                                <div 
+                                                    className="text-xs text-slate-600 italic line-clamp-2"
+                                                    dangerouslySetInnerHTML={{ __html: reminder.content || 'Sin contenido adicional' }}
+                                                />
                                             </td>
                                             <td className="px-6 py-4 text-center">
                                                 <div className="inline-flex items-center gap-2 text-slate-700 bg-slate-100 px-3 py-1 rounded-lg">
                                                     <Clock size={12} className="text-slate-400" />
-                                                    <span className="font-bold text-xs">{reminder.dueDate?.toDate()?.toLocaleDateString() || 'N/A'}</span>
+                                                    <span className="font-bold text-xs">{reminder.dueDate ? new Date(reminder.dueDate).toLocaleDateString() : 'N/A'}</span>
                                                 </div>
                                             </td>
                                             <td className="px-6 py-4 text-right">
-                                                {reminder.dueDate?.toDate() < now ? (
-                                                    <span className="px-2 py-1 bg-red-100 text-red-700 text-[10px] font-bold rounded-full uppercase">Tarea Vencida</span>
-                                                ) : (
-                                                    <span className="px-2 py-1 bg-amber-100 text-amber-700 text-[10px] font-bold rounded-full uppercase">Pendiente</span>
-                                                )}
+                                                <div className="flex items-center justify-end gap-2">
+                                                    {reminder.dueDate && new Date(reminder.dueDate) < now ? (
+                                                        <span className="px-2 py-1 bg-red-100 text-red-700 text-[10px] font-bold rounded-full uppercase">Vencido</span>
+                                                    ) : (
+                                                        <span className="px-2 py-1 bg-amber-100 text-amber-700 text-[10px] font-bold rounded-full uppercase">Pendiente</span>
+                                                    )}
+                                                    <button
+                                                        onClick={() => updateDoc(doc(db, 'BoardNotes', reminder.id), { completed: true })}
+                                                        className="p-1.5 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-all border border-transparent hover:border-emerald-100"
+                                                        title="Marcar como completado"
+                                                    >
+                                                        <CheckCircle size={18} />
+                                                    </button>
+                                                </div>
                                             </td>
                                         </tr>
                                     ))}

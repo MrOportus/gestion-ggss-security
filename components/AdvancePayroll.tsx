@@ -56,8 +56,15 @@ const AdvancePayroll: React.FC<AdvancePayrollProps> = ({ onBack }) => {
 
     const filteredSites = useMemo(() => {
         const lower = siteSearch.toLowerCase();
-        return sites.filter(s => s.active && s.name.toLowerCase().includes(lower));
-    }, [sites, siteSearch]);
+        let base = sites.filter(s => s.active);
+        
+        if (currentUser?.role === 'supervisor') {
+            const currentEmp = storeEmployees.find(e => e.id === currentUser?.uid);
+            base = base.filter(s => currentEmp?.assignedSites?.includes(s.id));
+        }
+        
+        return base.filter(s => s.name.toLowerCase().includes(lower));
+    }, [sites, siteSearch, currentUser, storeEmployees]);
 
     // LÓGICA DE FILTRADO POR TURNOS (BACKEND/QUERY)
     useEffect(() => {

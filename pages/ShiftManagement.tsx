@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useAppStore } from '../store/useAppStore';
 import { db } from '../lib/firebase';
 import { collection, query, onSnapshot, doc, setDoc, updateDoc, deleteDoc, Timestamp } from 'firebase/firestore';
@@ -63,6 +63,14 @@ const formatDateKey = (date: Date) => {
 const ShiftManagement: React.FC = () => {
     const { sites, employees, currentUser, fetchInitialData } = useAppStore();
 
+    const filteredSitesForUser = useMemo(() => {
+        if (currentUser?.role === 'supervisor') {
+            const currentEmp = employees.find(e => e.id === currentUser?.uid);
+            return sites.filter(s => currentEmp?.assignedSites?.includes(s.id));
+        }
+        return sites;
+    }, [sites, currentUser, employees]);
+
     // --- State ---
     const [currentDate, setCurrentDate] = useState(new Date());
     const [selectedSiteId, setSelectedSiteId] = useState<string | number>('');
@@ -97,10 +105,10 @@ const ShiftManagement: React.FC = () => {
 
     // Init default site
     useEffect(() => {
-        if (sites.length > 0 && !selectedSiteId) {
-            setSelectedSiteId(sites[0].id);
+        if (filteredSitesForUser.length > 0 && !selectedSiteId) {
+            setSelectedSiteId(filteredSitesForUser[0].id);
         }
-    }, [sites]);
+    }, [filteredSitesForUser, selectedSiteId]);
 
     // --- Global Mouse Up Listener for Dragging ---
     useEffect(() => {
@@ -572,7 +580,7 @@ const ShiftManagement: React.FC = () => {
                             onChange={(e) => setSelectedSiteId(Number(e.target.value))}
                             className="pl-9 pr-4 py-2 border border-slate-200 rounded-lg text-sm w-48 focus:ring-2 focus:ring-blue-500 outline-none bg-white text-slate-800 font-medium appearance-none"
                         >
-                            {sites.map(site => (
+                            {filteredSitesForUser.map(site => (
                                 <option key={site.id} value={site.id}>{site.name}</option>
                             ))}
                         </select>

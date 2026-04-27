@@ -2,165 +2,21 @@
 import React, { useState } from 'react';
 import { useAppStore } from '../store/useAppStore';
 import {
-    ClipboardList, Plus, Trash2, Clock,
-    User, MapPin, ListPlus, X,
-    RefreshCw, CheckSquare, FileText,
-    Calendar, ArrowLeft, MoreVertical
+    Trash2, Clock, User, ListPlus, X,
+    Calendar, ArrowLeft, Building2, Save, Search, CheckCircle, Square
 } from 'lucide-react';
-import { SupervisorTask, ChecklistTemplate } from '../types';
 
 const SupervisorManagement: React.FC = () => {
     const {
-        currentUser, employees, sites, supervisorTasks, checklistTemplates,
-        addSupervisorTask, deleteSupervisorTask, addChecklistTemplate, deleteChecklistTemplate,
         resignationRequests, updateResignationRequestStatus, deleteResignationRequest,
-        recurringSupervisorTasks, addRecurringTask, deleteRecurringTask, toggleRecurringTask,
-        supervisorSubTasks, addSupervisorSubTask, deleteSupervisorSubTask,
-        showNotification
+        employees, sites, updateEmployee, currentUser
     } = useAppStore();
-
-    const [view, setView] = useState<'menu' | 'assignments' | 'subtasks' | 'recurring' | 'resignations' | 'templates'>('menu');
-    const [showNewTask, setShowNewTask] = useState(false);
-    const [showNewTemplate, setShowNewTemplate] = useState(false);
-    const [showNewRecurring, setShowNewRecurring] = useState(false);
-    const [showNewSubTask, setShowNewSubTask] = useState(false);
-
-    // Form States
-    const [selectedSupervisor, setSelectedSupervisor] = useState('');
-    const [selectedSite, setSelectedSite] = useState('');
-    const [selectedTemplate, setSelectedTemplate] = useState('');
-    const [templateTitle, setTemplateTitle] = useState('');
-    const [templateItems, setTemplateItems] = useState<string[]>(['']);
-    const [recurringFreq, setRecurringFreq] = useState<'DIARIO' | 'SEMANAL' | 'MENSUAL'>('DIARIO');
-    const [subTaskTitle, setSubTaskTitle] = useState('');
-    const [subTaskDesc, setSubTaskDesc] = useState('');
-    const [subTaskDue, setSubTaskDue] = useState('');
-
-    const supervisors = employees.filter(e => e.role === 'supervisor' || e.role === 'admin');
-
-    const sendPushNotification = async (supervisorId: string, title: string, body: string) => {
-        const supervisor = employees.find(e => e.id === supervisorId);
-        if (!supervisor || !supervisor.fcmTokens || supervisor.fcmTokens.length === 0) return;
-
-        // Nota: En producción esto debería hacerse vía Cloud Functions por seguridad.
-        // Aquí implementamos la llamada directa para demostración.
-        for (const token of supervisor.fcmTokens) {
-            try {
-                // FCM Legacy API (requiere Server Key) o FCM v1 (requiere OAuth2)
-                // Usaremos un log para demostrar la intención y la lógica de envío.
-                console.log(`Enviando notificación a ${supervisor.firstName}: "${title} - ${body}" al token ${token}`);
-
-                // Opcional: Llamada a un webhook o Cloud Function
-                /*
-                await fetch('https://your-api.com/send-notification', {
-                    method: 'POST',
-                    body: JSON.stringify({ token, title, body })
-                });
-                */
-            } catch (error) {
-                console.error("Error al enviar notificación push:", error);
-            }
-        }
-    };
-
-    const handleCreateTask = async () => {
-        if (!selectedSupervisor || !selectedSite || !selectedTemplate) {
-            showNotification("Complete todos los campos", "warning");
-            return;
-        }
-        const s = employees.find(e => e.id === selectedSupervisor);
-        const st = sites.find(site => String(site.id) === selectedSite);
-        const t = checklistTemplates.find(temp => temp.id === selectedTemplate);
-        if (!s || !st || !t) return;
-
-        await addSupervisorTask({
-            supervisorId: s.id,
-            supervisorName: `${s.firstName} ${s.lastNamePaterno}`,
-            siteId: st.id,
-            siteName: st.name,
-            checklistType: t.title,
-            items: t.items.map(i => ({ ...i, value: null })),
-            createdBy: currentUser?.uid || 'admin'
-        });
-
-        // Disparar Notificación
-        await sendPushNotification(
-            s.id,
-            "Nueva Tarea Asignada",
-            `Se te ha asignado una supervision en ${st.name}`
-        );
-
-        showNotification("Tarea asignada", "success");
-        setShowNewTask(false);
-    };
-
-    const handleCreateTemplate = async () => {
-        if (!templateTitle || templateItems.some(i => !i.trim())) {
-            showNotification("Título y preguntas son obligatorias", "warning");
-            return;
-        }
-        await addChecklistTemplate({
-            title: templateTitle,
-            items: templateItems.map((q, idx) => ({ id: `q_${idx}_${Date.now()}`, question: q, type: 'binary' }))
-        });
-        showNotification("Plantilla creada", "success");
-        setShowNewTemplate(false);
-        setTemplateTitle(''); setTemplateItems(['']);
-    };
-
-    const handleCreateRecurring = async () => {
-        if (!selectedSupervisor || !selectedSite || !selectedTemplate) {
-            showNotification("Complete todos los campos", "warning");
-            return;
-        }
-        const s = employees.find(e => e.id === selectedSupervisor);
-        const st = sites.find(site => String(site.id) === selectedSite);
-        const t = checklistTemplates.find(temp => temp.id === selectedTemplate);
-        if (!s || !st || !t) return;
-
-        await addRecurringTask({
-            supervisorId: s.id,
-            supervisorName: `${s.firstName} ${s.lastNamePaterno}`,
-            siteId: st.id,
-            siteName: st.name,
-            checklistType: t.title,
-            frequency: recurringFreq,
-            active: true
-        });
-        showNotification("Tarea recurrente programada", "success");
-        setShowNewRecurring(false);
-    };
-
-    const handleCreateSubTask = async () => {
-        if (!selectedSupervisor || !subTaskTitle) {
-            showNotification("Supervisor y título obligatorios", "warning");
-            return;
-        }
-        const s = employees.find(e => e.id === selectedSupervisor);
-        if (!s) return;
-
-        await addSupervisorSubTask({
-            supervisorId: s.id,
-            supervisorName: `${s.firstName} ${s.lastNamePaterno}`,
-            title: subTaskTitle,
-            description: subTaskDesc,
-            status: 'NOT_DONE',
-            dueDate: subTaskDue
-        });
-        showNotification("Sub-tarea creada", "success");
-        setShowNewSubTask(false);
-        setSubTaskTitle(''); setSubTaskDesc(''); setSubTaskDue('');
-    };
+    const [view, setView] = useState<'menu' | 'resignations' | 'assign_sites'>('menu');
+    const [searchTerm, setSearchTerm] = useState('');
+    const [siteSearchTerm, setSiteSearchTerm] = useState('');
+    const [selectedSupervisor, setSelectedSupervisor] = useState<string | null>(null);
 
     const menuItems = [
-        {
-            id: 'assignments',
-            title: 'Supervisión de Sucursal',
-            desc: 'Checklists de supervisión asignados por administración.',
-            icon: <ClipboardList size={22} />,
-            color: 'text-blue-500',
-            bg: 'bg-blue-50'
-        },
         {
             id: 'resignations',
             title: 'Informar Renuncia',
@@ -170,48 +26,15 @@ const SupervisorManagement: React.FC = () => {
             bg: 'bg-rose-50'
         },
         {
-            id: 'subtasks',
-            title: 'Sub Tareas',
-            desc: 'Requerimientos específicos y pendientes para supervisores.',
-            icon: <CheckSquare size={22} />,
-            color: 'text-emerald-500',
-            bg: 'bg-emerald-50'
-        },
-        {
-            id: 'recurring',
-            title: 'Tareas Recurrentes',
-            desc: 'Automatización y programación de checklists periódicos.',
-            icon: <RefreshCw size={22} />,
-            color: 'text-amber-500',
-            bg: 'bg-amber-50'
-        },
-        {
-            id: 'templates',
-            title: 'Plantillas Checklist',
-            desc: 'Diseño y edición de formularios de control.',
-            icon: <ListPlus size={22} />,
+            id: 'assign_sites',
+            title: 'Asignar Sucursales',
+            desc: 'Definir qué sucursales puede visualizar y gestionar cada supervisor.',
+            icon: <Building2 size={22} />,
             color: 'text-indigo-500',
-            bg: 'bg-indigo-50'
-        },
-        {
-            id: 'coming_soon_1',
-            title: 'Responder Solicitud',
-            desc: 'Próximamente...',
-            icon: <MoreVertical size={22} />,
-            color: 'text-slate-300',
-            bg: 'bg-slate-50',
-            disabled: true
-        },
-        {
-            id: 'coming_soon_2',
-            title: 'Bitácora Diaria',
-            desc: 'Próximamente...',
-            icon: <Clock size={22} />,
-            color: 'text-slate-300',
-            bg: 'bg-slate-50',
-            disabled: true
+            bg: 'bg-indigo-50',
+            adminOnly: true
         }
-    ];
+    ].filter(i => !i.adminOnly || currentUser?.role === 'admin');
 
     if (view === 'menu') {
         return (
@@ -225,9 +48,8 @@ const SupervisorManagement: React.FC = () => {
                     {menuItems.map((item) => (
                         <button
                             key={item.id}
-                            disabled={item.disabled}
                             onClick={() => setView(item.id as any)}
-                            className={`flex flex-col text-left p-8 bg-white rounded-[32px] border border-slate-100 shadow-sm transition-all duration-300 ${item.disabled ? 'opacity-60 grayscale cursor-not-allowed' : 'hover:shadow-2xl hover:-translate-y-1 hover:border-blue-200 group'}`}
+                            className="flex flex-col text-left p-8 bg-white rounded-[32px] border border-slate-100 shadow-sm transition-all duration-300 hover:shadow-2xl hover:-translate-y-1 hover:border-blue-200 group"
                         >
                             <div className={`w-12 h-12 rounded-2xl flex items-center justify-center mb-6 shadow-sm transition-transform group-hover:scale-110 ${item.bg} ${item.color}`}>
                                 {item.icon}
@@ -264,47 +86,6 @@ const SupervisorManagement: React.FC = () => {
             </div>
 
             {/* SECTIONS CONTENT */}
-            {view === 'assignments' && (
-                <div className="space-y-8">
-                    <div className="flex justify-between items-center">
-                        <div className="max-w-md">
-                            <p className="text-slate-500 font-medium">Supervisiones activas y controles programados en tiempo real.</p>
-                        </div>
-                        <button onClick={() => setShowNewTask(true)} className="flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl shadow-blue-100 hover:bg-blue-700 transition">
-                            <Plus size={18} /> Nueva Asignación
-                        </button>
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                        {supervisorTasks.map(task => (
-                            <div key={task.id} className="bg-white p-8 rounded-3xl border border-slate-200 shadow-xl flex flex-col justify-between group">
-                                <div className="flex justify-between items-start mb-6">
-                                    <div className={`p-4 rounded-2xl ${task.status === 'COMPLETED' ? 'bg-emerald-50 text-emerald-600' : 'bg-blue-50 text-blue-600 animate-pulse'}`}>
-                                        <ClipboardList size={24} />
-                                    </div>
-                                    <div className="flex flex-col items-end gap-2">
-                                        <button onClick={() => deleteSupervisorTask(task.id)} className="text-slate-300 hover:text-rose-500 transition">
-                                            <Trash2 size={16} />
-                                        </button>
-                                        <div className={`px-2 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-widest ${task.status === 'COMPLETED' ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-blue-700'}`}>
-                                            {task.status === 'COMPLETED' ? 'Finalizada' : 'Activa'}
-                                        </div>
-                                    </div>
-                                </div>
-                                <div className="space-y-4">
-                                    <h3 className="text-lg font-black text-slate-800 tracking-tight leading-tight">{task.checklistType}</h3>
-                                    <div className="flex flex-wrap gap-2 font-bold text-[10px] uppercase tracking-widest">
-                                        <span className="px-2 py-1 bg-slate-100 text-slate-600 rounded-lg flex items-center gap-1.5"><MapPin size={10} /> {task.siteName}</span>
-                                        <span className="px-2 py-1 bg-indigo-50 text-indigo-600 rounded-lg flex items-center gap-1.5"><Calendar size={10} /> {new Date(task.createdAt).toLocaleDateString()}</span>
-                                    </div>
-                                    <div className="flex items-center gap-2 text-xs text-slate-500 font-bold"><User size={14} /> {task.supervisorName}</div>
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                </div>
-            )}
-
             {view === 'resignations' && (
                 <div className="bg-white rounded-[32px] border border-slate-200 shadow-2xl overflow-hidden animate-in fade-in duration-500">
                     <div className="overflow-x-auto">
@@ -373,234 +154,120 @@ const SupervisorManagement: React.FC = () => {
                 </div>
             )}
 
-            {view === 'subtasks' && (
-                <div className="space-y-8 animate-in fade-in duration-500">
-                    <div className="flex justify-between items-center">
-                        <div>
-                            <p className="text-slate-500 font-medium">Tareas puntuales y requerimientos de insumos o personal.</p>
-                        </div>
-                        <button onClick={() => setShowNewSubTask(true)} className="flex items-center gap-2 px-6 py-3 bg-emerald-600 text-white rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl shadow-emerald-100 hover:bg-emerald-700 transition">
-                            <Plus size={18} /> Crear Sub-Tarea
-                        </button>
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                        {supervisorSubTasks.map(sub => (
-                            <div key={sub.id} className="bg-white p-8 rounded-3xl border border-slate-200 shadow-xl relative overflow-hidden group">
-                                <div className={`absolute top-0 right-0 w-1.5 h-full ${sub.status === 'DONE' ? 'bg-emerald-500' : 'bg-amber-500'}`} />
-                                <div className="flex justify-between items-start mb-4">
-                                    <div className="p-3 bg-emerald-50 rounded-2xl text-emerald-600"><CheckSquare size={20} /></div>
-                                    <button onClick={() => deleteSupervisorSubTask(sub.id)} className="text-slate-300 hover:text-rose-500 transition"><Trash2 size={16} /></button>
-                                </div>
-                                <h3 className="font-bold text-slate-800">{sub.title}</h3>
-                                <p className="text-xs text-slate-500 mt-1">{sub.description}</p>
-                                <div className="flex items-center gap-2 text-[10px] font-black uppercase text-slate-400 mt-4"><User size={10} /> {sub.supervisorName}</div>
+            {view === 'assign_sites' && (
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 animate-in fade-in duration-500">
+                    {/* Left Panel: Supervisors List */}
+                    <div className="lg:col-span-1 space-y-4">
+                        <div className="bg-white p-6 rounded-[32px] border border-slate-200 shadow-xl space-y-4">
+                            <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest px-2">Supervisores</h3>
+                            <div className="relative">
+                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
+                                <input
+                                    type="text"
+                                    placeholder="Buscar supervisor..."
+                                    className="w-full pl-9 pr-4 py-2 text-xs font-bold border border-slate-100 bg-slate-50 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 transition-all"
+                                    value={searchTerm}
+                                    onChange={(e) => setSearchTerm(e.target.value)}
+                                />
                             </div>
-                        ))}
-                    </div>
-                </div>
-            )}
-
-            {view === 'recurring' && (
-                <div className="space-y-8 animate-in fade-in duration-500">
-                    <div className="flex justify-between items-center">
-                        <div>
-                            <p className="text-slate-500 font-medium">Programación automática de checklists diarios, semanales o mensuales.</p>
-                        </div>
-                        <button onClick={() => setShowNewRecurring(true)} className="flex items-center gap-2 px-6 py-3 bg-amber-600 text-white rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl shadow-amber-100 hover:bg-amber-700 transition">
-                            <RefreshCw size={18} /> Programar Tarea
-                        </button>
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                        {recurringSupervisorTasks.map(rec => (
-                            <div key={rec.id} className="bg-white p-8 rounded-3xl border border-slate-200 shadow-xl group">
-                                <div className="flex justify-between items-start mb-6">
-                                    <div className="p-3 bg-amber-50 rounded-2xl text-amber-600"><RefreshCw size={24} className={rec.active ? 'animate-spin-slow' : ''} /></div>
-                                    <div className="flex flex-col items-end gap-2">
-                                        <button onClick={() => deleteRecurringTask(rec.id)} className="text-slate-300 hover:text-rose-500 transition"><Trash2 size={16} /></button>
-                                        <input type="checkbox" checked={rec.active} onChange={(e) => toggleRecurringTask(rec.id, e.target.checked)} className="w-4 h-4 rounded border-slate-300 text-amber-600" />
-                                    </div>
-                                </div>
-                                <h3 className="text-lg font-black text-slate-800 tracking-tight leading-tight mb-4">{rec.checklistType}</h3>
-                                <div className="flex flex-wrap gap-2 text-[10px] font-black uppercase">
-                                    <span className="px-2 py-1 bg-slate-100 text-slate-600 rounded-lg">{rec.frequency}</span>
-                                    <span className="px-2 py-1 bg-blue-50 text-blue-600 rounded-lg">{rec.siteName}</span>
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                </div>
-            )}
-
-            {view === 'templates' && (
-                <div className="space-y-8 animate-in fade-in duration-500">
-                    <div className="flex justify-between items-center">
-                        <div>
-                            <p className="text-slate-500 font-medium">Configuración de formularios y puntos de control operativos.</p>
-                        </div>
-                        <button onClick={() => setShowNewTemplate(true)} className="flex items-center gap-2 px-6 py-3 bg-indigo-600 text-white rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl shadow-indigo-100 hover:bg-indigo-700 transition">
-                            <ListPlus size={18} /> Nueva Plantilla
-                        </button>
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                        {checklistTemplates.map(t => (
-                            <div key={t.id} className="bg-white p-8 rounded-3xl border border-slate-200 shadow-xl flex flex-col group">
-                                <div className="flex justify-between items-start mb-6">
-                                    <div className="p-3 bg-indigo-50 rounded-2xl text-indigo-600"><FileText size={24} /></div>
-                                    <button onClick={() => deleteChecklistTemplate(t.id)} className="text-slate-300 hover:text-rose-500 transition"><Trash2 size={16} /></button>
-                                </div>
-                                <h3 className="text-lg font-black text-slate-800 mb-4 tracking-tight leading-tight">{t.title}</h3>
-                                <div className="space-y-2 flex-1">
-                                    {t.items.map((it, idx) => (
-                                        <div key={it.id} className="text-xs text-slate-500 font-medium flex gap-2"><span className="text-indigo-300">0{idx + 1}</span> {it.question}</div>
-                                    ))}
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                </div>
-            )}
-
-            {/* MODALS (Keep existing logic but apply new grid card styles if needed, though they were mostly functional) */}
-            {showNewTask && (
-                <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-in fade-in duration-300">
-                    <div className="bg-white rounded-[40px] shadow-2xl w-full max-w-lg overflow-hidden flex flex-col">
-                        <div className="p-8 border-b border-slate-100 flex justify-between items-center">
-                            <h3 className="text-xl font-black text-slate-800 tracking-tight uppercase">Nueva Asignación</h3>
-                            <button onClick={() => setShowNewTask(false)} className="p-2 hover:bg-slate-100 rounded-xl transition"><X size={24} className="text-slate-400" /></button>
-                        </div>
-                        <div className="p-8 space-y-6">
-                            <div className="space-y-2">
-                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Supervisor</label>
-                                <select className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-4 focus:ring-blue-50 transition-all font-bold" value={selectedSupervisor} onChange={(e) => setSelectedSupervisor(e.target.value)}>
-                                    <option value="">Seleccionar...</option>
-                                    {supervisors.map(s => <option key={s.id} value={s.id}>{s.firstName} {s.lastNamePaterno}</option>)}
-                                </select>
-                            </div>
-                            <div className="space-y-2">
-                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Sucursal</label>
-                                <select className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-4 focus:ring-blue-50 transition-all font-bold" value={selectedSite} onChange={(e) => setSelectedSite(e.target.value)}>
-                                    <option value="">Seleccionar...</option>
-                                    {sites.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                                </select>
-                            </div>
-                            <div className="space-y-2">
-                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Plantilla Checklist</label>
-                                <select className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-4 focus:ring-blue-50 transition-all font-bold" value={selectedTemplate} onChange={(e) => setSelectedTemplate(e.target.value)}>
-                                    <option value="">Seleccionar...</option>
-                                    {checklistTemplates.map(t => <option key={t.id} value={t.id}>{t.title}</option>)}
-                                </select>
-                            </div>
-                        </div>
-                        <div className="p-8 bg-slate-50 border-t border-slate-100 flex gap-4">
-                            <button onClick={handleCreateTask} className="flex-1 py-4 bg-blue-600 text-white font-black uppercase text-xs tracking-widest rounded-3xl shadow-xl shadow-blue-100 hover:bg-blue-700 transition active:scale-95">Confirmar Tarea</button>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {showNewTemplate && (
-                <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-                    <div className="bg-white rounded-[40px] shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]">
-                        <div className="p-8 border-b border-slate-100 flex justify-between items-center">
-                            <h3 className="text-xl font-black text-slate-800 tracking-tight uppercase">Diseño de Checklist</h3>
-                            <button onClick={() => setShowNewTemplate(false)}><X size={24} className="text-slate-400" /></button>
-                        </div>
-                        <div className="p-8 space-y-8 overflow-y-auto">
-                            <div className="space-y-4">
-                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Título de la plantilla</label>
-                                <input type="text" className="w-full p-5 bg-slate-50 border border-slate-200 rounded-3xl outline-none focus:ring-4 focus:ring-indigo-50 font-bold" value={templateTitle} onChange={(e) => setTemplateTitle(e.target.value)} />
-                            </div>
-                            <div className="space-y-4">
-                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Items de Control</label>
-                                {templateItems.map((q, idx) => (
-                                    <div key={idx} className="flex gap-3 items-center group">
-                                        <input type="text" className="flex-1 p-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-4 focus:ring-indigo-50 font-medium" value={q} onChange={(e) => { const n = [...templateItems]; n[idx] = e.target.value; setTemplateItems(n); }} placeholder={`Punto de control ${idx + 1}`} />
-                                        <button onClick={() => setTemplateItems(templateItems.filter((_, i) => i !== idx))} className="p-3 text-slate-300 hover:text-rose-500 opacity-0 group-hover:opacity-100 transition-opacity"><Trash2 size={18} /></button>
-                                    </div>
+                            <div className="space-y-1 max-h-[50vh] overflow-y-auto custom-scrollbar pr-2">
+                                {employees.filter(e => e.role === 'supervisor' && (e.firstName + ' ' + e.lastNamePaterno).toLowerCase().includes(searchTerm.toLowerCase())).map(sup => (
+                                    <button
+                                        key={sup.id}
+                                        onClick={() => setSelectedSupervisor(sup.id)}
+                                        className={`w-full flex items-center gap-3 p-3 rounded-2xl transition-all ${selectedSupervisor === sup.id ? 'bg-indigo-600 text-white shadow-lg scale-[1.02]' : 'hover:bg-slate-50 text-slate-600'}`}
+                                    >
+                                        <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-black text-[10px] ${selectedSupervisor === sup.id ? 'bg-white/20' : 'bg-slate-100 text-slate-400'}`}>
+                                            {sup.firstName[0]}{sup.lastNamePaterno[0]}
+                                        </div>
+                                        <div className="text-left">
+                                            <div className="text-xs font-bold truncate">{sup.firstName} {sup.lastNamePaterno}</div>
+                                            <div className={`text-[9px] font-medium uppercase tracking-tighter ${selectedSupervisor === sup.id ? 'text-indigo-100' : 'text-slate-400'}`}>
+                                                {sup.assignedSites?.length || 0} Sucursales asignadas
+                                            </div>
+                                        </div>
+                                    </button>
                                 ))}
-                                <button onClick={() => setTemplateItems([...templateItems, ''])} className="flex items-center gap-2 text-xs font-black uppercase tracking-widest text-indigo-500 hover:text-indigo-700 transition"><Plus size={16} /> Agregar Item</button>
                             </div>
-                        </div>
-                        <div className="p-8 bg-slate-50 border-t border-slate-100">
-                            <button onClick={handleCreateTemplate} className="w-full py-4 bg-indigo-600 text-white font-black uppercase text-xs tracking-widest rounded-3xl shadow-xl shadow-indigo-100">Guardar Plantilla Maestra</button>
                         </div>
                     </div>
-                </div>
-            )}
 
-            {/* Other modals (SubTask, Recurring) would follow the same pattern... simplified here to save file space but logic remains */}
-            {showNewSubTask && (
-                <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-                    <div className="bg-white rounded-[40px] shadow-2xl w-full max-w-lg overflow-hidden">
-                        <div className="p-8 border-b border-slate-100 flex justify-between items-center">
-                            <h3 className="text-xl font-black text-slate-800 tracking-tight uppercase">Nueva Sub-Tarea</h3>
-                            <button onClick={() => setShowNewSubTask(false)}><X size={24} className="text-slate-400" /></button>
-                        </div>
-                        <div className="p-8 space-y-6">
-                            <div className="space-y-2">
-                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Responsable</label>
-                                <select className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-4" value={selectedSupervisor} onChange={(e) => setSelectedSupervisor(e.target.value)}>
-                                    <option value="">Seleccionar...</option>
-                                    {supervisors.map(s => <option key={s.id} value={s.id}>{s.firstName} {s.lastNamePaterno}</option>)}
-                                </select>
-                            </div>
-                            <div className="space-y-2">
-                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Título</label>
-                                <input type="text" className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none" value={subTaskTitle} onChange={(e) => setSubTaskTitle(e.target.value)} />
-                            </div>
-                            <div className="space-y-2">
-                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Descripción</label>
-                                <textarea className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none h-24" value={subTaskDesc} onChange={(e) => setSubTaskDesc(e.target.value)} />
-                            </div>
-                        </div>
-                        <div className="p-8 bg-slate-50 border-t flex gap-4">
-                            <button onClick={handleCreateSubTask} className="flex-1 py-4 bg-emerald-600 text-white font-black uppercase text-xs tracking-widest rounded-3xl shadow-xl shadow-emerald-100 hover:bg-emerald-700 transition">Crear Tarea</button>
-                        </div>
-                    </div>
-                </div>
-            )}
+                    {/* Right Panel: Sites Assignment */}
+                    <div className="lg:col-span-2">
+                        {selectedSupervisor ? (
+                            <div className="bg-white p-8 rounded-[32px] border border-slate-200 shadow-2xl space-y-8 animate-in slide-in-from-right-4 duration-500">
+                                <div className="flex items-center justify-between">
+                                    <div>
+                                        <h3 className="text-xl font-black text-slate-900 tracking-tight">Asignar Sucursales</h3>
+                                        <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mt-1">
+                                            {employees.find(e => e.id === selectedSupervisor)?.firstName} {employees.find(e => e.id === selectedSupervisor)?.lastNamePaterno}
+                                        </p>
+                                    </div>
+                                    <Building2 className="text-indigo-600 opacity-20" size={40} />
+                                </div>
+                                <div className="space-y-4">
+                                    <div className="relative">
+                                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
+                                        <input
+                                            type="text"
+                                            placeholder="Filtrar sucursales por nombre o dirección..."
+                                            className="w-full pl-9 pr-4 py-2 text-xs font-bold border border-slate-100 bg-slate-50 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 transition-all"
+                                            value={siteSearchTerm}
+                                            onChange={(e) => setSiteSearchTerm(e.target.value)}
+                                        />
+                                    </div>
 
-            {showNewRecurring && (
-                <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-                    <div className="bg-white rounded-[40px] shadow-2xl w-full max-w-lg overflow-hidden">
-                        <div className="p-8 border-b border-slate-100 flex justify-between items-center">
-                            <h3 className="text-xl font-black text-slate-800 tracking-tight uppercase">Programar Recurrencia</h3>
-                            <button onClick={() => setShowNewRecurring(false)}><X size={24} className="text-slate-400" /></button>
-                        </div>
-                        <div className="p-8 space-y-6">
-                            <div className="space-y-2">
-                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Frecuencia</label>
-                                <select className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none" value={recurringFreq} onChange={(e) => setRecurringFreq(e.target.value as any)}>
-                                    <option value="DIARIO">Diario</option>
-                                    <option value="SEMANAL">Semanal</option>
-                                    <option value="MENSUAL">Mensual</option>
-                                </select>
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-[50vh] overflow-y-auto custom-scrollbar pr-2">
+                                        {sites.filter(s => 
+                                            s.active && 
+                                            s.name !== 'Administración' && 
+                                            (s.name.toLowerCase().includes(siteSearchTerm.toLowerCase()) || 
+                                             s.address.toLowerCase().includes(siteSearchTerm.toLowerCase()))
+                                        ).sort((a, b) => {
+                                            const supervisor = employees.find(e => e.id === selectedSupervisor);
+                                            const aAssigned = supervisor?.assignedSites?.includes(a.id) ? 1 : 0;
+                                            const bAssigned = supervisor?.assignedSites?.includes(b.id) ? 1 : 0;
+                                            return bAssigned - aAssigned;
+                                        }).map(site => {
+                                        const supervisor = employees.find(e => e.id === selectedSupervisor);
+                                        const isAssigned = supervisor?.assignedSites?.includes(site.id);
+
+                                        return (
+                                            <button
+                                                key={site.id}
+                                                onClick={() => {
+                                                    const currentAssigned = supervisor?.assignedSites || [];
+                                                    const newAssigned = isAssigned
+                                                        ? currentAssigned.filter(id => id !== site.id)
+                                                        : [...currentAssigned, site.id];
+                                                    updateEmployee(selectedSupervisor, { assignedSites: newAssigned });
+                                                }}
+                                                className={`flex items-center gap-4 p-4 rounded-2xl border transition-all text-left group ${isAssigned ? 'border-indigo-200 bg-indigo-50/50' : 'border-slate-100 hover:border-slate-200 hover:bg-slate-50'}`}
+                                            >
+                                                <div className={`transition-colors ${isAssigned ? 'text-indigo-600' : 'text-slate-300 group-hover:text-slate-400'}`}>
+                                                    {isAssigned ? <CheckCircle size={20} /> : <Square size={20} />}
+                                                </div>
+                                                <div>
+                                                    <div className={`text-xs font-black uppercase tracking-tight ${isAssigned ? 'text-indigo-900' : 'text-slate-700'}`}>{site.name}</div>
+                                                    <div className="text-[10px] text-slate-400 font-medium truncate">{site.address}</div>
+                                                </div>
+                                            </button>
+                                        );
+                                    })}
+                                    </div>
+                                </div>
+
+                                <div className="pt-6 border-t border-slate-100 flex items-center justify-between text-slate-400">
+                                    <p className="text-[10px] font-bold uppercase tracking-widest">Los cambios se guardan automáticamente</p>
+                                    <Save size={16} />
+                                </div>
                             </div>
-                            <div className="space-y-2">
-                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Supervisor</label>
-                                <select className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none" value={selectedSupervisor} onChange={(e) => setSelectedSupervisor(e.target.value)}>
-                                    <option value="">Seleccionar...</option>
-                                    {supervisors.map(s => <option key={s.id} value={s.id}>{s.firstName} {s.lastNamePaterno}</option>)}
-                                </select>
+                        ) : (
+                            <div className="h-full flex flex-col items-center justify-center p-12 bg-slate-50/50 rounded-[32px] border border-dashed border-slate-200 text-slate-400 space-y-4">
+                                <User size={48} strokeWidth={1} />
+                                <p className="text-sm font-bold uppercase tracking-widest">Selecciona un supervisor para comenzar</p>
                             </div>
-                            <div className="space-y-2">
-                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Instalación</label>
-                                <select className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none" value={selectedSite} onChange={(e) => setSelectedSite(e.target.value)}>
-                                    <option value="">Seleccionar...</option>
-                                    {sites.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                                </select>
-                            </div>
-                            <div className="space-y-2">
-                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Plantilla</label>
-                                <select className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none" value={selectedTemplate} onChange={(e) => setSelectedTemplate(e.target.value)}>
-                                    <option value="">Seleccionar...</option>
-                                    {checklistTemplates.map(t => <option key={t.id} value={t.id}>{t.title}</option>)}
-                                </select>
-                            </div>
-                        </div>
-                        <div className="p-8 bg-slate-50 border-t">
-                            <button onClick={handleCreateRecurring} className="w-full py-4 bg-amber-600 text-white font-black uppercase text-xs tracking-widest rounded-3xl shadow-xl shadow-amber-100 hover:bg-amber-700 transition">Activar Programa</button>
-                        </div>
+                        )}
                     </div>
                 </div>
             )}

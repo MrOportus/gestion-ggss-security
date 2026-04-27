@@ -60,6 +60,7 @@ export interface Employee {
   fcmTokens?: string[]; // Para notificaciones push
   forceLogout?: boolean; // Para cerrar sesión remota
   lastForceLogout?: string; // ISO timestamp
+  assignedSites?: number[]; // IDs of sites assigned to a supervisor
 }
 
 export interface AttendanceLog {
@@ -252,10 +253,13 @@ export interface BoardNote {
   content: string;
   checklist: { id: string; text: string; completed: boolean }[];
   color?: string;
+  pinned?: boolean;
   createdAt: string;
   updatedAt: string;
   createdBy: string;
   createdByName: string;
+  dueDate?: string;
+  completed?: boolean;
 }
 
 export interface RoundEvidence {

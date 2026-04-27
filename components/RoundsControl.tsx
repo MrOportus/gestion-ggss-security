@@ -68,6 +68,7 @@ const RoundsControl: React.FC<RoundsControlProps> = ({ onBack }) => {
     useEffect(() => {
         // Check if there's an in-progress round
         const inProgress = guardRounds.find(r => r.workerId === currentUser?.uid && r.status === 'IN_PROGRESS');
+        
         if (inProgress) {
             setActiveRound(inProgress);
             // Resume timer
@@ -76,8 +77,11 @@ const RoundsControl: React.FC<RoundsControlProps> = ({ onBack }) => {
             setElapsedTime(Math.floor((now - start) / 1000));
             // Reactivar WakeLock si se recarga la página
             noSleep.enable();
+        } else {
+            // Si no hay ronda en curso en el store, nos aseguramos de limpiar el estado local
+            setActiveRound(null);
         }
-    }, [guardRounds, currentUser]);
+    }, [guardRounds, currentUser?.uid]);
 
     useEffect(() => {
         if (activeRound) {
@@ -234,7 +238,7 @@ const RoundsControl: React.FC<RoundsControlProps> = ({ onBack }) => {
             }, (_) => {
                 setShowResultModal(true);
                 setLoading(false);
-            }, { enableHighAccuracy: true });
+            }, { enableHighAccuracy: true, timeout: 5000 });
         } catch (err) {
             setLoading(false);
         }
@@ -284,14 +288,36 @@ const RoundsControl: React.FC<RoundsControlProps> = ({ onBack }) => {
 
         setLoading(true);
         try {
-            // Comprimir imagen de forma más agresiva para optimizar storage y velocidad
-            // 800px es suficiente para ver detalles y 0.5 reduce mucho el peso sin pixelar
-            const compressedBlob = await compressImage(file, 0.5, 800);
+            // --- PREPARAR DATOS DE MARCA DE AGUA ---
+            const now = new Date();
+            const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+            const dateStr = now.toLocaleDateString('es-CL', { day: '2-digit', month: 'short', year: 'numeric' }).replace(/\./g, '');
+            const dayStr = now.toLocaleDateString('es-CL', { weekday: 'short' }).replace(/\./g, '');
+            
+            // Ubicación: Usamos el nombre de la sucursal y las coordenadas GPS
+            const locationName = site?.name || "Ubicación Protegida";
+            const coordsStr = currentPos 
+                ? `${currentPos.coords.latitude.toFixed(7)}, ${currentPos.coords.longitude.toFixed(7)}`
+                : "GPS No disponible";
+            
+            // Código de verificación único para esta captura
+            const verifyCode = `${activeRound?.id.slice(-4).toUpperCase() || 'RND'}${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
+
+            // Comprimir imagen y aplicar marca de agua
+            const compressedBlob = await compressImage(file, 0.7, 1280, {
+                time: timeStr,
+                date: dateStr,
+                day: dayStr.charAt(0).toUpperCase() + dayStr.slice(1),
+                location: locationName,
+                coords: coordsStr,
+                verifyCode: verifyCode
+            });
 
             setCapturedPhoto(compressedBlob);
             setPhotoPreview(URL.createObjectURL(compressedBlob));
             setIsCapturing(true);
         } catch (err) {
+            console.error("Error al procesar foto con marca de agua:", err);
             showNotification("Error al procesar foto", "error");
         } finally {
             setLoading(false);

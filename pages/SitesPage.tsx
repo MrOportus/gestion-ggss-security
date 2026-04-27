@@ -7,17 +7,25 @@ import * as XLSX from 'xlsx';
 import { Site } from '../types';
 
 const SitesPage: React.FC = () => {
-  const { sites, bulkAddSites, toggleSiteStatus, showNotification } = useAppStore();
+  const { sites, bulkAddSites, toggleSiteStatus, showNotification, currentUser, employees } = useAppStore();
+  const isAdmin = currentUser?.role === 'admin';
+  const currentEmp = employees.find(e => e.id === currentUser?.uid);
+
   const [searchTerm, setSearchTerm] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [editingSite, setEditingSite] = useState<Site | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const filteredSites = sites.filter(s =>
-    s.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    s.address.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    (s.empresa && s.empresa.toLowerCase().includes(searchTerm.toLowerCase()))
-  );
+  const filteredSites = sites.filter(s => {
+    const matchesSearch = s.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      s.address.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (s.empresa && s.empresa.toLowerCase().includes(searchTerm.toLowerCase()));
+    
+    if (currentUser?.role === 'supervisor') {
+      return matchesSearch && currentEmp?.assignedSites?.includes(s.id);
+    }
+    return matchesSearch;
+  });
 
   const handleOpenAdd = () => {
     setEditingSite(null);
@@ -109,29 +117,31 @@ const SitesPage: React.FC = () => {
           <h1 className="text-2xl font-bold text-slate-900">Gestión de Sucursales</h1>
           <p className="text-slate-500">Administración de obras e instalaciones</p>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <input
-            type="file"
-            ref={fileInputRef}
-            onChange={handleFileUpload}
-            accept=".xlsx, .xls"
-            className="hidden"
-          />
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            className="bg-green-600 hover:bg-green-700 text-white px-3 py-2 rounded-lg font-medium flex-1 sm:flex-none flex items-center justify-center gap-2 shadow-lg transition"
-          >
-            <FileSpreadsheet size={18} />
-            <span className="text-sm">Importar</span>
-          </button>
-          <button
-            onClick={handleOpenAdd}
-            className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-lg font-medium flex-1 sm:flex-none flex items-center justify-center gap-2 shadow-lg transition"
-          >
-            <Plus size={18} />
-            <span className="text-sm">Nueva</span>
-          </button>
-        </div>
+        {isAdmin && (
+          <div className="flex flex-wrap gap-2">
+            <input
+              type="file"
+              ref={fileInputRef}
+              onChange={handleFileUpload}
+              accept=".xlsx, .xls"
+              className="hidden"
+            />
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="bg-green-600 hover:bg-green-700 text-white px-3 py-2 rounded-lg font-medium flex-1 sm:flex-none flex items-center justify-center gap-2 shadow-lg transition"
+            >
+              <FileSpreadsheet size={18} />
+              <span className="text-sm">Importar</span>
+            </button>
+            <button
+              onClick={handleOpenAdd}
+              className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-lg font-medium flex-1 sm:flex-none flex items-center justify-center gap-2 shadow-lg transition"
+            >
+              <Plus size={18} />
+              <span className="text-sm">Nueva</span>
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Buscador */}
@@ -193,20 +203,23 @@ const SitesPage: React.FC = () => {
                     </td>
                     <td className="px-6 py-4 text-center">
                       <button
-                        onClick={() => toggleSiteStatus(site.id)}
-                        className={`text-xs font-bold px-3 py-1 rounded-full border transition-all ${site.active ? 'bg-green-50 text-green-700 border-green-200 hover:bg-green-100' : 'bg-red-50 text-red-700 border-red-200 hover:bg-red-100'}`}
+                        onClick={() => isAdmin && toggleSiteStatus(site.id)}
+                        disabled={!isAdmin}
+                        className={`text-xs font-bold px-3 py-1 rounded-full border transition-all ${site.active ? 'bg-green-50 text-green-700 border-green-200 hover:bg-green-100' : 'bg-red-50 text-red-700 border-red-200 hover:bg-red-100'} ${!isAdmin ? 'cursor-default' : ''}`}
                       >
                         {site.active ? 'OPERATIVA' : 'INACTIVA'}
                       </button>
                     </td>
                     <td className="px-6 py-4 text-right">
-                      <button
-                        onClick={() => handleOpenEdit(site)}
-                        className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition"
-                        title="Modificar Datos"
-                      >
-                        <Edit2 size={18} />
-                      </button>
+                      {isAdmin && (
+                        <button
+                          onClick={() => handleOpenEdit(site)}
+                          className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition"
+                          title="Modificar Datos"
+                        >
+                          <Edit2 size={18} />
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))

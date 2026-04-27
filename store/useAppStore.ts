@@ -1078,12 +1078,23 @@ export const useAppStore = create<AppState>()(
 
       // --- SUPERVISOR MANAGEMENT ACTIONS ---
       fetchSupervisorTasks: async () => {
+        const { currentUser } = get();
+        if (!currentUser) return;
+
         try {
-          const snapshot = await getDocs(collection(db, "SupervisorTasks"));
+          let q;
+          if (currentUser.role === 'admin') {
+            // Admins can see all tasks to manage them
+            q = collection(db, "SupervisorTasks");
+          } else {
+            // Supervisors only see tasks assigned to them
+            q = query(collection(db, "SupervisorTasks"), where("supervisorId", "==", currentUser.uid));
+          }
+          const snapshot = await getDocs(q);
           const tasks: SupervisorTask[] = [];
           snapshot.forEach(doc => tasks.push({ ...doc.data(), id: doc.id } as SupervisorTask));
           set({ supervisorTasks: tasks });
-        } catch (error) { console.error(error); }
+        } catch (error) { console.error("Error fetching supervisor tasks:", error); }
       },
 
       addSupervisorTask: async (task) => {
@@ -1151,13 +1162,25 @@ export const useAppStore = create<AppState>()(
       },
 
       fetchResignationRequests: async () => {
+        const { currentUser } = get();
+        if (!currentUser) return;
+
         try {
-          const snapshot = await getDocs(collection(db, "ResignationRequests"));
+          let q;
+          if (currentUser.role === 'admin') {
+            q = query(collection(db, "ResignationRequests"), orderBy("createdAt", "desc"));
+          } else {
+            q = query(
+              collection(db, "ResignationRequests"),
+              where("supervisorId", "==", currentUser.uid),
+              orderBy("createdAt", "desc")
+            );
+          }
+          const snapshot = await getDocs(q);
           const requests: ResignationRequest[] = [];
           snapshot.forEach(doc => requests.push({ ...doc.data(), id: doc.id } as ResignationRequest));
-          requests.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
           set({ resignationRequests: requests });
-        } catch (error) { console.error(error); }
+        } catch (error) { console.error("Error fetching resignation requests:", error); }
       },
 
       addResignationRequest: async (requestData) => {
@@ -1194,8 +1217,17 @@ export const useAppStore = create<AppState>()(
       },
 
       fetchRecurringTasks: async () => {
+        const { currentUser } = get();
+        if (!currentUser) return;
+
         try {
-          const snapshot = await getDocs(collection(db, "RecurringSupervisorTasks"));
+          let q;
+          if (currentUser.role === 'admin') {
+            q = collection(db, "RecurringSupervisorTasks");
+          } else {
+            q = query(collection(db, "RecurringSupervisorTasks"), where("supervisorId", "==", currentUser.uid));
+          }
+          const snapshot = await getDocs(q);
           const tasks: RecurringSupervisorTask[] = [];
           snapshot.forEach(doc => tasks.push({ ...doc.data(), id: doc.id } as RecurringSupervisorTask));
           set({ recurringSupervisorTasks: tasks });
@@ -1203,8 +1235,17 @@ export const useAppStore = create<AppState>()(
       },
 
       fetchSubTasks: async () => {
+        const { currentUser } = get();
+        if (!currentUser) return;
+
         try {
-          const snapshot = await getDocs(collection(db, "SupervisorSubTasks"));
+          let q;
+          if (currentUser.role === 'admin') {
+            q = collection(db, "SupervisorSubTasks");
+          } else {
+            q = query(collection(db, "SupervisorSubTasks"), where("supervisorId", "==", currentUser.uid));
+          }
+          const snapshot = await getDocs(q);
           const tasks: SupervisorSubTask[] = [];
           snapshot.forEach(doc => tasks.push({ ...doc.data(), id: doc.id } as SupervisorSubTask));
           set({ supervisorSubTasks: tasks });
@@ -1263,8 +1304,13 @@ export const useAppStore = create<AppState>()(
 
       // --- BOARD NOTE ACTIONS ---
       fetchBoardNotes: async () => {
+        const { currentUser } = get();
+        if (!currentUser) return;
+
         try {
-          const snapshot = await getDocs(collection(db, "BoardNotes"));
+          // Las notas son privadas para cada cuenta (Admin o Supervisor)
+          const q = query(collection(db, "BoardNotes"), where("createdBy", "==", currentUser.uid));
+          const snapshot = await getDocs(q);
           const notes: BoardNote[] = [];
           snapshot.forEach(doc => notes.push({ ...doc.data(), id: doc.id } as BoardNote));
           notes.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
@@ -1410,9 +1456,18 @@ export const useAppStore = create<AppState>()(
       updateGuardRound: async (id, data) => {
         try {
           const docRef = doc(db, "Rondas", id);
-          await updateDoc(docRef, data);
+          
+          // Sanitizar datos para evitar errores de Firebase con 'undefined'
+          const cleanData = { ...data };
+          Object.keys(cleanData).forEach(key => {
+            if ((cleanData as any)[key] === undefined) {
+              delete (cleanData as any)[key];
+            }
+          });
+
+          await updateDoc(docRef, cleanData);
           set(state => ({
-            guardRounds: state.guardRounds.map(r => r.id === id ? { ...r, ...data } : r)
+            guardRounds: state.guardRounds.map(r => r.id === id ? { ...r, ...cleanData } : r)
           }));
         } catch (error) { console.error("Error updating round:", error); }
       },

@@ -71,10 +71,17 @@ export const DailyShiftPayment = () => {
     }, [employees, workerSearch]);
 
     const filteredSites = useMemo(() => {
-        if (!siteSearch) return sites.filter(s => s.active);
+        let base = sites.filter(s => s.active);
+        
+        if (currentUser?.role === 'supervisor') {
+            const currentEmp = employees.find(e => e.id === currentUser?.uid);
+            base = base.filter(s => currentEmp?.assignedSites?.includes(s.id));
+        }
+
+        if (!siteSearch) return base;
         const lower = siteSearch.toLowerCase();
-        return sites.filter(s => s.active && s.name.toLowerCase().includes(lower));
-    }, [sites, siteSearch]);
+        return base.filter(s => s.name.toLowerCase().includes(lower));
+    }, [sites, siteSearch, currentUser, employees]);
 
     const quickAmounts = [35000, 40000, 45000, 50000];
 
