@@ -23,14 +23,18 @@ import {
   FileCheck,
   ChevronRight,
   UserCircle,
-  Info
+  Info,
+  Zap
 } from 'lucide-react';
 
 import DocumentsPage from './DocumentsPage';
 import { db } from '../lib/firebase';
 import { collection, query, where, getDocs, onSnapshot, doc as firestoreDoc } from 'firebase/firestore';
+import { getToken, onMessage } from 'firebase/messaging';
+import { messaging } from '../lib/firebase';
 
 import RoundsControl from '../components/RoundsControl';
+import MarketTurnos from '../components/MarketTurnos';
 
 
 const WorkerAttendance: React.FC = () => {
@@ -45,8 +49,10 @@ const WorkerAttendance: React.FC = () => {
   const sites = useAppStore(state => state.sites);
   const updateEmployee = useAppStore(state => state.updateEmployee);
   const fetchInitialData = useAppStore(state => state.fetchInitialData);
+  const registerFCMToken = useAppStore(state => state.registerFCMToken);
+  const showNotification = useAppStore(state => state.showNotification);
 
-  const [step, setStep] = useState<'status' | 'keypad' | 'success' | 'rounds' | 'settings' | 'documents' | 'company_docs'>('status');
+  const [step, setStep] = useState<'status' | 'keypad' | 'success' | 'rounds' | 'settings' | 'documents' | 'company_docs' | 'market'>('status');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [lastAction, setLastAction] = useState<'check_in' | 'check_out' | null>(null);
 
@@ -154,6 +160,18 @@ const WorkerAttendance: React.FC = () => {
       return () => unsub();
     }
   }, [currentUser?.uid]);
+  // ── MANEJO DE NOTIFICACIONES (Centralizado en App.tsx) ────────────────
+  // Nota: La lógica de registro de tokens y escucha de mensajes se maneja en App.tsx
+  // para evitar duplicidad de notificaciones.
+  useEffect(() => {
+    const handleSWMessage = (event: MessageEvent) => {
+      if (event.data?.type === 'NAVIGATE_TO_DOCUMENTS') {
+        setStep('documents');
+      }
+    };
+    navigator.serviceWorker?.addEventListener('message', handleSWMessage);
+    return () => navigator.serviceWorker?.removeEventListener('message', handleSWMessage);
+  }, []);
 
 
   // Format RUT helpers
@@ -333,7 +351,7 @@ const WorkerAttendance: React.FC = () => {
           <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full -mr-16 -mt-16 blur-2xl pointer-events-none"></div>
           <div className="absolute bottom-0 left-0 w-24 h-24 bg-blue-400/10 rounded-full -ml-12 -mb-12 blur-xl pointer-events-none"></div>
 
-          <div className={`flex justify-between items-start relative z-10 transition-all duration-200 ease-out will-change-[transform,opacity] ${step === 'keypad' || step === 'rounds' ? 'opacity-0 scale-95 pointer-events-none absolute h-0 overflow-hidden' : 'opacity-100 scale-100'}`}>
+          <div className={`flex justify-between items-start relative z-10 transition-all duration-200 ease-out will-change-[transform,opacity] ${step === 'keypad' || step === 'rounds' || step === 'market' ? 'opacity-0 scale-95 pointer-events-none absolute h-0 overflow-hidden' : 'opacity-100 scale-100'}`}>
             <div className="flex items-center gap-4">
               <button
                 onClick={() => setIsSidebarOpen(!isSidebarOpen)}
@@ -352,7 +370,7 @@ const WorkerAttendance: React.FC = () => {
             </div>
           </div>
 
-          <div className={`bg-blue-950/40 p-4 rounded-2xl flex items-center gap-4 backdrop-blur-sm border border-white/10 transition-all duration-200 ease-out will-change-[transform,opacity] ${step === 'keypad' || step === 'rounds' ? 'opacity-0 scale-90 invisible pointer-events-none absolute h-0 overflow-hidden' : 'opacity-100 scale-100 visible mt-8'}`}>
+          <div className={`bg-blue-950/40 p-4 rounded-2xl flex items-center gap-4 backdrop-blur-sm border border-white/10 transition-all duration-200 ease-out will-change-[transform,opacity] ${step === 'keypad' || step === 'rounds' || step === 'market' ? 'opacity-0 scale-90 invisible pointer-events-none absolute h-0 overflow-hidden' : 'opacity-100 scale-100 visible mt-8'}`}>
             <div className="w-10 h-10 bg-blue-500/20 rounded-xl flex items-center justify-center text-blue-300">
               <MapPin size={22} />
             </div>
@@ -363,13 +381,13 @@ const WorkerAttendance: React.FC = () => {
           </div>
 
           {/* Mini version for Identification/Rounds - Extremely compact */}
-          {(step === 'keypad' || step === 'rounds') && (
+          {(step === 'keypad' || step === 'rounds' || step === 'market') && (
             <div className="flex items-center justify-center py-1 mt-1 animate-in fade-in duration-200 zoom-in-95 will-change-transform">
                <div className="w-10 h-10 bg-amber-400/20 rounded-xl flex items-center justify-center text-amber-400 border border-amber-400/30">
-                <ShieldCheck size={24} />
+                {step === 'market' ? <Zap size={24} /> : <ShieldCheck size={24} />}
               </div>
               <h1 className="ml-3 text-sm font-black tracking-widest opacity-90 uppercase">
-                {step === 'keypad' ? 'Validación de Turno' : 'Monitoreo Activo'}
+                {step === 'keypad' ? 'Validación de Turno' : step === 'market' ? 'Solicitudes Turnos Extra' : 'Monitoreo Activo'}
               </h1>
             </div>
           )}
@@ -377,7 +395,7 @@ const WorkerAttendance: React.FC = () => {
       )}
 
       {/* MAIN ACTION AREA */}
-      <div className={`flex-1 transition-all duration-200 ease-out will-change-transform ${step === 'keypad' || step === 'rounds' ? 'mt-2' : (step === 'settings' ? 'mt-0' : '-mt-6')} px-6 relative z-20 overflow-y-auto pb-10`}>
+      <div className={`flex-1 transition-all duration-200 ease-out will-change-transform ${step === 'keypad' || step === 'rounds' || step === 'market' ? 'mt-2' : (step === 'settings' ? 'mt-0' : '-mt-6')} px-6 relative z-20 overflow-y-auto pb-10`}>
 
         {step === 'status' && (
           <div className="space-y-6 animate-in fade-in slide-in-from-bottom-5 duration-500 h-full flex flex-col items-center justify-center min-h-[400px]">
@@ -398,6 +416,16 @@ const WorkerAttendance: React.FC = () => {
                 >
                   <Clock size={48} className="group-hover:scale-110 transition-transform" />
                   <span className="text-2xl font-black tracking-widest">INICIAR TURNO</span>
+                </button>
+                
+                <button
+                  onClick={() => setStep('market')}
+                  className="w-full py-6 bg-indigo-600 hover:bg-indigo-700 text-white rounded-[2rem] shadow-xl shadow-indigo-200 flex flex-col items-center justify-center gap-2 transition-all active:scale-95 group border-b-8 border-indigo-800 relative mt-4 overflow-hidden"
+                >
+                  <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -mr-16 -mt-16 blur-xl pointer-events-none"></div>
+                  <Zap size={32} className="text-yellow-400 group-hover:scale-110 transition-transform drop-shadow-md" />
+                  <span className="text-lg font-black tracking-widest">TURNOS EXTRA</span>
+                  <div className="px-3 py-1 bg-white/20 rounded-full text-[10px] font-bold uppercase tracking-widest mt-1">Ver Solicitudes</div>
                 </button>
               </div>
             ) : (
@@ -437,6 +465,14 @@ const WorkerAttendance: React.FC = () => {
                   </button>
 
                   <button
+                    onClick={() => setStep('market')}
+                    className="w-full py-6 bg-indigo-600 hover:bg-indigo-700 text-white rounded-[2rem] shadow-xl shadow-indigo-200 flex items-center justify-center gap-3 transition-all active:scale-95 border-b-8 border-indigo-800"
+                  >
+                    <Zap size={28} className="text-yellow-400" />
+                    <span className="text-xl font-black tracking-wider uppercase">TURNOS EXTRA</span>
+                  </button>
+
+                  <button
                     onClick={() => setStep('keypad')}
                     className="w-full py-6 bg-red-500 hover:bg-red-600 text-white rounded-[2rem] shadow-xl shadow-red-200 flex items-center justify-center gap-3 transition-all active:scale-95 border-b-8 border-red-700"
                   >
@@ -451,6 +487,21 @@ const WorkerAttendance: React.FC = () => {
 
         {step === 'rounds' && (
           <RoundsControl onBack={() => setStep('status')} />
+        )}
+        
+        {step === 'market' && (
+          <div className="bg-slate-50 min-h-screen pb-20 -mx-6">
+            <div className="bg-white p-4 flex items-center gap-4 sticky top-0 z-30 shadow-sm border-b mb-4">
+              <button
+                onClick={() => setStep('status')}
+                className="p-2 text-slate-500 hover:bg-slate-100 rounded-xl transition-all"
+              >
+                <ArrowLeft size={24} />
+              </button>
+              <h2 className="font-black text-slate-800 tracking-tight text-lg">Solicitudes Turnos Extra</h2>
+            </div>
+            <MarketTurnos />
+          </div>
         )}
 
         {step === 'documents' && (
@@ -757,7 +808,7 @@ const WorkerAttendance: React.FC = () => {
 
       </div>
 
-      <div className={`p-6 text-center text-[10px] font-black text-slate-300 uppercase tracking-widest opacity-50 transition-all duration-500 ${step === 'keypad' || step === 'documents' || step === 'company_docs' ? 'opacity-0 h-0 p-0 overflow-hidden' : 'opacity-50'}`}>
+      <div className={`p-6 text-center text-[10px] font-black text-slate-300 uppercase tracking-widest opacity-50 transition-all duration-500 ${step === 'keypad' || step === 'documents' || step === 'company_docs' || step === 'market' ? 'opacity-0 h-0 p-0 overflow-hidden' : 'opacity-50'}`}>
         GGSS Security • Attendance Control v3.0
       </div>
 

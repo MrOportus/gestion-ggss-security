@@ -318,3 +318,20 @@ export interface Reminder {
   createdAt: any; // Firestore Timestamp
 }
 
+export interface SolicitudTurno {
+  id: string;
+  id_sucursal: number | string;
+  sucursal_nombre: string;
+  horario_inicio: string;
+  horario_fin: string;
+  monto: number;
+  estado: 'disponible' | 'asignado' | 'completado';
+  guardias_permitidos: string[]; // Array of allowed guard UIDs
+  id_colaborador_asignado?: string;
+  nombre_colaborador_asignado?: string;
+  notas?: string;
+  creado_por: string;
+  fecha_creacion: string;
+}
+
+

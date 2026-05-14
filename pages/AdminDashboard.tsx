@@ -57,8 +57,18 @@ const AdminDashboard: React.FC = () => {
     return d < date;
   };
 
-  // Listas de Empleados según criterio
-  const activeEmployees = employees.filter(e => e.isActive);
+  // 1.1 Obtener datos del usuario actual para filtrado
+  const currentEmp = employees.find(e => e.id === currentUser?.uid);
+  
+  // Listas de Empleados según criterio (Filtrado por rol para Supervisores)
+  const activeEmployees = employees.filter(e => {
+    if (!e.isActive) return false;
+    // Si es supervisor, solo ve empleados de sus sedes asignadas
+    if (currentUser?.role === 'supervisor') {
+      return (currentEmp?.assignedSites || []).includes(e.currentSiteId);
+    }
+    return true;
+  });
 
   const expiringOS10_30 = activeEmployees.filter(e => isBetween(e.fechaVencimientoOS10, today, thirtyDaysFromNow));
   const expiringOS10_60 = activeEmployees.filter(e => {
@@ -248,7 +258,7 @@ const AdminDashboard: React.FC = () => {
     };
   }, [employees, currentUser]);
 
-  const currentEmp = employees.find(e => e.id === currentUser?.uid);
+
   const activeSites = sites.filter(s =>
     s.active &&
     s.name !== 'Administración' &&
@@ -808,144 +818,123 @@ const AdminDashboard: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {activeFilter === 'os10_all' ? (
-                    /* ... FILTRO OS10 ... */
-                    <>
-                      {[
-                        { label: 'CRÍTICO: YA VENCIDOS', list: filteredList.filter(e => isBefore(e.fechaVencimientoOS10, today)), color: 'text-red-600', bg: 'bg-red-50/50', icon: AlertCircle },
-                        { label: 'URGENTE: VENCE < 30 DÍAS', list: filteredList.filter(e => isBetween(e.fechaVencimientoOS10, today, thirtyDaysFromNow)), color: 'text-orange-600', bg: 'bg-orange-50/50', icon: ShieldAlert },
-                        {
-                          label: 'AVISO: VENCE 30-60 DÍAS', list: filteredList.filter(e => {
-                            if (!e.fechaVencimientoOS10) return false;
-                            const d = new Date(e.fechaVencimientoOS10);
-                            d.setHours(0, 0, 0, 0);
-                            return d > thirtyDaysFromNow && d <= sixtyDaysFromNow;
-                          }), color: 'text-orange-400', bg: 'bg-slate-50/30', icon: ShieldAlert
-                        },
-                        {
-                          label: 'PLANIFICACIÓN: VENCE 60-90 DÍAS', list: filteredList.filter(e => {
-                            if (!e.fechaVencimientoOS10) return false;
-                            const d = new Date(e.fechaVencimientoOS10);
-                            d.setHours(0, 0, 0, 0);
-                            return d > sixtyDaysFromNow && d <= ninetyDaysFromNow;
-                          }), color: 'text-yellow-600', bg: 'bg-slate-50/10', icon: ShieldAlert
-                        },
-                      ].map((group, gIdx) => (
-                        group.list.length > 0 && (
-                          <React.Fragment key={gIdx}>
-                            <tr className={`${group.bg} border-y border-slate-100`}>
-                              <td colSpan={5} className="px-6 py-2">
-                                <div className={`flex items-center gap-2 text-[10px] font-black tracking-widest ${group.color}`}>
-                                  <group.icon size={12} />
-                                  {group.label} ({group.list.length})
-                                </div>
-                              </td>
-                            </tr>
-                            {group.list.map((emp) => {
-                              const siteName = sites.find(s => s.id === emp.currentSiteId)?.name || 'Sin Asignar';
-                              return (
-                                <tr key={emp.id} className="hover:bg-blue-50/50 transition-colors group">
-                                  <td className="px-6 py-3">
-                                    <div className="font-bold text-slate-900">{emp.firstName}</div>
-                                    <div className="text-xs text-slate-500 uppercase">{emp.lastNamePaterno} {emp.lastNameMaterno}</div>
-                                  </td>
-                                  <td className="px-6 py-3 font-mono text-xs">{emp.rut}</td>
-                                  {dateColumnHeader && (
-                                    <td className="px-6 py-3 text-center">
-                                      {renderDateCell(emp)}
-                                    </td>
-                                  )}
-                                  <td className="px-6 py-3">
-                                    <div className="text-xs font-bold text-slate-700">{emp.cargo}</div>
-                                    <div className="text-[10px] text-slate-400 flex items-center gap-1">
-                                      <MapPin size={10} /> {siteName}
+                  {(activeFilter === 'os10_all' || activeFilter === 'contracts_all') ? (
+                    /* ── ALERTAS con sub-agrupación por Empresa ── */
+                    (() => {
+                      // Helper: obtener el nombre de empresa de un empleado
+                      const getEmpresa = (emp: typeof employees[0]) => {
+                        const site = sites.find(s => s.id === emp.currentSiteId);
+                        return site?.empresa || 'Sin Empresa';
+                      };
+
+                      const isOS10 = activeFilter === 'os10_all';
+
+                      const urgencyGroups = isOS10 ? [
+                        { label: 'CRÍTICO: YA VENCIDOS',            list: filteredList.filter(e => isBefore(e.fechaVencimientoOS10, today)),                                            color: 'text-red-600',    bg: 'bg-red-50/60',     icon: AlertCircle },
+                        { label: 'URGENTE: VENCE < 30 DÍAS',        list: filteredList.filter(e => isBetween(e.fechaVencimientoOS10, today, thirtyDaysFromNow)),                       color: 'text-orange-600', bg: 'bg-orange-50/60',  icon: ShieldAlert },
+                        { label: 'AVISO: VENCE 30-60 DÍAS',         list: filteredList.filter(e => { if (!e.fechaVencimientoOS10) return false; const d = new Date(e.fechaVencimientoOS10); d.setHours(0,0,0,0); return d > thirtyDaysFromNow && d <= sixtyDaysFromNow; }), color: 'text-orange-400', bg: 'bg-slate-50/40', icon: ShieldAlert },
+                        { label: 'PLANIFICACIÓN: VENCE 60-90 DÍAS', list: filteredList.filter(e => { if (!e.fechaVencimientoOS10) return false; const d = new Date(e.fechaVencimientoOS10); d.setHours(0,0,0,0); return d > sixtyDaysFromNow && d <= ninetyDaysFromNow; }), color: 'text-yellow-600', bg: 'bg-slate-50/20', icon: ShieldAlert },
+                      ] : [
+                        { label: 'CRÍTICO: CONTRATO VENCIDO',       list: filteredList.filter(e => isBefore(e.fechaTerminoContrato, today)),                                            color: 'text-red-600',    bg: 'bg-red-50/60',     icon: AlertCircle },
+                        { label: 'URGENTE: VENCE < 30 DÍAS',        list: filteredList.filter(e => isBetween(e.fechaTerminoContrato, today, thirtyDaysFromNow)),                       color: 'text-orange-600', bg: 'bg-orange-50/60',  icon: FileWarning },
+                        { label: 'AVISO: VENCE 30-60 DÍAS',         list: filteredList.filter(e => { if (!e.fechaTerminoContrato) return false; const d = new Date(e.fechaTerminoContrato); d.setHours(0,0,0,0); return d > thirtyDaysFromNow && d <= sixtyDaysFromNow; }), color: 'text-blue-600', bg: 'bg-blue-50/30', icon: FileCheck },
+                        { label: 'PLANIFICACIÓN: VENCE 60-90 DÍAS', list: filteredList.filter(e => { if (!e.fechaTerminoContrato) return false; const d = new Date(e.fechaTerminoContrato); d.setHours(0,0,0,0); return d > sixtyDaysFromNow && d <= ninetyDaysFromNow; }), color: 'text-slate-600', bg: 'bg-slate-50/10', icon: FileCheck },
+                      ];
+
+                      return (
+                        <>
+                          {urgencyGroups.map((group, gIdx) => {
+                            if (group.list.length === 0) return null;
+
+                            // Agrupar empleados de este grupo por empresa
+                            const byEmpresa = group.list.reduce((acc, emp) => {
+                              const empresa = getEmpresa(emp);
+                              if (!acc[empresa]) acc[empresa] = [];
+                              acc[empresa].push(emp);
+                              return acc;
+                            }, {} as Record<string, typeof employees>);
+
+                            // Ordenar empresas: "Sin Empresa" al final
+                            const empresaKeys = Object.keys(byEmpresa).sort((a, b) => {
+                              if (a === 'Sin Empresa') return 1;
+                              if (b === 'Sin Empresa') return -1;
+                              return a.localeCompare(b);
+                            });
+
+                            return (
+                              <React.Fragment key={gIdx}>
+                                {/* ── Encabezado de Nivel de Urgencia ── */}
+                                <tr className={`${group.bg} border-y border-slate-200`}>
+                                  <td colSpan={5} className="px-6 py-2.5">
+                                    <div className={`flex items-center gap-2 text-[10px] font-black tracking-widest ${group.color}`}>
+                                      <group.icon size={12} />
+                                      {group.label} — {group.list.length} PERSONA{group.list.length !== 1 ? 'S' : ''}
                                     </div>
                                   </td>
-                                  <td className="px-6 py-3 text-right">
-                                    <button
-                                      onClick={() => setSelectedEmployeeId(emp.id)}
-                                      className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-100 rounded-lg transition"
-                                      title="Ver Ficha Completa"
-                                    >
-                                      <Eye size={18} />
-                                    </button>
-                                  </td>
                                 </tr>
-                              );
-                            })}
-                          </React.Fragment>
-                        )
-                      ))}
-                    </>
-                  ) : activeFilter === 'contracts_all' ? (
-                    /* ... FILTRO CONTRATOS ... */
-                    <>
-                      {[
-                        { label: 'CRÍTICO: CONTRATO VENCIDO', list: filteredList.filter(e => isBefore(e.fechaTerminoContrato, today)), color: 'text-red-600', bg: 'bg-red-50/50', icon: AlertCircle },
-                        { label: 'URGENTE: VENCE < 30 DÍAS', list: filteredList.filter(e => isBetween(e.fechaTerminoContrato, today, thirtyDaysFromNow)), color: 'text-orange-600', bg: 'bg-orange-50/50', icon: FileWarning },
-                        {
-                          label: 'AVISO: VENCE 30-60 DÍAS', list: filteredList.filter(e => {
-                            if (!e.fechaTerminoContrato) return false;
-                            const d = new Date(e.fechaTerminoContrato);
-                            d.setHours(0, 0, 0, 0);
-                            return d > thirtyDaysFromNow && d <= sixtyDaysFromNow;
-                          }), color: 'text-blue-600', bg: 'bg-blue-50/30', icon: FileCheck
-                        },
-                        {
-                          label: 'PLANIFICACIÓN: VENCE 60-90 DÍAS', list: filteredList.filter(e => {
-                            if (!e.fechaTerminoContrato) return false;
-                            const d = new Date(e.fechaTerminoContrato);
-                            d.setHours(0, 0, 0, 0);
-                            return d > sixtyDaysFromNow && d <= ninetyDaysFromNow;
-                          }), color: 'text-slate-600', bg: 'bg-slate-50/10', icon: FileCheck
-                        },
-                      ].map((group, gIdx) => (
-                        group.list.length > 0 && (
-                          <React.Fragment key={gIdx}>
-                            <tr className={`${group.bg} border-y border-slate-100`}>
-                              <td colSpan={5} className="px-6 py-2">
-                                <div className={`flex items-center gap-2 text-[10px] font-black tracking-widest ${group.color}`}>
-                                  <group.icon size={12} />
-                                  {group.label} ({group.list.length})
-                                </div>
-                              </td>
-                            </tr>
-                            {group.list.map((emp) => {
-                              const siteName = sites.find(s => s.id === emp.currentSiteId)?.name || 'Sin Asignar';
-                              return (
-                                <tr key={emp.id} className="hover:bg-blue-50/50 transition-colors group">
-                                  <td className="px-6 py-3">
-                                    <div className="font-bold text-slate-900">{emp.firstName}</div>
-                                    <div className="text-xs text-slate-500 uppercase">{emp.lastNamePaterno} {emp.lastNameMaterno}</div>
-                                  </td>
-                                  <td className="px-6 py-3 font-mono text-xs">{emp.rut}</td>
-                                  {dateColumnHeader && (
-                                    <td className="px-6 py-3 text-center">
-                                      {renderDateCell(emp)}
-                                    </td>
-                                  )}
-                                  <td className="px-6 py-3">
-                                    <div className="text-xs font-bold text-slate-700">{emp.cargo}</div>
-                                    <div className="text-[10px] text-slate-400 flex items-center gap-1">
-                                      <MapPin size={10} /> {siteName}
-                                    </div>
-                                  </td>
-                                  <td className="px-6 py-3 text-right">
-                                    <button
-                                      onClick={() => setSelectedEmployeeId(emp.id)}
-                                      className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-100 rounded-lg transition"
-                                      title="Ver Ficha Completa"
-                                    >
-                                      <Eye size={18} />
-                                    </button>
-                                  </td>
-                                </tr>
-                              );
-                            })}
-                          </React.Fragment>
-                        )
-                      ))}
-                    </>
+
+                                {/* ── Sub-grupos por Empresa ── */}
+                                {empresaKeys.map((empresa) => {
+                                  const empList = byEmpresa[empresa];
+                                  return (
+                                    <React.Fragment key={empresa}>
+                                      {/* Separador de Empresa */}
+                                      <tr className="bg-slate-100/80 border-y border-slate-200">
+                                        <td colSpan={5} className="px-8 py-1.5">
+                                          <div className="flex items-center gap-2">
+                                            <div className="w-2 h-2 rounded-full bg-slate-400" />
+                                            <span className="text-[10px] font-black text-slate-500 uppercase tracking-[0.15em]">
+                                              {empresa}
+                                            </span>
+                                            <span className="text-[10px] font-bold text-slate-400">
+                                              ({empList.length})
+                                            </span>
+                                          </div>
+                                        </td>
+                                      </tr>
+
+                                      {/* Filas de empleados de esta empresa */}
+                                      {empList.map((emp) => {
+                                        const siteName = sites.find(s => s.id === emp.currentSiteId)?.name || 'Sin Asignar';
+                                        return (
+                                          <tr key={emp.id} className="hover:bg-blue-50/50 transition-colors group">
+                                            <td className="px-6 py-3">
+                                              <div className="font-bold text-slate-900">{emp.firstName}</div>
+                                              <div className="text-xs text-slate-500 uppercase">{emp.lastNamePaterno} {emp.lastNameMaterno}</div>
+                                            </td>
+                                            <td className="px-6 py-3 font-mono text-xs">{emp.rut}</td>
+                                            {dateColumnHeader && (
+                                              <td className="px-6 py-3 text-center">
+                                                {renderDateCell(emp)}
+                                              </td>
+                                            )}
+                                            <td className="px-6 py-3">
+                                              <div className="text-xs font-bold text-slate-700">{emp.cargo}</div>
+                                              <div className="text-[10px] text-slate-400 flex items-center gap-1">
+                                                <MapPin size={10} /> {siteName}
+                                              </div>
+                                            </td>
+                                            <td className="px-6 py-3 text-right">
+                                              <button
+                                                onClick={() => setSelectedEmployeeId(emp.id)}
+                                                className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-100 rounded-lg transition"
+                                                title="Ver Ficha Completa"
+                                              >
+                                                <Eye size={18} />
+                                              </button>
+                                            </td>
+                                          </tr>
+                                        );
+                                      })}
+                                    </React.Fragment>
+                                  );
+                                })}
+                              </React.Fragment>
+                            );
+                          })}
+                        </>
+                      );
+                    })()
                   ) : (
                     /* ... OTROS FILTROS ... */
                     filteredList.map((emp) => {

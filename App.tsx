@@ -17,15 +17,14 @@ import RoundsAdminPage from './pages/RoundsAdminPage';
 import ShiftManagement from './pages/ShiftManagement';
 import LoansPage from './pages/LoansPage';
 import DocumentsPage from './pages/DocumentsPage';
-import { StickyNote, Navigation, CalendarDays, Receipt, ShieldCheck } from 'lucide-react';
+import { StickyNote, Navigation, CalendarDays, Receipt, ShieldCheck, Zap } from 'lucide-react';
 import { getToken, onMessage } from "firebase/messaging";
 import { messaging } from './lib/firebase';
-
-
+import PanelAdminSolicitudes from './components/PanelAdminSolicitudes';
 
 const App: React.FC = () => {
   const { currentUser, logout, fetchInitialData, isLoading, initializeAuthListener, registerFCMToken, showNotification } = useAppStore();
-  const [currentView, setCurrentView] = useState<'dashboard' | 'employees' | 'tasks' | 'sites' | 'payments' | 'supervisor_mgmt' | 'notes' | 'attendance' | 'rounds' | 'shift_management' | 'loans' | 'documents'>('dashboard');
+  const [currentView, setCurrentView] = useState<'dashboard' | 'employees' | 'tasks' | 'sites' | 'payments' | 'supervisor_mgmt' | 'notes' | 'attendance' | 'rounds' | 'shift_management' | 'loans' | 'documents' | 'solicitudes_turnos_extra'>('dashboard');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [authInitialized, setAuthInitialized] = useState(false);
 
@@ -44,34 +43,75 @@ const App: React.FC = () => {
     const setupNotifications = async () => {
       const vapidKey = import.meta.env.VITE_FIREBASE_VAPID_KEY;
       if (!vapidKey) {
-        console.warn("[PUSH] VITE_FIREBASE_VAPID_KEY no configurada, notificaciones push deshabilitadas.");
+        console.warn('[PUSH] VITE_FIREBASE_VAPID_KEY no configurada, notificaciones push deshabilitadas.');
         return;
       }
       try {
         const permission = await Notification.requestPermission();
         if (permission === 'granted') {
-          const token = await getToken(messaging, { vapidKey });
+          // Enviar config al SW activo para que pueda inicializar FCM en background
+          const swReg = await navigator.serviceWorker.getRegistration();
+          if (swReg?.active) {
+            swReg.active.postMessage({
+              type: 'FIREBASE_CONFIG',
+              config: {
+                apiKey:            import.meta.env.VITE_FIREBASE_API_KEY,
+                authDomain:        import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+                projectId:         import.meta.env.VITE_FIREBASE_PROJECT_ID,
+                storageBucket:     import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+                messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+                appId:             import.meta.env.VITE_FIREBASE_APP_ID,
+              },
+            });
+          }
+
+          const token = await getToken(messaging, {
+            vapidKey,
+            serviceWorkerRegistration: swReg,
+          });
           if (token) {
             await registerFCMToken(currentUser.uid, token);
-            console.log("FCM Token registrado para:", currentUser.email);
+            console.log('[FCM] Token registrado para:', currentUser.email);
           }
+        } else if (permission === 'denied') {
+          console.warn('[FCM] Permiso de notificaciones denegado por el usuario.');
         }
       } catch (error) {
-        console.error("Error setting up notifications:", error);
+        console.error('[FCM] Error configurando notificaciones:', error);
       }
     };
 
     setupNotifications();
 
+    // Escuchar mensajes en primer plano
     const unsubscribe = onMessage(messaging, (payload) => {
-      console.log('Mensaje recibido en primer plano: ', payload);
-      if (payload.notification) {
-        showNotification(`${payload.notification.title}: ${payload.notification.body}`, 'info');
+      console.log('[FCM] Mensaje en primer plano:', payload);
+      
+      // Solo mostrar la alerta si esta pestaña es la que el usuario está viendo
+      // Esto evita duplicados si hay varias pestañas abiertas.
+      if (payload.notification && document.visibilityState === 'visible') {
+        showNotification(
+          `${payload.notification.title}: ${payload.notification.body}`,
+          'info'
+        );
       }
     });
 
     return () => unsubscribe();
   }, [currentUser, registerFCMToken, showNotification]);
+
+  // --- LISTENER: Navegación desde notificación push (click en background) ---
+  useEffect(() => {
+    const handleSWMessage = (event: MessageEvent) => {
+      if (event.data?.type === 'NAVIGATE_TO_DOCUMENTS') {
+        console.log('[FCM] SW solicitó navegar a documentos. docId:', event.data.docId);
+        setCurrentView('documents');
+      }
+    };
+
+    navigator.serviceWorker?.addEventListener('message', handleSWMessage);
+    return () => navigator.serviceWorker?.removeEventListener('message', handleSWMessage);
+  }, []);
 
   // Pantalla de carga inicial mientras Firebase verifica la sesión
   if (!authInitialized) {
@@ -151,6 +191,13 @@ const App: React.FC = () => {
             <CalendarDays size={20} />
             <span className="font-medium">Gestión de Turnos</span>
           </button>
+
+          {currentUser.role === 'admin' && (
+            <button onClick={() => setCurrentView('solicitudes_turnos_extra')} className={navItemClass('solicitudes_turnos_extra')}>
+              <Zap size={20} className="text-yellow-500" />
+              <span className="font-medium">Turnos Extra</span>
+            </button>
+          )}
 
           <button onClick={() => setCurrentView('payments')} className={navItemClass('payments')}>
             <DollarSign size={20} />
@@ -254,7 +301,8 @@ const App: React.FC = () => {
                               currentView === 'rounds' ? 'Monitoreo Rondas' :
                                 currentView === 'shift_management' ? 'Gestión de Turnos' :
                                   currentView === 'loans' ? 'Préstamos' :
-                                    currentView === 'documents' ? 'Documentos' : currentView}
+                                    currentView === 'documents' ? 'Documentos' : 
+                                      currentView === 'solicitudes_turnos_extra' ? 'Solicitudes Turnos Extra' : currentView}
 
 
               </span>
@@ -294,6 +342,12 @@ const App: React.FC = () => {
                 <div className="flex items-center gap-3"><CalendarDays size={20} /> Gestión de Turnos</div>
                 <ChevronRight size={16} className="text-slate-300" />
               </button>
+              {currentUser.role === 'admin' && (
+                <button onClick={() => handleNavChange('solicitudes_turnos_extra')} className={mobileNavItemClass('solicitudes_turnos_extra')}>
+                  <div className="flex items-center gap-3"><Zap size={20} className="text-yellow-500" /> Turnos Extra</div>
+                  <ChevronRight size={16} className="text-slate-300" />
+                </button>
+              )}
               <button onClick={() => handleNavChange('payments')} className={mobileNavItemClass('payments')}>
                 <div className="flex items-center gap-3"><DollarSign size={20} /> Pago de Turnos</div>
                 <ChevronRight size={16} className="text-slate-300" />
@@ -369,6 +423,7 @@ const App: React.FC = () => {
             {currentView === 'rounds' && currentUser.role === 'admin' && <RoundsAdminPage />}
             {currentView === 'supervisor_mgmt' && currentUser.role === 'admin' && <SupervisorManagement />}
             {currentView === 'shift_management' && <ShiftManagement />}
+            {currentView === 'solicitudes_turnos_extra' && currentUser.role === 'admin' && <PanelAdminSolicitudes />}
             {currentView === 'loans' && <LoansPage />}
             {currentView === 'documents' && <DocumentsPage />}
 
