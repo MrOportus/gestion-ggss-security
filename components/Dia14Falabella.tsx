@@ -15,7 +15,7 @@ const Dia14Falabella: React.FC<Dia14FalabellaProps> = ({ onBack }) => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [falabellaFiles, setFalabellaFiles] = useState<{ active?: File, platform?: File }>({});
   const [falabellaResults, setFalabellaResults] = useState<{
-    matches: { rut: string, name: string, matchType: string }[],
+    matches: { rut: string, name: string, matchType: string, masterKey?: string }[],
     onlyActive: { rut: string, name: string }[],
     onlyPlatform: { rut: string, name: string }[],
     manualReview: { active: { rut: string, name: string }, platform: { rut: string, name: string }, reason: string }[]
@@ -23,15 +23,69 @@ const Dia14Falabella: React.FC<Dia14FalabellaProps> = ({ onBack }) => {
 
   const cleanRut = (rut: any) => {
     if (!rut) return '';
+    // Remove all non-alphanumeric, keep only numbers and 'k'
     return String(rut).toLowerCase().replace(/[^0-9k]/g, '');
+  };
+
+  const getRutBody = (rut: string) => {
+    const cleaned = cleanRut(rut);
+    if (cleaned.length <= 1) return cleaned;
+    return cleaned.slice(0, -1);
   };
 
   const cleanName = (name: any) => {
     if (!name) return '';
-    return String(name).toUpperCase()
-      .normalize("NFD").replace(/[u0300-u036f]/g, "")
-      .replace(/[^A-Z0-9s]/g, '')
-      .trim().replace(/s+/g, ' ');
+    return String(name).toLowerCase()
+      .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-z0-9\s]/g, '')
+      .trim().replace(/\s+/g, ' ');
+  };
+
+  const getLevenshteinDistance = (a: string, b: string) => {
+    const matrix = Array.from({ length: a.length + 1 }, () =>
+      Array.from({ length: b.length + 1 }, (_, i) => i)
+    );
+    for (let i = 0; i <= a.length; i++) matrix[i][0] = i;
+    for (let j = 0; j <= b.length; j++) matrix[0][j] = j;
+
+    for (let i = 1; i <= a.length; i++) {
+      for (let j = 1; j <= b.length; j++) {
+        const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+        matrix[i][j] = Math.min(
+          matrix[i - 1][j] + 1,
+          matrix[i][j - 1] + 1,
+          matrix[i - 1][j - 1] + cost
+        );
+      }
+    }
+    return matrix[a.length][b.length];
+  };
+
+  const isNameSimilar = (name1: string, name2: string) => {
+    const n1 = cleanName(name1);
+    const n2 = cleanName(name2);
+    if (n1 === n2) return true;
+
+    const words1 = n1.split(' ').filter(w => w.length > 2);
+    const words2 = n2.split(' ').filter(w => w.length > 2);
+
+    if (words1.length === 0 || words2.length === 0) return false;
+
+    // Check if one is a subset of the other
+    const isSubset = words1.every(w => words2.includes(w)) || words2.every(w => words1.includes(w));
+    if (isSubset) return true;
+
+    // Word inclusion (at least 2 matching words or 50% of the shorter name)
+    const commonWords = words1.filter(w => words2.includes(w));
+    const minWords = Math.min(words1.length, words2.length);
+    if (commonWords.length >= 2 || (minWords > 0 && commonWords.length / minWords >= 0.6)) return true;
+
+    // Fuzzy match for small typos (Levenshtein)
+    const distance = getLevenshteinDistance(n1, n2);
+    const maxLength = Math.max(n1.length, n2.length);
+    if (distance <= 2 || (maxLength > 0 && distance / maxLength < 0.15)) return true;
+
+    return false;
   };
 
   const handleFalabellaFileChange = (type: 'active' | 'platform', e: React.ChangeEvent<HTMLInputElement>) => {
@@ -133,74 +187,75 @@ const Dia14Falabella: React.FC<Dia14FalabellaProps> = ({ onBack }) => {
       });
 
       const matches: any[] = [];
-      const pendingActive: any[] = [];
+      const manualReview: any[] = [];
       const matchedPlatformIds = new Set<string>();
       const matchedActiveRuts = new Set<string>();
 
+      // 1. PRIMARY MATCH: RUT Body (ignore symbols and DV to be flexible)
       activeList.forEach(activeItem => {
-        const matchIndex = platformList.findIndex(p => !matchedPlatformIds.has(p.id) && p.cleanRut === activeItem.cleanRut);
-        if (matchIndex !== -1) {
-          const match = platformList[matchIndex];
-          matches.push({ rut: activeItem.rut, name: activeItem.name, matchType: 'RUT' });
-          matchedPlatformIds.add(match.id);
-          matchedActiveRuts.add(activeItem.cleanRut);
-        }
-      });
-
-      activeList.forEach(activeItem => {
-        if (matchedActiveRuts.has(activeItem.cleanRut)) return;
-        const matchIndex = platformList.findIndex(p => !matchedPlatformIds.has(p.id) && p.cleanName === activeItem.cleanName);
-        if (matchIndex !== -1) {
-          const match = platformList[matchIndex];
-          matches.push({ rut: activeItem.rut, name: activeItem.name, matchType: 'NOMBRE' });
-          matchedPlatformIds.add(match.id);
-          matchedActiveRuts.add(activeItem.cleanRut);
-        } else {
-          pendingActive.push(activeItem);
-        }
-      });
-
-      const manualReview: any[] = [];
-      const onlyActive: any[] = [];
-      const getRutBase = (r: string) => r.replace(/[^0-9]/g, '');
-      const getWords = (n: string) => n.split(' ').filter(w => w.length > 2);
-
-      pendingActive.forEach(a => {
-        const aBase = getRutBase(a.cleanRut);
-        const aWords = getWords(a.cleanName);
-
-        const simIndex = platformList.findIndex(p => {
+        const activeBody = getRutBody(activeItem.cleanRut);
+        
+        const matchIndex = platformList.findIndex(p => {
           if (matchedPlatformIds.has(p.id)) return false;
-
-          const pBase = getRutBase(p.cleanRut);
-          const pWords = getWords(p.cleanName);
-
-          if (aBase === pBase && aBase.length > 5) return true;
-          const commonWords = aWords.filter(w => pWords.includes(w));
-          if (commonWords.length >= 2) return true;
-
-          return false;
+          return getRutBody(p.cleanRut) === activeBody;
         });
 
-        if (simIndex !== -1) {
-          const p = platformList[simIndex];
-          manualReview.push({
-            active: { rut: a.rut, name: a.name },
-            platform: { rut: p.rut, name: p.name },
-            reason: getRutBase(a.cleanRut) === getRutBase(p.cleanRut) ? 'RUT Similar' : 'Nombre Similar'
-          });
-          matchedPlatformIds.add(p.id);
-        } else {
-          onlyActive.push({ rut: a.rut, name: a.name });
+        if (matchIndex !== -1) {
+          const p = platformList[matchIndex];
+          // Check name similarity to confirm or send to manual review
+          if (isNameSimilar(activeItem.name, p.name)) {
+            matches.push({ 
+              rut: activeItem.rut, 
+              name: activeItem.name, 
+              matchType: 'RUT + NOMBRE',
+              masterKey: `${getRutBody(activeItem.cleanRut)}-${cleanName(activeItem.name).split(' ').join('')}`.slice(0, 30)
+            });
+            matchedPlatformIds.add(p.id);
+            matchedActiveRuts.add(activeItem.cleanRut);
+          } else {
+            // RUT matches but names are too different
+            manualReview.push({
+              active: { rut: activeItem.rut, name: activeItem.name },
+              platform: { rut: p.rut, name: p.name },
+              reason: 'RUT idéntico, Nombre diferente'
+            });
+            matchedPlatformIds.add(p.id);
+            matchedActiveRuts.add(activeItem.cleanRut);
+          }
         }
       });
+
+      // 2. SECONDARY MATCH: Similar Names for those not matched by RUT
+      activeList.forEach(activeItem => {
+        if (matchedActiveRuts.has(activeItem.cleanRut)) return;
+
+        const matchIndex = platformList.findIndex(p => {
+          if (matchedPlatformIds.has(p.id)) return false;
+          return isNameSimilar(activeItem.name, p.name);
+        });
+
+        if (matchIndex !== -1) {
+          const p = platformList[matchIndex];
+          manualReview.push({
+            active: { rut: activeItem.rut, name: activeItem.name },
+            platform: { rut: p.rut, name: p.name },
+            reason: 'Nombre similar, RUT diferente'
+          });
+          matchedPlatformIds.add(p.id);
+          matchedActiveRuts.add(activeItem.cleanRut);
+        }
+      });
+
+      const onlyActive = activeList
+        .filter(a => !matchedActiveRuts.has(a.cleanRut))
+        .map(a => ({ rut: a.rut, name: a.name }));
 
       const onlyPlatform = platformList
         .filter(p => !matchedPlatformIds.has(p.id))
         .map(p => ({ rut: p.rut, name: p.name }));
 
       setFalabellaResults({ matches, onlyActive, onlyPlatform, manualReview });
-      showNotification("Cruce completado. Revise 'Revisión Manual' para posibles aciertos.", "success");
+      showNotification("Cruce completado. Revise 'Revisión Manual' para casos con dudas.", "success");
     } catch (error) {
       console.error("Error processing Falabella comparison:", error);
       showNotification("Error al procesar los archivos. Verifique formato.", "error");
@@ -217,6 +272,7 @@ const Dia14Falabella: React.FC<Dia14FalabellaProps> = ({ onBack }) => {
     const matchesWS = XLSX.utils.json_to_sheet(falabellaResults.matches.map(m => ({
       'RUT': m.rut,
       'Nombre': m.name,
+      'Clave Maestra': (m as any).masterKey,
       'Tipo Match': m.matchType
     })));
     XLSX.utils.book_append_sheet(wb, matchesWS, "COINCIDENCIAS");
@@ -366,18 +422,24 @@ const Dia14Falabella: React.FC<Dia14FalabellaProps> = ({ onBack }) => {
                 <thead className="bg-slate-50 sticky top-0 z-20">
                   <tr>
                     <th className="p-3 text-left text-slate-500 font-bold uppercase tracking-wider">Colaborador</th>
+                    <th className="p-3 text-left text-slate-500 font-bold uppercase tracking-wider">Clave Maestra</th>
                     <th className="p-3 text-right text-slate-500 font-bold uppercase tracking-wider">Tipo</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {falabellaResults.matches.map((m, i) => (
+                  {falabellaResults.matches.map((m: any, i) => (
                     <tr key={i} className="hover:bg-slate-50 transition-colors">
                       <td className="p-3">
                         <div className="font-bold text-slate-800">{m.name}</div>
                         <div className="font-mono text-[10px] text-slate-400">{m.rut}</div>
                       </td>
+                      <td className="p-3">
+                        <code className="text-[9px] bg-slate-100 px-1.5 py-0.5 rounded text-slate-500 font-mono">
+                          {m.masterKey}
+                        </code>
+                      </td>
                       <td className="p-3 text-right">
-                        <span className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-tighter ${m.matchType === 'RUT' ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-blue-700'}`}>
+                        <span className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-tighter ${m.matchType.includes('RUT') ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-blue-700'}`}>
                           {m.matchType}
                         </span>
                       </td>

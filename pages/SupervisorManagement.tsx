@@ -1,6 +1,8 @@
 
 import React, { useState } from 'react';
 import { useAppStore } from '../store/useAppStore';
+import { normalizeText } from '../lib/textUtils';
+
 import {
     Trash2, Clock, User, ListPlus, X,
     Calendar, ArrowLeft, Building2, Save, Search, CheckCircle, Square
@@ -171,7 +173,7 @@ const SupervisorManagement: React.FC = () => {
                                 />
                             </div>
                             <div className="space-y-1 max-h-[50vh] overflow-y-auto custom-scrollbar pr-2">
-                                {employees.filter(e => e.role === 'supervisor' && (e.firstName + ' ' + e.lastNamePaterno).toLowerCase().includes(searchTerm.toLowerCase())).map(sup => (
+                                {employees.filter(e => e.role === 'supervisor' && normalizeText(e.firstName + ' ' + e.lastNamePaterno).includes(normalizeText(searchTerm))).map(sup => (
                                     <button
                                         key={sup.id}
                                         onClick={() => setSelectedSupervisor(sup.id)}

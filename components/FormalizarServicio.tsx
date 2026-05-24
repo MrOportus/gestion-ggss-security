@@ -1,5 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useAppStore } from '../store/useAppStore';
+import { normalizeText } from '../lib/textUtils';
+
 import { Search, MapPin, ArrowLeft, Copy, X, Table as TableIcon } from 'lucide-react';
 
 interface FormalizarServicioProps {
@@ -38,17 +40,17 @@ const FormalizarServicio: React.FC<FormalizarServicioProps> = ({ onBack }) => {
   }, []);
 
   const filteredFormalizarSites = useMemo(() => {
-    const lower = formalizarSiteSearch.toLowerCase();
+    const lower = normalizeText(formalizarSiteSearch);
     return sites.filter(s =>
-      s.empresa?.toLowerCase().includes('falabella') &&
-      s.name.toLowerCase().includes(lower)
+      normalizeText(s.empresa).includes('falabella') &&
+      normalizeText(s.name).includes(lower)
     );
   }, [sites, formalizarSiteSearch]);
 
   const filteredFormalizarEmp = useMemo(() => {
-    const lower = formalizarEmpSearch.toLowerCase();
+    const lower = normalizeText(formalizarEmpSearch);
     return employees.filter(e =>
-      e.isActive && (e.firstName.toLowerCase().includes(lower) || e.lastNamePaterno.toLowerCase().includes(lower) || e.rut.toLowerCase().includes(lower))
+      e.isActive && (normalizeText(e.firstName).includes(lower) || normalizeText(e.lastNamePaterno).includes(lower) || normalizeText(e.rut).includes(lower))
     );
   }, [employees, formalizarEmpSearch]);
 

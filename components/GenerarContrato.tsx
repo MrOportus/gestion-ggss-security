@@ -1,5 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useAppStore } from '../store/useAppStore';
+import { normalizeText } from '../lib/textUtils';
+
 import {
   FileText, Send, Clock, MapPin, Briefcase, DollarSign, Download, ArrowLeft, Search, Calendar, UserCheck, UserX, Eye, Loader2, History
 } from 'lucide-react';
@@ -45,17 +47,17 @@ const GenerarContrato: React.FC<GenerarContratoProps> = ({ onBack }) => {
   }, []);
 
   const filteredContratoEmp = useMemo(() => {
-    const lower = contratoEmpSearch.toLowerCase();
+    const lower = normalizeText(contratoEmpSearch);
     return employees.filter(e => {
-      const matchesSearch = e.firstName.toLowerCase().includes(lower) || e.lastNamePaterno.toLowerCase().includes(lower) || e.rut.toLowerCase().includes(lower);
+      const matchesSearch = normalizeText(e.firstName).includes(lower) || normalizeText(e.lastNamePaterno).includes(lower) || normalizeText(e.rut).includes(lower);
       const matchesStatus = showInactiveContrato ? true : e.isActive;
       return matchesSearch && matchesStatus;
     });
   }, [employees, contratoEmpSearch, showInactiveContrato]);
 
   const filteredContratoSites = useMemo(() => {
-    const lower = contratoSiteSearch.toLowerCase();
-    return sites.filter(s => s.name.toLowerCase().includes(lower));
+    const lower = normalizeText(contratoSiteSearch);
+    return sites.filter(s => normalizeText(s.name).includes(lower));
   }, [sites, contratoSiteSearch]);
 
   const contratoEmp = employees.find(e => String(e.id) === contratoData.empleadoId);

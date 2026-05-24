@@ -1,6 +1,8 @@
 
 import React, { useState, useRef } from 'react';
 import { useAppStore } from '../store/useAppStore';
+import { normalizeText } from '../lib/textUtils';
+
 import { Search, Plus, UserCheck, UserX, Eye, FileSpreadsheet, Loader2, Building2, Sparkles } from 'lucide-react';
 import EmployeeModal from '../components/EmployeeModal';
 import AddEmployeeModal from '../components/AddEmployeeModal';
@@ -24,11 +26,11 @@ const EmployeesPage: React.FC = () => {
 
   // Filtrado
   const filteredEmployees = employees.filter(e => {
-    const term = searchTerm.toLowerCase();
-    // Convertir a string y minúsculas para búsqueda segura
-    const fName = String(e.firstName || '').toLowerCase();
-    const lName = String(e.lastNamePaterno || '').toLowerCase();
-    const rut = String(e.rut || '').toLowerCase();
+    const term = normalizeText(searchTerm);
+    // Convertir a string y normalizar para búsqueda segura
+    const fName = normalizeText(e.firstName);
+    const lName = normalizeText(e.lastNamePaterno);
+    const rut = normalizeText(e.rut);
 
     // 1. Filtro Texto
     const matchesSearch =

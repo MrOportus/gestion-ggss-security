@@ -140,6 +140,12 @@ service cloud.firestore {
       );
     }
 
+    // ── Configuración de la App (versión del APK para auto-actualización) ──
+    match /app_config/{docId} {
+      allow read: if request.auth != null;   // Cualquier usuario autenticado puede leer la versión
+      allow write: if isAdmin();             // Solo Admin puede publicar nuevas versiones
+    }
+
     // Reglas por defecto para cualquier otra colección
     match /{document=**} {
       allow read: if request.auth != null;

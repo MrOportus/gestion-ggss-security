@@ -119,21 +119,34 @@ const MarketTurnos: React.FC = () => {
           </div>
         ) : (
           <div className="grid gap-4">
-            {ofertas.map(oferta => {
+            {ofertas.slice(0, 10).map(oferta => {
               const isMine = oferta.id_colaborador_asignado === currentUser?.uid;
               const isProcessing = processingId === oferta.id;
+              const isPast = new Date(oferta.horario_inicio) < new Date();
+              const isPastAndNotMine = isPast && !isMine;
 
               return (
-                <div key={oferta.id} className={`bg-white p-6 rounded-3xl shadow-lg border transition-all duration-300 ${isMine ? 'border-emerald-500 shadow-emerald-100' : (oferta.estado !== 'disponible' ? 'border-slate-100 opacity-60 grayscale-[0.5]' : 'border-slate-100 hover:border-blue-300 hover:shadow-blue-100')}`}>
+                <div
+                  key={oferta.id}
+                  className={`p-6 rounded-3xl shadow-lg border transition-all duration-300 ${
+                    isPastAndNotMine
+                      ? 'bg-red-500/10 border-red-500/20 shadow-none opacity-80'
+                      : isMine
+                      ? 'bg-white border-emerald-500 shadow-emerald-100'
+                      : oferta.estado !== 'disponible'
+                      ? 'bg-white border-slate-100 opacity-60 grayscale-[0.5]'
+                      : 'bg-white border-slate-100 hover:border-blue-300 hover:shadow-blue-100'
+                  }`}
+                >
                   <div className="flex flex-col md:flex-row justify-between md:items-center gap-6">
                     <div className="space-y-3 flex-1">
                       <div className="flex items-center gap-2">
-                        <MapPin size={20} className="text-blue-500" />
-                        <h3 className="text-xl font-black text-slate-800">{oferta.sucursal_nombre}</h3>
+                        <MapPin size={20} className={isPastAndNotMine ? "text-red-400" : "text-blue-500"} />
+                        <h3 className={`text-xl font-black ${isPastAndNotMine ? 'text-red-950/80' : 'text-slate-800'}`}>{oferta.sucursal_nombre}</h3>
                       </div>
                       <div className="flex flex-wrap items-center gap-4 text-sm font-bold text-slate-600">
-                        <div className="flex items-center gap-2 bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-200">
-                          <Clock size={16} className="text-slate-400" />
+                        <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border ${isPastAndNotMine ? 'bg-red-500/5 border-red-500/10 text-red-800/80' : 'bg-slate-50 border-slate-200 text-slate-600'}`}>
+                          <Clock size={16} className={isPastAndNotMine ? "text-red-400/80" : "text-slate-400"} />
                           {new Date(oferta.horario_inicio).toLocaleString('es-CL', { weekday: 'short', day: '2-digit', month: 'short', hour: '2-digit', minute:'2-digit' })}
                           {' - '}
                           {new Date(oferta.horario_fin).toLocaleString('es-CL', { hour: '2-digit', minute:'2-digit' })}
@@ -141,17 +154,17 @@ const MarketTurnos: React.FC = () => {
                       </div>
 
                       {oferta.notas && (
-                        <div className="mt-2 p-3 bg-blue-50/50 rounded-2xl border border-blue-100/50 text-sm text-blue-800 font-medium italic">
-                          <span className="text-[10px] font-black uppercase text-blue-400 block not-italic mb-1">Nota del Administrador:</span>
+                        <div className={`mt-2 p-3 rounded-2xl border text-sm font-medium italic ${isPastAndNotMine ? 'bg-red-500/5 border-red-500/10 text-red-800/80' : 'bg-blue-50/50 border-blue-100/50 text-blue-800'}`}>
+                          <span className={`text-[10px] font-black uppercase block not-italic mb-1 ${isPastAndNotMine ? 'text-red-400/80' : 'text-blue-400'}`}>Nota del Administrador:</span>
                           "{oferta.notas}"
                         </div>
                       )}
                     </div>
 
-                    <div className="flex flex-row md:flex-col items-center md:items-end justify-between md:justify-center gap-4 border-t md:border-t-0 md:border-l border-slate-100 pt-4 md:pt-0 md:pl-6">
+                    <div className={`flex flex-row md:flex-col items-center md:items-end justify-between md:justify-center gap-4 border-t md:border-t-0 md:border-l pt-4 md:pt-0 md:pl-6 ${isPastAndNotMine ? 'border-red-500/10' : 'border-slate-100'}`}>
                       <div className="text-left md:text-right">
-                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Monto Líquido</p>
-                        <div className="text-3xl font-black text-emerald-500">${oferta.monto.toLocaleString()}</div>
+                        <p className={`text-[10px] font-black uppercase tracking-widest mb-1 ${isPastAndNotMine ? 'text-red-400/80' : 'text-slate-400'}`}>Monto Líquido</p>
+                        <div className={`text-3xl font-black ${isPastAndNotMine ? 'text-red-500/80' : 'text-emerald-500'}`}>${oferta.monto.toLocaleString()}</div>
                       </div>
 
                       {isMine ? (
@@ -161,15 +174,21 @@ const MarketTurnos: React.FC = () => {
                          </div>
                       ) : (
                         oferta.estado === 'disponible' ? (
-                          <button
-                            onClick={() => setShowConfirmModal(oferta)}
-                            disabled={isProcessing}
-                            className="px-8 py-4 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl font-black text-sm uppercase tracking-widest shadow-lg shadow-blue-200 active:scale-95 transition-all disabled:opacity-50 flex items-center justify-center min-w-[160px]"
-                          >
-                            {isProcessing ? 'PROCESANDO...' : 'ACEPTAR TURNO'}
-                          </button>
+                          isPast ? (
+                            <div className="px-4 py-2 bg-red-100/50 text-red-500 rounded-xl font-black text-[10px] border border-red-200/50 uppercase tracking-widest">
+                               Turno Expirado / No tomado
+                            </div>
+                          ) : (
+                            <button
+                              onClick={() => setShowConfirmModal(oferta)}
+                              disabled={isProcessing}
+                              className="px-8 py-4 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl font-black text-sm uppercase tracking-widest shadow-lg shadow-blue-200 active:scale-95 transition-all disabled:opacity-50 flex items-center justify-center min-w-[160px]"
+                            >
+                              {isProcessing ? 'PROCESANDO...' : 'ACEPTAR TURNO'}
+                            </button>
+                          )
                         ) : (
-                          <div className="px-4 py-2 bg-slate-100 text-slate-400 rounded-xl font-black text-[10px] border border-slate-200 uppercase tracking-widest">
+                          <div className={`px-4 py-2 rounded-xl font-black text-[10px] border uppercase tracking-widest ${isPastAndNotMine ? 'bg-red-100/50 text-red-500 border-red-200/50' : 'bg-slate-100 text-slate-400 border-slate-200'}`}>
                              Esta vez no fuiste seleccionado
                           </div>
                         )

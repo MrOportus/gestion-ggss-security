@@ -1,6 +1,8 @@
 
 import React, { useState } from 'react';
 import { useAppStore } from '../store/useAppStore';
+import { normalizeText } from '../lib/textUtils';
+
 import { collection, query, where, onSnapshot, orderBy, doc, updateDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { Employee, BoardNote } from '../types';
@@ -145,11 +147,12 @@ const AdminDashboard: React.FC = () => {
   }
 
   // Filtrado por buscador local (sobre la lista seleccionada)
-  const filteredList = currentList.filter(e =>
-    (e.firstName || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-    (e.lastNamePaterno || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-    (e.rut || '').includes(searchTerm)
-  );
+  const filteredList = currentList.filter(e => {
+    const searchLower = normalizeText(searchTerm);
+    return normalizeText(e.firstName).includes(searchLower) ||
+      normalizeText(e.lastNamePaterno).includes(searchLower) ||
+      normalizeText(e.rut).includes(searchLower);
+  });
 
   // --- 3. Lógica Monitor en Vivo ---
   const liveStatusEmployees = activeEmployees.map(emp => {
@@ -307,12 +310,13 @@ const AdminDashboard: React.FC = () => {
     });
 
     // 3. Aplicar filtro de búsqueda
-    const filteredEmps = empsWithStatus.filter(emp =>
-      (emp.firstName || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (emp.lastNamePaterno || '').toLowerCase().includes(searchTerm.toLowerCase())
-    );
+    const filteredEmps = empsWithStatus.filter(emp => {
+      const searchLower = normalizeText(searchTerm);
+      return normalizeText(emp.firstName).includes(searchLower) ||
+        normalizeText(emp.lastNamePaterno).includes(searchLower);
+    });
 
-    const siteMatchesSearch = (site.name || '').toLowerCase().includes(searchTerm.toLowerCase());
+    const siteMatchesSearch = normalizeText(site.name).includes(normalizeText(searchTerm));
 
     if (siteMatchesSearch || filteredEmps.length > 0) {
       // Ordenar empleados: Activos (isLive) primero

@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import { useAppStore } from '../store/useAppStore';
+import { normalizeText } from '../lib/textUtils';
+
 import {
     Map as MapIcon,
     MapPin,
@@ -73,9 +75,10 @@ const AttendancePage: React.FC = () => {
 
     // Filtered logs logic
     const filteredLogs = attendanceLogs.filter(log => {
+        const searchLower = normalizeText(searchTerm);
         const matchesSearch =
-            log.employeeName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            log.rut.toLowerCase().includes(searchTerm.toLowerCase());
+            normalizeText(log.employeeName).includes(searchLower) ||
+            normalizeText(log.rut).includes(searchLower);
 
         const matchesSite = selectedSiteId === 'all' || log.siteId?.toString() === selectedSiteId.toString();
 

@@ -1,5 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { useAppStore } from '../store/useAppStore';
+import { normalizeText } from '../lib/textUtils';
 import { Search, X, ArrowLeft, Camera, FileText, Send } from 'lucide-react';
 
 interface InformarRenunciaProps {
@@ -60,7 +61,7 @@ const InformarRenuncia: React.FC<InformarRenunciaProps> = ({ onBack }) => {
             </div>
             {showResignationWorkerList && resignationWorkerSearch && (
               <div className="absolute z-10 w-full bg-white border border-slate-200 mt-1 rounded-xl shadow-2xl max-h-60 overflow-auto">
-                {employees.filter(e => e.isActive && (e.firstName.toLowerCase().includes(resignationWorkerSearch.toLowerCase()) || e.rut.includes(resignationWorkerSearch))).map(emp => (
+                {employees.filter(e => e.isActive && (normalizeText(e.firstName).includes(normalizeText(resignationWorkerSearch)) || normalizeText(e.rut).includes(normalizeText(resignationWorkerSearch)))).map(emp => (
                   <div
                     key={emp.id}
                     className="p-3 hover:bg-blue-50 cursor-pointer border-b border-slate-50 transition"

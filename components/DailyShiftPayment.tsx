@@ -1,5 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useAppStore } from '../store/useAppStore';
+import { normalizeText } from '../lib/textUtils';
+
 import {
     DollarSign, MapPin, FileText, CheckCircle,
     Plus, Search, Download, Trash2, Moon, Sun, ChevronDown, Pencil, X as CloseIcon, Save, Calendar
@@ -60,12 +62,12 @@ export const DailyShiftPayment = () => {
     // --- COMPUTED HELPERS ---
     const filteredWorkers = useMemo(() => {
         if (!workerSearch) return employees.filter(e => e.isActive).slice(0, 10);
-        const lower = workerSearch.toLowerCase();
+        const lower = normalizeText(workerSearch);
         return employees.filter(e =>
             e.isActive && (
-                e.firstName.toLowerCase().includes(lower) ||
-                e.lastNamePaterno.toLowerCase().includes(lower) ||
-                e.rut.toLowerCase().includes(lower)
+                normalizeText(e.firstName).includes(lower) ||
+                normalizeText(e.lastNamePaterno).includes(lower) ||
+                normalizeText(e.rut).includes(lower)
             )
         ).slice(0, 10);
     }, [employees, workerSearch]);
@@ -231,8 +233,9 @@ export const DailyShiftPayment = () => {
         return dailyPayments.filter(p => {
             const matchesMonth = filterDay !== '' ? true : p.monthPeriod === filterMonth;
             const matchesDay = filterDay === '' || (p.paymentDate || p.shiftDate) === filterDay;
-            const matchesSearch = p.workerName.toLowerCase().includes(listSearchTerm.toLowerCase()) ||
-                p.siteName.toLowerCase().includes(listSearchTerm.toLowerCase());
+            const searchLower = normalizeText(listSearchTerm);
+            const matchesSearch = normalizeText(p.workerName).includes(searchLower) ||
+                normalizeText(p.siteName).includes(searchLower);
 
             // Filtro por rol
             if (currentUser?.role === 'supervisor') {

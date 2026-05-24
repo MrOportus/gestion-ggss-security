@@ -1,5 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { useAppStore } from '../store/useAppStore';
+import { normalizeText } from '../lib/textUtils';
+
 import {
     DollarSign, Search, Calendar, Plus, Trash2,
     CheckCircle2, AlertCircle, ChevronRight, Filter,
@@ -39,12 +41,12 @@ const LoansPage: React.FC = () => {
     // Workers filtered for search
     const filteredWorkers = useMemo(() => {
         if (!workerSearch) return employees.filter(e => e.isActive).slice(0, 5);
-        const lowSearch = workerSearch.toLowerCase();
+        const lowSearch = normalizeText(workerSearch);
         return employees.filter(e =>
             e.isActive && (
-                e.firstName.toLowerCase().includes(lowSearch) ||
-                e.lastNamePaterno.toLowerCase().includes(lowSearch) ||
-                e.rut.toLowerCase().includes(lowSearch)
+                normalizeText(e.firstName).includes(lowSearch) ||
+                normalizeText(e.lastNamePaterno).includes(lowSearch) ||
+                normalizeText(e.rut).includes(lowSearch)
             )
         ).slice(0, 5);
     }, [employees, workerSearch]);
@@ -175,13 +177,13 @@ const LoansPage: React.FC = () => {
 
     // Filtered loans for display
     const activeLoans = loans.filter(l => l.status !== 'PAID' && (
-        l.workerName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        l.workerRut.toLowerCase().includes(searchTerm.toLowerCase())
+        normalizeText(l.workerName).includes(normalizeText(searchTerm)) ||
+        normalizeText(l.workerRut).includes(normalizeText(searchTerm))
     ));
 
     const historyLoans = loans.filter(l => l.status === 'PAID' && (
-        l.workerName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        l.workerRut.toLowerCase().includes(searchTerm.toLowerCase())
+        normalizeText(l.workerName).includes(normalizeText(searchTerm)) ||
+        normalizeText(l.workerRut).includes(normalizeText(searchTerm))
     ));
 
     // Render Progress Bar

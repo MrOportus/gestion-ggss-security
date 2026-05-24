@@ -15,7 +15,11 @@ root.render(
 // ── Service Worker Registration ─────────────────────────────────────────────
 // Registramos firebase-messaging-sw.js como service worker principal.
 // Este SW maneja tanto el caching (PWA) como las notificaciones push en background (FCM).
-if ('serviceWorker' in navigator) {
+// NOTA: En entornos nativos Capacitor (Android/iOS), los Service Workers no están soportados
+//       por el WebView. Detectamos el contexto nativo y saltamos el registro.
+const isCapacitorNative = !!(window as any).Capacitor?.isNativePlatform?.();
+
+if ('serviceWorker' in navigator && !isCapacitorNative) {
   window.addEventListener('load', async () => {
     try {
       const registration = await navigator.serviceWorker.register('/firebase-messaging-sw.js');
@@ -69,4 +73,6 @@ if ('serviceWorker' in navigator) {
       console.error('[SW] Error en registro:', err);
     }
   });
+} else if (isCapacitorNative) {
+  console.log('[SW] Registro de Service Worker omitido — entorno nativo Capacitor detectado.');
 }

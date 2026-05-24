@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">GGSS Security</string>
+    <string name="title_activity_main">GGSS Security</string>
+    <string name="package_name">com.ggss.security</string>
+    <string name="custom_url_scheme">com.ggss.security</string>
+</resources>

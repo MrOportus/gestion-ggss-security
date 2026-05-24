@@ -21,6 +21,9 @@ import { GuardRound, RoundEvidence } from '../types';
 import { noSleep } from '../lib/noSleep';
 import { compressImage } from '../lib/imageUtils';
 import { roundsDB } from '../lib/roundsDB';
+import { Capacitor } from '@capacitor/core';
+import { Camera as CapacitorCamera } from '@capacitor/camera';
+
 
 // --- CONFIGURACIÓN DE API EXTERNA ---
 
@@ -278,7 +281,20 @@ const RoundsControl: React.FC<RoundsControlProps> = ({ onBack }) => {
         // Aquí iría la lógica para enviar estos puntos al backend cuando haya red
     };
 
-    const handlePhotoClick = () => {
+    const handlePhotoClick = async () => {
+        if (Capacitor.isNativePlatform()) {
+            try {
+                const permStatus = await CapacitorCamera.requestPermissions({
+                    permissions: ['camera', 'photos']
+                });
+                if (permStatus.camera !== 'granted') {
+                    showNotification("Se requiere permiso de cámara para tomar evidencias.", "error");
+                    return;
+                }
+            } catch (err) {
+                console.error("Error solicitando permisos de cámara nativa:", err);
+            }
+        }
         fileInputRef.current?.click();
     };
 

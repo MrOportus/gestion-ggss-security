@@ -1,5 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useAppStore } from '../store/useAppStore';
+import { normalizeText } from '../lib/textUtils';
+
 import {
   Copy, CheckCircle, UserPlus, Calendar, Search, MapPin, ArrowLeft
 } from 'lucide-react';
@@ -49,21 +51,21 @@ const InfoReemplazo: React.FC<InfoReemplazoProps> = ({ onBack }) => {
   const sucursal = sites.find(s => String(s.id) === reemplazoData.sucursalId);
 
   const filteredSitesTasks = useMemo(() => {
-    const lower = siteSearch.toLowerCase();
-    return sites.filter(s => s.name.toLowerCase().includes(lower));
+    const lower = normalizeText(siteSearch);
+    return sites.filter(s => normalizeText(s.name).includes(lower));
   }, [sites, siteSearch]);
 
   const filteredActual = useMemo(() => {
-    const lower = actualSearch.toLowerCase();
+    const lower = normalizeText(actualSearch);
     return employees.filter(e =>
-      e.isActive && (e.firstName.toLowerCase().includes(lower) || e.lastNamePaterno.toLowerCase().includes(lower) || e.rut.toLowerCase().includes(lower))
+      e.isActive && (normalizeText(e.firstName).includes(lower) || normalizeText(e.lastNamePaterno).includes(lower) || normalizeText(e.rut).includes(lower))
     );
   }, [employees, actualSearch]);
 
   const filteredReplacement = useMemo(() => {
-    const lower = replacementSearch.toLowerCase();
+    const lower = normalizeText(replacementSearch);
     return employees.filter(e => {
-      const matchesSearch = e.firstName.toLowerCase().includes(lower) || e.lastNamePaterno.toLowerCase().includes(lower) || e.rut.toLowerCase().includes(lower);
+      const matchesSearch = normalizeText(e.firstName).includes(lower) || normalizeText(e.lastNamePaterno).includes(lower) || normalizeText(e.rut).includes(lower);
       const matchesStatus = showInactive ? true : e.isActive;
       return matchesSearch && matchesStatus;
     });

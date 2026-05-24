@@ -28,6 +28,8 @@ import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
 import { Document, Page, pdfjs } from 'react-pdf';
 import axios from 'axios';
 import { DigitalDocument } from '../types';
+import { normalizeText } from '../lib/textUtils';
+
 
 // Configurar worker de react-pdf (Usando el patrón recomendado para Vite)
 pdfjs.GlobalWorkerOptions.workerSrc = new URL(
@@ -41,9 +43,6 @@ import 'react-pdf/dist/Page/TextLayer.css';
 const SIGNATURE_SIZE = 100;
 const AUDIT_FONT_SIZE = 8;
 
-const normalizeText = (text: string) => {
-    return text.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
-};
 
 
 const DocumentsPage: React.FC = () => {

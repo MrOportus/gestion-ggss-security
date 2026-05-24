@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAppStore } from './store/useAppStore';
 import Login from './components/Login';
+import AuthActionHandler from './components/AuthActionHandler';
 import AdminDashboard from './pages/AdminDashboard';
 import EmployeesPage from './pages/EmployeesPage';
 import TasksPage from './pages/TasksPage';
@@ -17,16 +18,39 @@ import RoundsAdminPage from './pages/RoundsAdminPage';
 import ShiftManagement from './pages/ShiftManagement';
 import LoansPage from './pages/LoansPage';
 import DocumentsPage from './pages/DocumentsPage';
-import { StickyNote, Navigation, CalendarDays, Receipt, ShieldCheck, Zap } from 'lucide-react';
-import { getToken, onMessage } from "firebase/messaging";
-import { messaging } from './lib/firebase';
+import { StickyNote, Navigation, CalendarDays, Receipt, ShieldCheck, Zap, Info } from 'lucide-react';
+// NOTA: firebase/messaging y lib/firebase.messaging se importan dinámicamente
+// solo en contexto web para evitar interferencia con el plugin nativo de Capacitor
 import PanelAdminSolicitudes from './components/PanelAdminSolicitudes';
+import AppUpdateBanner from './components/AppUpdateBanner';
+import { Capacitor } from '@capacitor/core';
+import { PushNotifications } from '@capacitor/push-notifications';
+
 
 const App: React.FC = () => {
   const { currentUser, logout, fetchInitialData, isLoading, initializeAuthListener, registerFCMToken, showNotification } = useAppStore();
   const [currentView, setCurrentView] = useState<'dashboard' | 'employees' | 'tasks' | 'sites' | 'payments' | 'supervisor_mgmt' | 'notes' | 'attendance' | 'rounds' | 'shift_management' | 'loans' | 'documents' | 'solicitudes_turnos_extra'>('dashboard');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [authInitialized, setAuthInitialized] = useState(false);
+
+  // --- FCM DIAGNOSTIC STATE ---
+  const [fcmDebug, setFcmDebug] = useState<{
+    platform: string;
+    permission: string;
+    registration: 'idle' | 'registered' | 'error';
+    token: string;
+    error: string;
+    lastNotification: string;
+  }>({
+    platform: Capacitor.getPlatform(),
+    permission: 'unknown',
+    registration: 'idle',
+    token: '',
+    error: '',
+    lastNotification: 'Ninguna'
+  });
+  const [showDebugModal, setShowDebugModal] = useState(false);
+  const [fcmRetryCount, setFcmRetryCount] = useState(0);
 
   // Inicializar Auth Listener una sola vez
   useEffect(() => {
@@ -40,78 +64,185 @@ const App: React.FC = () => {
   useEffect(() => {
     if (!currentUser) return;
 
-    const setupNotifications = async () => {
+    let isSubscribed = true;
+    let unsubscribeWeb: (() => void) | undefined;
+    const nativeListeners: any[] = [];
+
+    const setupNativeNotifications = async () => {
+      try {
+        setFcmDebug(prev => ({ ...prev, platform: Capacitor.getPlatform() }));
+
+        // 1. Agregar listeners antes de registrar
+        const regListener = await PushNotifications.addListener('registration', async (token) => {
+          if (isSubscribed) {
+            console.log('[PUSH] Token nativo recibido:', token.value);
+            setFcmDebug(prev => ({ ...prev, registration: 'registered', token: token.value, error: '' }));
+            await registerFCMToken(currentUser.uid, token.value);
+            console.log('[PUSH] Token nativo registrado en Firebase.');
+          }
+        });
+        nativeListeners.push(regListener);
+
+        const errListener = await PushNotifications.addListener('registrationError', (error: any) => {
+          console.error('[PUSH] Error en registro nativo:', error);
+          setFcmDebug(prev => ({ ...prev, registration: 'error', error: JSON.stringify(error) }));
+        });
+        nativeListeners.push(errListener);
+
+        const pushReceivedListener = await PushNotifications.addListener('pushNotificationReceived', (notification) => {
+          console.log('[PUSH] Notificación recibida en primer plano:', notification);
+          setFcmDebug(prev => ({ ...prev, lastNotification: `${notification.title || ''}: ${notification.body || ''}` }));
+          if (isSubscribed) {
+            showNotification(
+              `${notification.title || 'GGSS Security'}: ${notification.body || ''}`,
+              'info'
+            );
+          }
+        });
+        nativeListeners.push(pushReceivedListener);
+
+        const actionListener = await PushNotifications.addListener('pushNotificationActionPerformed', (action) => {
+          console.log('[PUSH] Acción realizada sobre notificación:', action);
+          const data = action.notification.data;
+          if (data && data.type === 'new_doc') {
+            window.dispatchEvent(new CustomEvent('app-navigate', { detail: { type: 'new_doc' } }));
+          } else if (data && data.type === 'market_turno') {
+            window.dispatchEvent(new CustomEvent('app-navigate', { detail: { type: 'market_turno' } }));
+          }
+        });
+        nativeListeners.push(actionListener);
+
+        // 2. Solicitar permisos
+        let permStatus = await PushNotifications.checkPermissions();
+        setFcmDebug(prev => ({ ...prev, permission: permStatus.receive }));
+        if (permStatus.receive === 'prompt') {
+          permStatus = await PushNotifications.requestPermissions();
+          setFcmDebug(prev => ({ ...prev, permission: permStatus.receive }));
+        }
+
+        if (permStatus.receive === 'granted') {
+          // 3. Registrar app
+          await PushNotifications.register();
+        } else {
+          console.warn('[PUSH] Permiso nativo denegado por el usuario.');
+        }
+      } catch (error: any) {
+        console.error('[PUSH] Error configurando notificaciones nativas:', error);
+        setFcmDebug(prev => ({ ...prev, registration: 'error', error: error.message || String(error) }));
+      }
+    };
+
+    const setupWebNotifications = async () => {
       const vapidKey = import.meta.env.VITE_FIREBASE_VAPID_KEY;
       if (!vapidKey) {
         console.warn('[PUSH] VITE_FIREBASE_VAPID_KEY no configurada, notificaciones push deshabilitadas.');
         return;
       }
       try {
-        const permission = await Notification.requestPermission();
-        if (permission === 'granted') {
-          // Enviar config al SW activo para que pueda inicializar FCM en background
-          const swReg = await navigator.serviceWorker.getRegistration();
-          if (swReg?.active) {
-            swReg.active.postMessage({
-              type: 'FIREBASE_CONFIG',
-              config: {
-                apiKey:            import.meta.env.VITE_FIREBASE_API_KEY,
-                authDomain:        import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
-                projectId:         import.meta.env.VITE_FIREBASE_PROJECT_ID,
-                storageBucket:     import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
-                messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-                appId:             import.meta.env.VITE_FIREBASE_APP_ID,
-              },
-            });
-          }
+        // Importar dinámicamente firebase/messaging — solo en contexto web
+        const { getToken, onMessage } = await import('firebase/messaging');
+        const { messaging } = await import('./lib/firebase');
 
-          const token = await getToken(messaging, {
-            vapidKey,
-            serviceWorkerRegistration: swReg,
-          });
-          if (token) {
-            await registerFCMToken(currentUser.uid, token);
-            console.log('[FCM] Token registrado para:', currentUser.email);
+        let permission = Notification.permission;
+        if (permission === 'default') {
+          permission = await Notification.requestPermission();
+        }
+
+        if (permission === 'granted') {
+          const swReg = await navigator.serviceWorker.ready;
+          if (swReg && isSubscribed) {
+            // Enviar config al SW
+            const activeSw = swReg.active || swReg.waiting || swReg.installing;
+            if (activeSw) {
+              activeSw.postMessage({
+                type: 'FIREBASE_CONFIG',
+                config: {
+                  apiKey:            import.meta.env.VITE_FIREBASE_API_KEY,
+                  authDomain:        import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+                  projectId:         import.meta.env.VITE_FIREBASE_PROJECT_ID,
+                  storageBucket:     import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+                  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+                  appId:             import.meta.env.VITE_FIREBASE_APP_ID,
+                },
+              });
+            }
+
+            const token = await getToken(messaging, {
+              vapidKey,
+              serviceWorkerRegistration: swReg,
+            });
+            if (token && isSubscribed) {
+              await registerFCMToken(currentUser.uid, token);
+              console.log('[FCM Web] Token registrado con éxito.');
+            }
           }
-        } else if (permission === 'denied') {
-          console.warn('[FCM] Permiso de notificaciones denegado por el usuario.');
+        } else {
+          console.warn('[FCM Web] Permiso de notificaciones denegado en la web.');
+        }
+
+        // Escuchar mensajes en primer plano (solo en web)
+        if (messaging && isSubscribed) {
+          unsubscribeWeb = onMessage(messaging, (payload) => {
+            console.log('[FCM Web] Mensaje en primer plano:', payload);
+            if (payload.notification && document.visibilityState === 'visible' && isSubscribed) {
+              showNotification(
+                `${payload.notification.title}: ${payload.notification.body}`,
+                'info'
+              );
+            }
+          });
         }
       } catch (error) {
-        console.error('[FCM] Error configurando notificaciones:', error);
+        console.error('[FCM Web] Error configurando notificaciones web:', error);
       }
     };
 
-    setupNotifications();
+    if (Capacitor.isNativePlatform()) {
+      setupNativeNotifications();
+    } else {
+      setupWebNotifications();
+    }
 
-    // Escuchar mensajes en primer plano
-    const unsubscribe = onMessage(messaging, (payload) => {
-      console.log('[FCM] Mensaje en primer plano:', payload);
-      
-      // Solo mostrar la alerta si esta pestaña es la que el usuario está viendo
-      // Esto evita duplicados si hay varias pestañas abiertas.
-      if (payload.notification && document.visibilityState === 'visible') {
-        showNotification(
-          `${payload.notification.title}: ${payload.notification.body}`,
-          'info'
-        );
-      }
-    });
+    return () => {
+      isSubscribed = false;
+      if (unsubscribeWeb) unsubscribeWeb();
+      nativeListeners.forEach(listener => {
+        try {
+          listener.remove();
+        } catch (e) {
+          console.warn('[PUSH] Error al remover listener:', e);
+        }
+      });
+    };
+  }, [currentUser, registerFCMToken, showNotification, fcmRetryCount]);
 
-    return () => unsubscribe();
-  }, [currentUser, registerFCMToken, showNotification]);
-
-  // --- LISTENER: Navegación desde notificación push (click en background) ---
+  // --- LISTENER: Navegación unificada para notificaciones ---
   useEffect(() => {
+    const handleNavigate = (event: Event) => {
+      const customEvent = event as CustomEvent;
+      const type = customEvent.detail?.type;
+      if (type === 'new_doc') {
+        setCurrentView('documents');
+      } else if (type === 'market_turno') {
+        setCurrentView('solicitudes_turnos_extra');
+      }
+    };
+
     const handleSWMessage = (event: MessageEvent) => {
       if (event.data?.type === 'NAVIGATE_TO_DOCUMENTS') {
         console.log('[FCM] SW solicitó navegar a documentos. docId:', event.data.docId);
-        setCurrentView('documents');
+        window.dispatchEvent(new CustomEvent('app-navigate', { detail: { type: 'new_doc' } }));
       }
     };
 
+    window.addEventListener('app-navigate', handleNavigate);
     navigator.serviceWorker?.addEventListener('message', handleSWMessage);
-    return () => navigator.serviceWorker?.removeEventListener('message', handleSWMessage);
-  }, []);
+
+    return () => {
+      window.removeEventListener('app-navigate', handleNavigate);
+      navigator.serviceWorker?.removeEventListener('message', handleSWMessage);
+    };
+  }, [setCurrentView]);
 
   // Pantalla de carga inicial mientras Firebase verifica la sesión
   if (!authInitialized) {
@@ -131,12 +262,41 @@ const App: React.FC = () => {
     );
   }
 
+  // Interceptar flujos de recuperación de contraseñas de Firebase Auth
+  const urlParams = new URLSearchParams(window.location.search);
+  const mode = urlParams.get('mode');
+  const oobCode = urlParams.get('oobCode');
+
+  // Diagnostic overlay helper render function - Ocultado ya que todo funciona correctamente
+  const renderFcmDebugOverlay = () => {
+    return null;
+  };
+
+  if (mode && oobCode) {
+    return (
+      <>
+        <AuthActionHandler mode={mode} oobCode={oobCode} />
+        {renderFcmDebugOverlay()}
+      </>
+    );
+  }
+
   if (!currentUser) {
-    return <Login />;
+    return (
+      <>
+        <Login />
+        {renderFcmDebugOverlay()}
+      </>
+    );
   }
 
   if (currentUser.role === 'worker') {
-    return <WorkerAttendance />;
+    return (
+      <>
+        <WorkerAttendance />
+        {renderFcmDebugOverlay()}
+      </>
+    );
   }
 
   const handleNavChange = (view: typeof currentView) => {
@@ -432,6 +592,11 @@ const App: React.FC = () => {
         </div>
       </main>
       <GlobalOverlay />
+      {/* Banner de actualización de APK — visible para todos los roles */}
+      <AppUpdateBanner />
+
+      {/* Render FCM Diagnostic overlay for admin views */}
+      {renderFcmDebugOverlay()}
     </div>
   );
 };

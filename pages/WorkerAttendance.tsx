@@ -24,7 +24,8 @@ import {
   ChevronRight,
   UserCircle,
   Info,
-  Zap
+  Zap,
+  Calendar
 } from 'lucide-react';
 
 import DocumentsPage from './DocumentsPage';
@@ -35,6 +36,12 @@ import { messaging } from '../lib/firebase';
 
 import RoundsControl from '../components/RoundsControl';
 import MarketTurnos from '../components/MarketTurnos';
+import MyExtraShifts from '../components/MyExtraShifts';
+import MyFixedShifts from '../components/MyFixedShifts';
+import AppUpdateBanner, { APP_VERSION } from '../components/AppUpdateBanner';
+import { Capacitor } from '@capacitor/core';
+import { Geolocation } from '@capacitor/geolocation';
+
 
 
 const WorkerAttendance: React.FC = () => {
@@ -52,7 +59,7 @@ const WorkerAttendance: React.FC = () => {
   const registerFCMToken = useAppStore(state => state.registerFCMToken);
   const showNotification = useAppStore(state => state.showNotification);
 
-  const [step, setStep] = useState<'status' | 'keypad' | 'success' | 'rounds' | 'settings' | 'documents' | 'company_docs' | 'market'>('status');
+  const [step, setStep] = useState<'status' | 'keypad' | 'success' | 'rounds' | 'settings' | 'documents' | 'company_docs' | 'market' | 'my_extra_shifts' | 'my_fixed_shifts'>('status');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [lastAction, setLastAction] = useState<'check_in' | 'check_out' | null>(null);
 
@@ -100,31 +107,55 @@ const WorkerAttendance: React.FC = () => {
 
   const isCheckedIn = lastLog?.type === 'check_in';
 
-  const requestLocation = () => {
-    return new Promise<{ lat: number; lng: number }>((resolve, reject) => {
-      if (!navigator.geolocation) {
-        reject(new Error("Tu navegador no soporta geolocalización."));
-        return;
-      }
-
-      navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          const newCoords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-          setCoords(newCoords);
-          resolve(newCoords);
-        },
-        (err) => {
-          let msg = "Error al obtener ubicación.";
-          if (err.code === 1) msg = "Debes activar el GPS y permitir el acceso a la ubicación para registrar asistencia.";
-          else if (err.code === 2) msg = "Ubicación no disponible. Verifica tu señal de GPS.";
-          else if (err.code === 3) msg = "Tiempo de espera agotado al obtener ubicación.";
-
+  const requestLocation = async () => {
+    if (Capacitor.isNativePlatform()) {
+      try {
+        const permStatus = await Geolocation.requestPermissions();
+        if (permStatus.location !== 'granted') {
+          const msg = "Debes permitir el acceso a la ubicación en tu dispositivo para registrar asistencia.";
           setError(msg);
-          reject(new Error(msg));
-        },
-        { timeout: 10000, enableHighAccuracy: true }
-      );
-    });
+          throw new Error(msg);
+        }
+        
+        const pos = await Geolocation.getCurrentPosition({
+          enableHighAccuracy: true,
+          timeout: 15000
+        });
+        const newCoords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+        setCoords(newCoords);
+        return newCoords;
+      } catch (err: any) {
+        let msg = "Error al obtener ubicación nativa del dispositivo. Activa tu GPS.";
+        if (err.message) msg = err.message;
+        setError(msg);
+        throw new Error(msg);
+      }
+    } else {
+      return new Promise<{ lat: number; lng: number }>((resolve, reject) => {
+        if (!navigator.geolocation) {
+          reject(new Error("Tu navegador no soporta geolocalización."));
+          return;
+        }
+
+        navigator.geolocation.getCurrentPosition(
+          (pos) => {
+            const newCoords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+            setCoords(newCoords);
+            resolve(newCoords);
+          },
+          (err) => {
+            let msg = "Error al obtener ubicación.";
+            if (err.code === 1) msg = "Debes activar el GPS y permitir el acceso a la ubicación para registrar asistencia.";
+            else if (err.code === 2) msg = "Ubicación no disponible. Verifica tu señal de GPS.";
+            else if (err.code === 3) msg = "Tiempo de espera agotado al obtener ubicación.";
+
+            setError(msg);
+            reject(new Error(msg));
+          },
+          { timeout: 10000, enableHighAccuracy: true }
+        );
+      });
+    }
   };
 
   useEffect(() => {
@@ -160,17 +191,22 @@ const WorkerAttendance: React.FC = () => {
       return () => unsub();
     }
   }, [currentUser?.uid]);
-  // ── MANEJO DE NOTIFICACIONES (Centralizado en App.tsx) ────────────────
-  // Nota: La lógica de registro de tokens y escucha de mensajes se maneja en App.tsx
-  // para evitar duplicidad de notificaciones.
+  // ── MANEJO DE NOTIFICACIONES (Navegación unificada) ────────────────
+  // Nota: La lógica de registro de tokens y escucha de mensajes se maneja en App.tsx.
+  // Aquí escuchamos eventos de navegación interna disparados por clics en notificaciones.
   useEffect(() => {
-    const handleSWMessage = (event: MessageEvent) => {
-      if (event.data?.type === 'NAVIGATE_TO_DOCUMENTS') {
+    const handleNavigate = (event: Event) => {
+      const customEvent = event as CustomEvent;
+      const type = customEvent.detail?.type;
+      if (type === 'new_doc') {
         setStep('documents');
+      } else if (type === 'market_turno') {
+        setStep('market');
       }
     };
-    navigator.serviceWorker?.addEventListener('message', handleSWMessage);
-    return () => navigator.serviceWorker?.removeEventListener('message', handleSWMessage);
+
+    window.addEventListener('app-navigate', handleNavigate);
+    return () => window.removeEventListener('app-navigate', handleNavigate);
   }, []);
 
 
@@ -504,6 +540,36 @@ const WorkerAttendance: React.FC = () => {
           </div>
         )}
 
+        {step === 'my_extra_shifts' && (
+          <div className="bg-slate-50 min-h-screen pb-20 -mx-6">
+            <div className="bg-white p-4 flex items-center gap-4 sticky top-0 z-30 shadow-sm border-b mb-4">
+              <button
+                onClick={() => setStep('status')}
+                className="p-2 text-slate-500 hover:bg-slate-100 rounded-xl transition-all"
+              >
+                <ArrowLeft size={24} />
+              </button>
+              <h2 className="font-black text-slate-800 tracking-tight text-lg">Mis Turnos Extra</h2>
+            </div>
+            <MyExtraShifts />
+          </div>
+        )}
+
+        {step === 'my_fixed_shifts' && (
+          <div className="bg-slate-50 min-h-screen pb-20 -mx-6">
+            <div className="bg-white p-4 flex items-center gap-4 sticky top-0 z-30 shadow-sm border-b mb-4">
+              <button
+                onClick={() => setStep('status')}
+                className="p-2 text-slate-500 hover:bg-slate-100 rounded-xl transition-all"
+              >
+                <ArrowLeft size={24} />
+              </button>
+              <h2 className="font-black text-slate-800 tracking-tight text-lg">Mis Turnos Fijos</h2>
+            </div>
+            <MyFixedShifts />
+          </div>
+        )}
+
         {step === 'documents' && (
           <div className="bg-slate-50 min-h-screen pb-20 -mx-6">
             <div className="bg-white p-4 flex items-center gap-4 sticky top-0 z-30 shadow-sm border-b mb-4">
@@ -808,7 +874,7 @@ const WorkerAttendance: React.FC = () => {
 
       </div>
 
-      <div className={`p-6 text-center text-[10px] font-black text-slate-300 uppercase tracking-widest opacity-50 transition-all duration-500 ${step === 'keypad' || step === 'documents' || step === 'company_docs' || step === 'market' ? 'opacity-0 h-0 p-0 overflow-hidden' : 'opacity-50'}`}>
+      <div className={`p-6 text-center text-[10px] font-black text-slate-300 uppercase tracking-widest opacity-50 transition-all duration-500 ${step === 'keypad' || step === 'documents' || step === 'company_docs' || step === 'market' || step === 'my_extra_shifts' || step === 'my_fixed_shifts' ? 'opacity-0 h-0 p-0 overflow-hidden' : 'opacity-50'}`}>
         GGSS Security • Attendance Control v3.0
       </div>
 
@@ -852,6 +918,27 @@ const WorkerAttendance: React.FC = () => {
           <div className="flex-1 overflow-y-auto p-6 space-y-2">
             <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-4 ml-2">Menú Principal</p>
 
+            <button
+              onClick={() => { setStep('my_fixed_shifts'); setIsSidebarOpen(false); }}
+              className={`w-full p-4 rounded-2xl flex items-center justify-between transition-all ${step === 'my_fixed_shifts' ? 'bg-blue-50 text-blue-600' : 'text-slate-600 hover:bg-slate-50'}`}
+            >
+              <div className="flex items-center gap-3">
+                <Calendar size={22} className={step === 'my_fixed_shifts' ? 'text-blue-600' : 'text-slate-400'} />
+                <span className="font-bold">Mis Turnos Fijos</span>
+              </div>
+              <ChevronRight size={16} className="opacity-30" />
+            </button>
+
+            <button
+              onClick={() => { setStep('my_extra_shifts'); setIsSidebarOpen(false); }}
+              className={`w-full p-4 rounded-2xl flex items-center justify-between transition-all ${step === 'my_extra_shifts' ? 'bg-blue-50 text-blue-600' : 'text-slate-600 hover:bg-slate-50'}`}
+            >
+              <div className="flex items-center gap-3">
+                <Zap size={22} className={step === 'my_extra_shifts' ? 'text-blue-600' : 'text-slate-400'} />
+                <span className="font-bold">Mis Turnos Extra</span>
+              </div>
+              <ChevronRight size={16} className="opacity-30" />
+            </button>
 
             <button
               onClick={() => { setStep('documents'); setIsSidebarOpen(false); }}
@@ -907,10 +994,12 @@ const WorkerAttendance: React.FC = () => {
               <LogOut size={20} />
               Cerrar Sesión
             </button>
-            <p className="text-center text-[8px] font-black text-slate-300 mt-4 uppercase tracking-[0.2em]">GGSS Security v3.0</p>
+            <p className="text-center text-[8px] font-black text-slate-300 mt-4 uppercase tracking-[0.2em]">GGSS Security v{APP_VERSION}</p>
           </div>
         </div>
       </div>
+      {/* Banner de actualización APK */}
+      <AppUpdateBanner />
     </div>
   );
 };

@@ -244,8 +244,8 @@ exports.notificarNuevaOfertaTurno = onDocumentCreated(
                 const chunk = targetTokens.slice(i, i + chunkSize);
                 const message = {
                     notification: {
-                        title: '¡Nuevo Turno Extra Disponible! 💰',
-                        body: `Se ha publicado un turno en ${sucursalNombre} por $${monto}. Entra al Mercado de Turnos y tómalo rápido.`
+                        title: '[GGSS] ¡Nuevo Turno Extra! 💰',
+                        body: `Se ha publicado un turno en ${sucursalNombre} por $${monto}.`
                     },
                     data: {
                         type: 'market_turno',
@@ -258,10 +258,23 @@ exports.notificarNuevaOfertaTurno = onDocumentCreated(
                 const response = await admin.messaging().sendEachForMulticast(message);
                 successCount += response.successCount;
                 failureCount += response.failureCount;
+                
+                // Limpieza de tokens fallidos (simplificada)
+                if (response.failureCount > 0) {
+                    const tokensToRemove = [];
+                    response.responses.forEach((resp, idx) => {
+                        if (!resp.success && (resp.error.code === 'messaging/registration-token-not-registered')) {
+                            tokensToRemove.push(chunk[idx]);
+                        }
+                    });
+                    if (tokensToRemove.length > 0) {
+                        console.log(`[FCM-TURNOS] Detectados ${tokensToRemove.length} tokens inválidos.`);
+                        // El sistema los limpiará gradualmente o en el siguiente registro
+                    }
+                }
             }
 
-            console.log(`[FCM-TURNOS] Notificaciones de turno finalizadas: ${successCount} éxito, ${failureCount} errores.`);
-
+            console.log(`[FCM-TURNOS] Proceso completado: ${successCount} éxito, ${failureCount} fallo.`);
         } catch (error) {
             console.error('Error en notificarNuevaOfertaTurno:', error);
         }

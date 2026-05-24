@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useAppStore } from '../store/useAppStore';
+import { normalizeText } from '../lib/textUtils';
 import { db } from '../lib/firebase';
+
 import { collection, query, onSnapshot, doc, setDoc, Timestamp, deleteDoc } from 'firebase/firestore';
 import { SolicitudTurno } from '../types';
 import { Calendar, DollarSign, MapPin, Clock, Plus, Trash2, CheckCircle, Search, X } from 'lucide-react';
@@ -46,10 +48,10 @@ const PanelAdminSolicitudes: React.FC = () => {
   }, [sites, siteSearch]);
 
   const filteredGuards = useMemo(() => {
-    const lower = guardSearch.toLowerCase();
+    const lower = normalizeText(guardSearch);
     return workers.filter(w => 
       !selectedGuards.includes(w.id) &&
-      (w.firstName.toLowerCase().includes(lower) || w.lastNamePaterno.toLowerCase().includes(lower) || w.rut.toLowerCase().includes(lower))
+      (normalizeText(w.firstName).includes(lower) || normalizeText(w.lastNamePaterno).includes(lower) || normalizeText(w.rut).includes(lower))
     );
   }, [workers, guardSearch, selectedGuards]);
 
