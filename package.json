@@ -9,6 +9,7 @@
     "preview": "vite preview",
     "migrate": "node scripts/migrate-users.js",
     "publish:version": "node scripts/publish-version.js",
+    "publish:apk": "node scripts/publish-apk.js",
     "generate:icons": "node scripts/generate-icons.cjs",
     "build:update": "npm run build && node scripts/zip-dist.js"
   },
