@@ -1,4 +1,7 @@
-
+import { jsPDF } from "jspdf";
+import { format } from "date-fns";
+import { SyncQueueService } from '../lib/SyncQueueService';
+import { Network } from '@capacitor/network';
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import { User, Employee, Site, AttendanceLog, Document, DigitalDocument, ComparisonRecord, DailyPayment, AppNotification, AppConfirmation, ContractRecord, Advance, SupervisorTask, ChecklistTemplate, ResignationRequest, RecurringSupervisorTask, SupervisorSubTask, BoardNote, GuardRound, Loan } from '../types';
@@ -26,7 +29,8 @@ import {
   onSnapshot,
   Timestamp,
   QuerySnapshot,
-  DocumentData
+  DocumentData,
+  arrayUnion
 } from 'firebase/firestore';
 
 interface AppState {
@@ -151,6 +155,8 @@ interface AppState {
   fetchGuardRounds: () => Promise<void>;
   addGuardRound: (round: Omit<GuardRound, 'id' | 'startTime' | 'status'>) => Promise<string>;
   updateGuardRound: (id: string, data: Partial<GuardRound>) => Promise<void>;
+  isSyncing: boolean;
+  processSyncQueue: () => Promise<void>;
 
   // Loan Actions
   fetchLoans: () => Promise<void>;
@@ -192,7 +198,47 @@ export const useAppStore = create<AppState>()(
 
       confirmation: null,
       isLoading: false,
+      isSyncing: false,
       unsubDigitalDocuments: () => { },
+
+      processSyncQueue: async () => {
+        const { isSyncing } = get();
+        if (isSyncing) return;
+
+        const status = await Network.getStatus();
+        if (!status.connected) return;
+
+        set({ isSyncing: true });
+
+        try {
+          const pending = await SyncQueueService.getPending();
+          for (const item of pending) {
+            try {
+              if (item.actionType === 'ADD_ROUND') {
+                await setDoc(doc(db, "Rondas", item.payload.id), item.payload);
+              } else if (item.actionType === 'UPDATE_ROUND') {
+                await updateDoc(doc(db, "Rondas", item.payload.id), item.payload.data);
+              } else if (item.actionType === 'UPLOAD_EVIDENCE') {
+                const { roundId, photoBlob, lat, lng, timestamp } = item.payload;
+                const fileName = `evidencias/${get().currentUser?.uid || 'offline'}/${roundId}/foto_${Date.now()}.jpg`;
+                const downloadUrl = await get().uploadFile(photoBlob, fileName);
+                
+                await updateDoc(doc(db, "Rondas", roundId), {
+                  evidences: arrayUnion({ photoUrl: downloadUrl, lat, lng, timestamp })
+                });
+              }
+              await SyncQueueService.markCompleted(item.id);
+            } catch (err: any) {
+              console.error("Error processing queue item:", item, err);
+              await SyncQueueService.incrementRetry(item);
+              // Stop processing on first error to maintain chronological order
+              break;
+            }
+          }
+        } finally {
+          set({ isSyncing: false });
+        }
+      },
 
       initializeAuthListener: () => {
         onAuthStateChanged(auth, async (firebaseUser) => {
@@ -1443,20 +1489,23 @@ export const useAppStore = create<AppState>()(
             }
           });
 
-          await setDoc(doc(db, "Rondas", id), newRound);
-          console.log("addGuardRound: Ronda guardada exitosamente con ID:", id);
+          // Offline-First: Siempre encolar
+          await SyncQueueService.enqueue('ADD_ROUND', newRound);
+          console.log("addGuardRound: Ronda guardada en cola local con ID:", id);
+          
           set(state => ({ guardRounds: [newRound, ...state.guardRounds] }));
+          
+          // Intentar procesar la cola si hay red
+          get().processSyncQueue();
+          
           return id;
         } catch (error: any) {
           console.error("addGuardRound: Error crítico al guardar en Firestore:", error);
           throw error;
         }
       },
-
       updateGuardRound: async (id, data) => {
         try {
-          const docRef = doc(db, "Rondas", id);
-          
           // Sanitizar datos para evitar errores de Firebase con 'undefined'
           const cleanData = { ...data };
           Object.keys(cleanData).forEach(key => {
@@ -1465,10 +1514,15 @@ export const useAppStore = create<AppState>()(
             }
           });
 
-          await updateDoc(docRef, cleanData);
+          // Offline-First: Siempre encolar
+          await SyncQueueService.enqueue('UPDATE_ROUND', { id, data: cleanData });
+
           set(state => ({
             guardRounds: state.guardRounds.map(r => r.id === id ? { ...r, ...cleanData } : r)
           }));
+
+          // Intentar procesar la cola
+          get().processSyncQueue();
         } catch (error) { console.error("Error updating round:", error); }
       },
 

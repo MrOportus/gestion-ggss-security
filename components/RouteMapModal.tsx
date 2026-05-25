@@ -45,6 +45,16 @@ const PhotoIcon = L.icon({
     shadowSize: [41, 41]
 });
 
+// Custom icon for Sabotage
+const SabotageIcon = L.icon({
+    iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-red.png',
+    shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
+    iconSize: [25, 41],
+    iconAnchor: [12, 41],
+    popupAnchor: [1, -34],
+    shadowSize: [41, 41]
+});
+
 interface RouteMapModalProps {
     round: any;
     onClose: () => void;
@@ -132,13 +142,16 @@ const RouteMapModal: React.FC<RouteMapModalProps> = ({ round, onClose }) => {
         }
     };
 
-    // For the coloring logic and smoothing, we need the raw points with timestamps
-    const rawPoints = (round.path || [])
-        .filter((p: any) => p && typeof p.lat === 'number' && typeof p.lng === 'number' && p.timestamp);
+    // Extract raw points and sabotage events
+    const rawPoints = round.path || [];
+    const sabotageEvents = rawPoints.filter((p: any) => p.location_source === 'GPS_SABOTEADO');
 
-    // Apply moving average smoothing (window size 3) to raw points to fulfill "suavizado" requirement
+    // For the coloring logic and smoothing, we need the valid points with timestamps
+    const validPoints = rawPoints.filter((p: any) => typeof p.lat === 'number' && typeof p.lng === 'number' && p.timestamp);
+
+    // Apply moving average smoothing (window size 3) to valid points to fulfill "suavizado" requirement
     // but preserving every point for stay detection logic.
-    const fullPathPoints = movingAverage(rawPoints, 3);
+    const fullPathPoints = movingAverage(validPoints, 3);
 
     // Zoom and bounds calculations
     const finalPoints: [number, number][] = fullPathPoints.map((p: any) => [p.lat, p.lng]);
@@ -154,24 +167,35 @@ const RouteMapModal: React.FC<RouteMapModalProps> = ({ round, onClose }) => {
         ? Math.floor((new Date(round.endTime).getTime() - new Date(round.startTime).getTime()) / 60000)
         : null;
 
-    // Helper to determine color of a segment
-    const getSegmentColor = (p1: any, p2: any, index: number, total: number) => {
+    // Helper to determine color and style of a segment
+    const getSegmentStyle = (p1: any, p2: any, index: number, total: number) => {
         const t1 = new Date(p1.timestamp).getTime();
         const t2 = new Date(p2.timestamp).getTime();
         const dt = (t2 - t1) / 1000; // seconds
+
+        // Check if there was signal loss between t1 and t2
+        const hasSignalLoss = rawPoints.some((rp: any) => {
+            const rt = new Date(rp.timestamp).getTime();
+            return rt > t1 && rt < t2 && rp.location_source === 'GPS_SIGNAL_LOST_TECHNICAL';
+        });
+
+        if (hasSignalLoss) {
+            return { color: '#eab308', dashArray: '10, 10', weight: 4 }; // Yellow dashed
+        }
+
         const dist = getHaversineDistance(p1, p2);
 
         // Stay detection
         if (dist < 2) {
-            if (dt > 120) return '#b91c1c'; // Rojo intenso (Deep Red) - > 2 min
-            if (dt > 30) return '#ef4444'; // Rojo (Soft Red) - > 30 sec
+            if (dt > 120) return { color: '#b91c1c', weight: 6 }; // Rojo intenso (Deep Red) - > 2 min
+            if (dt > 30) return { color: '#ef4444', weight: 6 }; // Rojo (Soft Red) - > 30 sec
         }
 
         // Progress coloring
         const progress = index / total;
-        if (progress < 0.1) return '#22c55e'; // Verde (Inicia)
-        if (progress > 0.9) return '#3b82f6'; // Azul (Termina)
-        return '#f97316'; // Ámbar/Naranja (Cuerpo central - más visible que amarillo puro)
+        if (progress < 0.1) return { color: '#22c55e', weight: 6 }; // Verde (Inicia)
+        if (progress > 0.9) return { color: '#3b82f6', weight: 6 }; // Azul (Termina)
+        return { color: '#f97316', weight: 6 }; // Ámbar/Naranja (Cuerpo central)
     };
 
     return (
@@ -234,11 +258,10 @@ const RouteMapModal: React.FC<RouteMapModalProps> = ({ round, onClose }) => {
 
                                 {bounds && <ChangeView bounds={bounds} />}
 
-                                {/* Dynamic Path Segments */}
                                 {fullPathPoints.length > 1 && fullPathPoints.map((point: any, idx: number) => {
                                     if (idx === 0) return null;
                                     const prevPoint = fullPathPoints[idx - 1];
-                                    const color = getSegmentColor(prevPoint, point, idx, fullPathPoints.length);
+                                    const style = getSegmentStyle(prevPoint, point, idx, fullPathPoints.length);
 
                                     return (
                                         <Polyline
@@ -248,8 +271,9 @@ const RouteMapModal: React.FC<RouteMapModalProps> = ({ round, onClose }) => {
                                                 [point.lat, point.lng]
                                             ]}
                                             pathOptions={{
-                                                color: color,
-                                                weight: 6,
+                                                color: style.color,
+                                                weight: style.weight,
+                                                dashArray: style.dashArray as any,
                                                 opacity: 0.9,
                                                 lineJoin: 'round',
                                                 lineCap: 'round'
@@ -303,6 +327,32 @@ const RouteMapModal: React.FC<RouteMapModalProps> = ({ round, onClose }) => {
                                         </Popup>
                                     </Marker>
                                 ))}
+
+                                {/* Sabotage Markers */}
+                                {sabotageEvents.map((event: any, idx: number) => {
+                                    const eventTime = new Date(event.timestamp).getTime();
+                                    const lastValid = fullPathPoints.slice().reverse().find((p: any) => new Date(p.timestamp).getTime() < eventTime) || fullPathPoints[0] || { lat: round.startLocation?.lat, lng: round.startLocation?.lng };
+                                    
+                                    if (!lastValid?.lat) return null;
+
+                                    return (
+                                        <Marker
+                                            key={`sabotage-${idx}`}
+                                            position={[lastValid.lat, lastValid.lng]}
+                                            icon={SabotageIcon}
+                                        >
+                                            <Popup>
+                                                <div className="p-2 text-center">
+                                                    <p className="font-black text-rose-600 text-xs uppercase mb-1 flex items-center gap-1 justify-center">
+                                                        <AlertCircle size={14} /> GPS Saboteado
+                                                    </p>
+                                                    <p className="font-bold text-[10px] text-slate-500">Se detectó apagado manual de GPS o revocación de permisos a esta hora:</p>
+                                                    <p className="font-black text-sm mt-1">{new Date(event.timestamp).toLocaleTimeString()}</p>
+                                                </div>
+                                            </Popup>
+                                        </Marker>
+                                    );
+                                })}
                             </MapContainer>
                         )}
 
@@ -320,6 +370,14 @@ const RouteMapModal: React.FC<RouteMapModalProps> = ({ round, onClose }) => {
                             <div className="flex items-center gap-3">
                                 <div className="w-8 h-1 bg-blue-600 rounded-full"></div>
                                 <span className="text-[10px] font-black text-slate-600 uppercase">Trazado</span>
+                            </div>
+                            <div className="flex items-center gap-3">
+                                <div className="w-8 h-1 bg-amber-400 rounded-full border border-dashed border-white"></div>
+                                <span className="text-[10px] font-black text-slate-600 uppercase">Sin Señal GPS</span>
+                            </div>
+                            <div className="flex items-center gap-3">
+                                <div className="w-3 h-3 bg-rose-600 rounded-full ring-2 ring-white"></div>
+                                <span className="text-[10px] font-black text-slate-600 uppercase">GPS Saboteado</span>
                             </div>
                             <div className="flex items-center gap-3">
                                 <div className="w-3 h-3 bg-amber-400 rounded-full ring-2 ring-white"></div>

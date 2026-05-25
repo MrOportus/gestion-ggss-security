@@ -1,6 +1,8 @@
 
 import React, { useState, useEffect } from 'react';
 import { useAppStore } from './store/useAppStore';
+import { useNetworkStatus } from './hooks/useNetworkStatus';
+import { SyncQueueService } from './lib/SyncQueueService';
 import Login from './components/Login';
 import AuthActionHandler from './components/AuthActionHandler';
 import AdminDashboard from './pages/AdminDashboard';
@@ -30,10 +32,32 @@ import { PushNotifications } from '@capacitor/push-notifications';
 
 
 const App: React.FC = () => {
-  const { currentUser, logout, fetchInitialData, isLoading, initializeAuthListener, registerFCMToken, showNotification } = useAppStore();
+  const { currentUser, logout, fetchInitialData, isLoading, initializeAuthListener, registerFCMToken, showNotification, processSyncQueue } = useAppStore();
   const [currentView, setCurrentView] = useState<'dashboard' | 'employees' | 'tasks' | 'sites' | 'payments' | 'supervisor_mgmt' | 'mandante_mgmt' | 'notes' | 'attendance' | 'rounds' | 'shift_management' | 'loans' | 'documents' | 'solicitudes_turnos_extra'>('dashboard');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [authInitialized, setAuthInitialized] = useState(false);
+  
+  const { connected } = useNetworkStatus();
+
+  // Trigger sync queue when network is restored
+  useEffect(() => {
+    if (connected && currentUser) {
+      processSyncQueue();
+    }
+  }, [connected, currentUser, processSyncQueue]);
+
+  const handleLogout = async () => {
+    try {
+      const pendingItems = await SyncQueueService.getPending();
+      if (pendingItems.length > 0) {
+        alert(`No puedes cerrar sesión. Tienes ${pendingItems.length} registros pendientes de enviar a la nube. Conéctate a internet para sincronizar.`);
+        return;
+      }
+    } catch (e) {
+      console.warn('No se pudo verificar la cola de sincronización', e);
+    }
+    logout();
+  };
 
   // --- FCM DIAGNOSTIC STATE ---
   const [fcmDebug, setFcmDebug] = useState<{
@@ -446,7 +470,7 @@ const App: React.FC = () => {
           </button>
 
           <button
-            onClick={logout}
+            onClick={handleLogout}
             className="w-full flex items-center gap-2 px-4 py-2 text-sm text-red-600 hover:bg-red-50 rounded-lg transition font-medium"
           >
             <LogOut size={16} /> Cerrar Sesión
@@ -577,7 +601,7 @@ const App: React.FC = () => {
                   <span className="text-xs font-bold text-slate-700">Recargar</span>
                 </button>
                 <button
-                  onClick={logout}
+                  onClick={handleLogout}
                   className="flex flex-col items-center justify-center p-4 bg-white border border-slate-200 rounded-2xl shadow-sm active:scale-95 transition"
                 >
                   <LogOut size={24} className="text-red-500 mb-2" />

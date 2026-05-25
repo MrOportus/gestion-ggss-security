@@ -281,7 +281,13 @@ export interface GuardRound {
   startLocation: { lat: number; lng: number; accuracy?: number };
   endLocation?: { lat: number; lng: number; accuracy?: number };
   status: 'IN_PROGRESS' | 'COMPLETED';
-  path?: { lat: number; lng: number; timestamp: string; accuracy?: number }[];
+  path?: { 
+    lat: number | null; 
+    lng: number | null; 
+    timestamp: string; 
+    accuracy?: number;
+    location_source?: 'GPS_OK' | 'GPS_SIGNAL_LOST_TECHNICAL' | 'GPS_SABOTEADO';
+  }[];
   evidences?: RoundEvidence[];
   result?: 'SIN_NOVEDAD' | 'CON_NOVEDAD' | 'SOSPECHA';
   notes?: string;
