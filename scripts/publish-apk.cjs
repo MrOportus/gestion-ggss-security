@@ -1,14 +1,14 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// scripts/publish-apk.js
+// scripts/publish-apk.cjs
 //
 // Automatización de compilación, subida a Firebase Storage y publicación en Firestore
 // de una nueva versión del APK para GGSS Security.
 //
 // USO:
-//   node scripts/publish-apk.js <nueva-version> [notas]
+//   node scripts/publish-apk.cjs <nueva-version> [notas]
 //
 // EJEMPLO:
-//   node scripts/publish-apk.js 1.0.2 "Arreglado el diagnóstico de notificaciones y optimizado el inicio"
+//   node scripts/publish-apk.cjs 1.0.2 "Arreglado el diagnóstico de notificaciones y optimizado el inicio"
 // ─────────────────────────────────────────────────────────────────────────────
 
 const admin = require('firebase-admin');
@@ -21,7 +21,7 @@ const [,, newVersion, releaseNotes] = process.argv;
 
 if (!newVersion) {
   console.error('\n❌ Error: Debes proporcionar la nueva versión.');
-  console.error('   Uso: node scripts/publish-apk.js <version> [notas]\n');
+  console.error('   Uso: node scripts/publish-apk.cjs <version> [notas]\n');
   process.exit(1);
 }
 
