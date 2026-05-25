@@ -13,6 +13,12 @@ service cloud.firestore {
       return request.auth != null && 
         get(/databases/$(database)/documents/Colaboradores/$(request.auth.uid)).data.role == 'supervisor';
     }
+
+    // Función auxiliar para verificar si el usuario es Mandante
+    function isMandante() {
+      return request.auth != null && 
+        get(/databases/$(database)/documents/Colaboradores/$(request.auth.uid)).data.role == 'mandante';
+    }
     
     // Función auxiliar para verificar si el usuario es el dueño del documento
     function isOwner(userId) {
@@ -61,7 +67,12 @@ service cloud.firestore {
     
     // Rondas (GuardRounds)
     match /Rondas/{roundId} {
-      allow read: if request.auth != null;
+      allow read: if request.auth != null && (
+        isAdmin() || 
+        isSupervisor() || 
+        (isMandante() && resource.data.siteId in get(/databases/$(database)/documents/Colaboradores/$(request.auth.uid)).data.assignedSites) ||
+        resource.data.workerId == request.auth.uid
+      );
       allow create: if request.auth != null && (isAdmin() || isSupervisor() || request.resource.data.workerId == request.auth.uid);
       allow update: if request.auth != null && (isAdmin() || isSupervisor() || resource.data.workerId == request.auth.uid);
       allow delete: if isAdmin();

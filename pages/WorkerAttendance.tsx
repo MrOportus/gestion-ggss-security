@@ -481,16 +481,18 @@ const WorkerAttendance: React.FC = () => {
                 </div>
 
                 <div className="grid grid-cols-1 gap-4">
-                  <button
-                    onClick={() => setStep('rounds')}
-                    className="w-full py-6 bg-blue-600 hover:bg-blue-700 text-white rounded-[2rem] shadow-xl shadow-blue-200 flex items-center justify-center gap-3 transition-all active:scale-95 border-b-8 border-blue-800 relative"
-                  >
-                    <ClipboardList size={28} />
-                    <span className="text-xl font-black tracking-wider text-center uppercase">RONDAS ASIGNADAS</span>
-                    {guardRounds.some(r => r.workerId === currentUser?.uid && r.status === 'IN_PROGRESS') && (
-                      <div className="absolute top-4 right-4 w-3 h-3 bg-rose-500 rounded-full animate-ping"></div>
-                    )}
-                  </button>
+                  {currentSite?.rondasEnabled && (
+                    <button
+                      onClick={() => setStep('rounds')}
+                      className="w-full py-6 bg-blue-600 hover:bg-blue-700 text-white rounded-[2rem] shadow-xl shadow-blue-200 flex items-center justify-center gap-3 transition-all active:scale-95 border-b-8 border-blue-800 relative"
+                    >
+                      <ClipboardList size={28} />
+                      <span className="text-xl font-black tracking-wider text-center uppercase">RONDAS ASIGNADAS</span>
+                      {guardRounds.some(r => r.workerId === currentUser?.uid && r.status === 'IN_PROGRESS') && (
+                        <div className="absolute top-4 right-4 w-3 h-3 bg-rose-500 rounded-full animate-ping"></div>
+                      )}
+                    </button>
+                  )}
 
 
                   <button

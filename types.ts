@@ -1,5 +1,5 @@
 
-export type Role = 'admin' | 'supervisor' | 'worker';
+export type Role = 'admin' | 'supervisor' | 'worker' | 'mandante';
 
 export interface User {
   uid: string;
@@ -14,6 +14,7 @@ export interface Site {
   empresa?: string; // Corresponde a "Empresa"
   rutEmpresa?: string; // Corresponde a "Rut E°"
   active: boolean;
+  rondasEnabled?: boolean; // Contextual Feature Toggle for Guard Rounds
 }
 
 export interface Employee {

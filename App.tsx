@@ -18,18 +18,20 @@ import RoundsAdminPage from './pages/RoundsAdminPage';
 import ShiftManagement from './pages/ShiftManagement';
 import LoansPage from './pages/LoansPage';
 import DocumentsPage from './pages/DocumentsPage';
-import { StickyNote, Navigation, CalendarDays, Receipt, ShieldCheck, Zap, Info } from 'lucide-react';
+import { StickyNote, Navigation, CalendarDays, Receipt, ShieldCheck, Zap, Info, User } from 'lucide-react';
 // NOTA: firebase/messaging y lib/firebase.messaging se importan dinámicamente
 // solo en contexto web para evitar interferencia con el plugin nativo de Capacitor
 import PanelAdminSolicitudes from './components/PanelAdminSolicitudes';
 import AppUpdateBanner from './components/AppUpdateBanner';
+import MandanteView from './pages/MandanteView';
+import MandanteManagement from './pages/MandanteManagement';
 import { Capacitor } from '@capacitor/core';
 import { PushNotifications } from '@capacitor/push-notifications';
 
 
 const App: React.FC = () => {
   const { currentUser, logout, fetchInitialData, isLoading, initializeAuthListener, registerFCMToken, showNotification } = useAppStore();
-  const [currentView, setCurrentView] = useState<'dashboard' | 'employees' | 'tasks' | 'sites' | 'payments' | 'supervisor_mgmt' | 'notes' | 'attendance' | 'rounds' | 'shift_management' | 'loans' | 'documents' | 'solicitudes_turnos_extra'>('dashboard');
+  const [currentView, setCurrentView] = useState<'dashboard' | 'employees' | 'tasks' | 'sites' | 'payments' | 'supervisor_mgmt' | 'mandante_mgmt' | 'notes' | 'attendance' | 'rounds' | 'shift_management' | 'loans' | 'documents' | 'solicitudes_turnos_extra'>('dashboard');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [authInitialized, setAuthInitialized] = useState(false);
 
@@ -299,6 +301,15 @@ const App: React.FC = () => {
     );
   }
 
+  if (currentUser.role === 'mandante') {
+    return (
+      <>
+        <MandanteView />
+        {renderFcmDebugOverlay()}
+      </>
+    );
+  }
+
   const handleNavChange = (view: typeof currentView) => {
     setCurrentView(view);
     setIsMobileMenuOpen(false);
@@ -402,6 +413,11 @@ const App: React.FC = () => {
               <button onClick={() => setCurrentView('supervisor_mgmt')} className={navItemClass('supervisor_mgmt')}>
                 <ClipboardList size={20} />
                 <span className="font-medium">Gestión Supervisores</span>
+              </button>
+
+              <button onClick={() => setCurrentView('mandante_mgmt')} className={navItemClass('mandante_mgmt')}>
+                <User size={20} />
+                <span className="font-medium">Gestión Mandantes</span>
               </button>
             </>
           )}
@@ -539,10 +555,16 @@ const App: React.FC = () => {
 
 
               {currentUser.role === 'admin' && (
-                <button onClick={() => handleNavChange('supervisor_mgmt')} className={mobileNavItemClass('supervisor_mgmt')}>
-                  <div className="flex items-center gap-3"><ClipboardList size={20} /> Gestión Supervisores</div>
-                  <ChevronRight size={16} className="text-slate-300" />
-                </button>
+                <>
+                  <button onClick={() => handleNavChange('supervisor_mgmt')} className={mobileNavItemClass('supervisor_mgmt')}>
+                    <div className="flex items-center gap-3"><ClipboardList size={20} /> Gestión Supervisores</div>
+                    <ChevronRight size={16} className="text-slate-300" />
+                  </button>
+                  <button onClick={() => handleNavChange('mandante_mgmt')} className={mobileNavItemClass('mandante_mgmt')}>
+                    <div className="flex items-center gap-3"><User size={20} /> Gestión Mandantes</div>
+                    <ChevronRight size={16} className="text-slate-300" />
+                  </button>
+                </>
               )}
 
               {/* Botones de Acción Móvil */}
@@ -582,6 +604,7 @@ const App: React.FC = () => {
             {currentView === 'attendance' && <AttendancePage />}
             {currentView === 'rounds' && currentUser.role === 'admin' && <RoundsAdminPage />}
             {currentView === 'supervisor_mgmt' && currentUser.role === 'admin' && <SupervisorManagement />}
+            {currentView === 'mandante_mgmt' && currentUser.role === 'admin' && <MandanteManagement />}
             {currentView === 'shift_management' && <ShiftManagement />}
             {currentView === 'solicitudes_turnos_extra' && currentUser.role === 'admin' && <PanelAdminSolicitudes />}
             {currentView === 'loans' && <LoansPage />}

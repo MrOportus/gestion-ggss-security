@@ -27,8 +27,8 @@ const AddSiteModal: React.FC<AddSiteModalProps> = ({ onClose, siteToEdit }) => {
   }, [siteToEdit]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
+    const { name, value, type, checked } = e.target;
+    setFormData(prev => ({ ...prev, [name]: type === 'checkbox' ? checked : value }));
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -139,6 +139,20 @@ const AddSiteModal: React.FC<AddSiteModalProps> = ({ onClose, siteToEdit }) => {
             <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Dirección Completa *</label>
                 <input name="address" value={formData.address || ''} required onChange={handleChange} className={inputClass} placeholder="Av. Principal 123, Comuna" />
+            </div>
+
+            <div className="flex items-center gap-2 bg-white p-3 rounded-lg border border-slate-200 shadow-sm">
+                <input 
+                  type="checkbox" 
+                  name="rondasEnabled" 
+                  id="rondasEnabled"
+                  checked={!!formData.rondasEnabled} 
+                  onChange={handleChange} 
+                  className="w-4 h-4 text-blue-600 rounded cursor-pointer" 
+                />
+                <label htmlFor="rondasEnabled" className="text-sm font-medium text-slate-700 cursor-pointer flex-1">
+                    Habilitar Módulo de Rondas para esta sucursal
+                </label>
             </div>
 
             {/* Footer Buttons */}

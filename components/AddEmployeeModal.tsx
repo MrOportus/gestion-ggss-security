@@ -220,6 +220,7 @@ const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({ onClose }) => {
                     <option value="worker">Guardia / Operativo</option>
                     <option value="supervisor">Supervisor</option>
                     <option value="admin">Administrador</option>
+                    <option value="mandante">Mandante / Cliente</option>
                   </select>
                 </div>
               </div>
