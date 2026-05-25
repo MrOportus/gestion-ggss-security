@@ -40,7 +40,7 @@ pdfjs.GlobalWorkerOptions.workerSrc = new URL(
 import 'react-pdf/dist/Page/AnnotationLayer.css';
 import 'react-pdf/dist/Page/TextLayer.css';
 
-const SIGNATURE_SIZE = 100;
+const SIGNATURE_SIZE = 200;
 const AUDIT_FONT_SIZE = 8;
 
 
@@ -119,7 +119,7 @@ const DocumentsPage: React.FC = () => {
     // Agrupación y Paginación
     const groupedDocs = useMemo(() => {
         const groups: Record<string, DigitalDocument[]> = {};
-        
+
         filteredDocs.forEach(doc => {
             const key = doc.assignedTo;
             if (!groups[key]) groups[key] = [];
@@ -347,10 +347,11 @@ const DocumentsPage: React.FC = () => {
             const signatureImage = await pdfDoc.embedPng(signatureDataUrl);
             const sigDims = signatureImage.scale(SIGNATURE_SIZE / signatureImage.width);
 
-            // Centrar la firma ligeramente sobre el punto de toque
+            // Colocar la firma desde la esquina superior izquierda del punto de toque
+            // En PDF el eje Y está invertido: pdfY es la esquina superior → restamos la altura para obtener el origen inferior
             selectedPage.drawImage(signatureImage, {
-                x: pdfX - (sigDims.width / 2),
-                y: pdfY - (sigDims.height / 2),
+                x: pdfX,
+                y: pdfY - sigDims.height,
                 width: sigDims.width,
                 height: sigDims.height,
             });
@@ -382,7 +383,7 @@ const DocumentsPage: React.FC = () => {
                 browserInfo: navigator.userAgent
             });
 
-            showNotification("Documento firmado exitosamente", "success");
+            showNotification("Documento firmado correctamente. Gracias", "success");
             setSelectedDocToSign(null);
         } catch (error) {
             console.error(error);
@@ -562,7 +563,7 @@ const DocumentsPage: React.FC = () => {
                     >
                         <ChevronLeft size={24} />
                     </button>
-                    
+
                     <div className="flex items-center gap-2">
                         {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => (
                             <button
@@ -822,24 +823,24 @@ const DocumentsPage: React.FC = () => {
                                                             renderAnnotationLayer={false}
                                                             renderTextLayer={false}
                                                         />
-                                                    {signaturePosition?.pageIndex === index && (
-                                                        <div
-                                                            className="absolute border-2 border-blue-600 bg-blue-100/60 rounded-xl pointer-events-none flex flex-col items-center justify-center shadow-2xl animate-in zoom-in duration-200 backdrop-blur-[2px]"
-                                                            style={{
-                                                                left: signaturePosition.x - 60,
-                                                                top: signaturePosition.y - 35,
-                                                                width: '120px',
-                                                                height: '70px',
-                                                                zIndex: 10
-                                                            }}
-                                                        >
-                                                            <PenTool size={18} className="text-blue-700 mb-1" />
-                                                            <span className="text-[10px] font-black text-blue-800 uppercase text-center leading-tight">Tu firma irá<br />Aquí</span>
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            ))}
-                                        </Document>
+                                                        {signaturePosition?.pageIndex === index && (
+                                                            <div
+                                                                className="absolute border-2 border-blue-600 bg-blue-100/60 rounded-xl pointer-events-none flex flex-col items-center justify-center shadow-2xl animate-in zoom-in duration-200 backdrop-blur-[2px]"
+                                                                style={{
+                                                                    left: signaturePosition.x,
+                                                                    top: signaturePosition.y,
+                                                                    width: '120px',
+                                                                    height: '70px',
+                                                                    zIndex: 10
+                                                                }}
+                                                            >
+                                                                <PenTool size={18} className="text-blue-700 mb-1" />
+                                                                <span className="text-[10px] font-black text-blue-800 uppercase text-center leading-tight">Tu firma irá<br />Aquí</span>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                ))}
+                                            </Document>
                                         </div>
                                     </div>
 
@@ -941,10 +942,11 @@ const DocumentsPage: React.FC = () => {
                     >
                         <SignatureCanvas
                             ref={sigPad}
-                            penColor="#111827"
+                            penColor="#0055A4"
                             minWidth={1.5}
-                            maxWidth={4}
+                            maxWidth={5}
                             velocityFilterWeight={0.7}
+                            dotSize={2.0}
                             canvasProps={{
                                 style: { position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', touchAction: 'none', cursor: 'crosshair' }
                             }}

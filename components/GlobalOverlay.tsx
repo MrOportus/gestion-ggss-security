@@ -8,7 +8,7 @@ export const GlobalOverlay: React.FC = () => {
     return (
         <>
             {/* NOTIFICATIONS (Toasts) */}
-            <div className="fixed top-20 right-4 z-[100] flex flex-col gap-2 pointer-events-none">
+            <div className="fixed top-20 right-4 z-[10000] flex flex-col gap-2 pointer-events-none">
                 {notifications.map((notif) => (
                     <div
                         key={notif.id}
@@ -24,9 +24,9 @@ export const GlobalOverlay: React.FC = () => {
                         {notif.type === 'warning' && <AlertTriangle size={20} className="text-amber-500" />}
                         {notif.type === 'info' && <Info size={20} className="text-blue-500" />}
                         {notif.type === 'coming-soon' && <Clock size={20} className="text-slate-400" />}
-
+ 
                         <div className="flex-1 text-sm font-bold">{notif.message}</div>
-
+ 
                         <button
                             onClick={() => hideNotification(notif.id)}
                             className={`p-1 rounded-lg transition ${notif.type === 'coming-soon' ? 'hover:bg-white/10 text-white/50 hover:text-white' : 'hover:bg-black/5'}`}
@@ -36,10 +36,10 @@ export const GlobalOverlay: React.FC = () => {
                     </div>
                 ))}
             </div>
-
+ 
             {/* CONFIRMATION MODAL */}
             {confirmation && (
-                <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
+                <div className="fixed inset-0 z-[10001] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
                     <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200">
                         <div className="p-6 border-b border-slate-100 flex items-center gap-4 bg-slate-50">
                             <div className="w-12 h-12 rounded-xl bg-blue-100 flex items-center justify-center text-blue-600">

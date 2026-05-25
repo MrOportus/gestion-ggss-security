@@ -29,6 +29,7 @@ import {
 } from 'lucide-react';
 
 import DocumentsPage from './DocumentsPage';
+import { GlobalOverlay } from '../components/GlobalOverlay';
 import { db } from '../lib/firebase';
 import { collection, query, where, getDocs, onSnapshot, doc as firestoreDoc } from 'firebase/firestore';
 import { getToken, onMessage } from 'firebase/messaging';
@@ -1000,6 +1001,7 @@ const WorkerAttendance: React.FC = () => {
       </div>
       {/* Banner de actualización APK */}
       <AppUpdateBanner />
+      <GlobalOverlay />
     </div>
   );
 };

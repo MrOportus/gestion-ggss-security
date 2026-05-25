@@ -325,13 +325,15 @@ export interface SolicitudTurno {
   horario_inicio: string;
   horario_fin: string;
   monto: number;
-  estado: 'disponible' | 'asignado' | 'completado';
+  estado: 'disponible' | 'asignado' | 'completado' | 'cancelado';
   guardias_permitidos: string[]; // Array of allowed guard UIDs
   id_colaborador_asignado?: string;
   nombre_colaborador_asignado?: string;
   notas?: string;
   creado_por: string;
   fecha_creacion: string;
+  fecha_asignacion?: string;
+  fecha_cancelacion?: string;
 }
 
 

@@ -116,9 +116,28 @@ const PanelAdminSolicitudes: React.FC = () => {
     }
   };
 
-  const handleDelete = async (id: string) => {
-    if (window.confirm("¿Seguro que deseas eliminar esta solicitud?")) {
-      await deleteDoc(doc(db, 'solicitudes_turnos', id));
+  const handleDelete = async (sol: SolicitudTurno) => {
+    const isCancelada = sol.estado === 'cancelado';
+    const confirmMsg = isCancelada 
+      ? "¿Deseas eliminar permanentemente esta solicitud de la base de datos?" 
+      : sol.estado === 'disponible'
+      ? "¿Seguro que deseas cancelar esta solicitud? Los guardias verán el aviso de cancelación durante 24 horas."
+      : "¿Seguro que deseas eliminar esta solicitud de la base de datos?";
+
+    if (window.confirm(confirmMsg)) {
+      try {
+        const solRef = doc(db, 'solicitudes_turnos', sol.id);
+        if (sol.estado === 'disponible') {
+          await setDoc(solRef, {
+            estado: 'cancelado',
+            fecha_cancelacion: new Date().toISOString()
+          }, { merge: true });
+        } else {
+          await deleteDoc(solRef);
+        }
+      } catch (error) {
+        console.error("Error handling delete/cancel:", error);
+      }
     }
   };
 
@@ -390,8 +409,13 @@ const PanelAdminSolicitudes: React.FC = () => {
                     {/* Estado / Asignado */}
                     <div className="lg:col-span-3">
                       <div className="flex items-center gap-2">
-                        <div className={`text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded-md ${sol.estado === 'disponible' ? 'bg-amber-100 text-amber-600' : 'bg-emerald-100 text-emerald-600'}`}>
-                          {sol.estado === 'disponible' ? 'Pendiente' : 'Asignado'}
+                        <div className={`text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded-md ${
+                          sol.estado === 'disponible' ? 'bg-amber-100 text-amber-600' : 
+                          sol.estado === 'cancelado' ? 'bg-rose-100 text-rose-600' : 
+                          'bg-emerald-100 text-emerald-600'
+                        }`}>
+                          {sol.estado === 'disponible' ? 'Pendiente' : 
+                           sol.estado === 'cancelado' ? 'Cancelado' : 'Asignado'}
                         </div>
                         {sol.estado === 'asignado' && (
                           <span className="text-xs font-bold text-slate-500 truncate" title={sol.nombre_colaborador_asignado}>
@@ -404,9 +428,9 @@ const PanelAdminSolicitudes: React.FC = () => {
                     {/* Acciones */}
                     <div className="lg:col-span-1 flex justify-end lg:justify-center border-t lg:border-t-0 pt-2 lg:pt-0 border-slate-50">
                       <button
-                        onClick={() => handleDelete(sol.id)}
+                        onClick={() => handleDelete(sol)}
                         className="p-1.5 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-all"
-                        title="Eliminar Solicitud"
+                        title={sol.estado === 'cancelado' ? 'Eliminar Permanentemente' : 'Cancelar/Eliminar Solicitud'}
                       >
                         <Trash2 size={16} />
                       </button>

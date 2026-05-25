@@ -98,10 +98,13 @@ const AppUpdateBanner: React.FC = () => {
   };
 
   useEffect(() => {
-    // Notificar al plugin que la app web cargó correctamente (evita rollback)
-    if (Capacitor.isNativePlatform()) {
-      notifyAppReady();
+    // Solo verificar si es la plataforma nativa de Android
+    if (Capacitor.getPlatform() !== 'android') {
+      return;
     }
+
+    // Notificar al plugin que la app web cargó correctamente (evita rollback)
+    notifyAppReady();
 
     // Chequear al montar
     checkForUpdate();
@@ -111,8 +114,8 @@ const AppUpdateBanner: React.FC = () => {
     return () => clearInterval(interval);
   }, []);
 
-  // Si no hay actualización disponible o el usuario lo cerró (y no es obligatorio), no renderizar
-  if (!updateInfo || (isDismissed && !updateInfo.mandatory)) {
+  // Si no es Android o no hay actualización disponible, no renderizar
+  if (Capacitor.getPlatform() !== 'android' || !updateInfo || (isDismissed && !updateInfo.mandatory)) {
     return null;
   }
 
