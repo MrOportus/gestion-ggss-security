@@ -1,5 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { useAppStore } from '../store/useAppStore';
 import { useNetworkStatus } from '../hooks/useNetworkStatus';
 import { SyncQueueService } from '../lib/SyncQueueService';
@@ -576,33 +577,60 @@ const RoundsControl: React.FC<RoundsControlProps> = ({ onBack }) => {
             </div>
 
             {/* Evidence Preview Modal */}
-            {isCapturing && photoPreview && (
-                <div className="fixed inset-0 bg-slate-900/95 backdrop-blur-md z-[100] flex flex-col">
+            {isCapturing && photoPreview && createPortal(
+                <div 
+                    className="fixed inset-0 bg-[#0f172a] z-[100] flex flex-col"
+                    style={{
+                        position: 'fixed',
+                        top: 0,
+                        left: 0,
+                        right: 0,
+                        bottom: 0,
+                        width: '100%',
+                        height: '100%',
+                        overflow: 'hidden',
+                        overscrollBehavior: 'none'
+                    }}
+                >
                     {/* Top bar */}
-                    <div className="bg-slate-900 px-4 py-3 flex items-center justify-between shrink-0">
-                        <p className="text-white text-xs font-black uppercase tracking-widest opacity-60">Vista previa</p>
+                    <div 
+                        className="px-6 flex items-center justify-between shrink-0"
+                        style={{
+                            paddingTop: 'calc(16px + env(safe-area-inset-top, 0px))',
+                            paddingBottom: '16px'
+                        }}
+                    >
+                        <p className="text-white text-xs font-black uppercase tracking-widest opacity-70">Vista previa</p>
                         <button
                             onClick={() => { setIsCapturing(false); setCapturedPhoto(null); setPhotoPreview(null); }}
-                            className="p-2 text-white/60 hover:text-white transition-colors"
+                            className="text-white/70 hover:text-white transition-colors p-2 -mr-2"
                         >
                             <X size={20} />
                         </button>
                     </div>
 
-                    {/* Photo - fills remaining space but never pushes buttons off screen */}
-                    <div className="flex-1 overflow-hidden flex items-center justify-center bg-slate-900 px-4 py-2">
-                        <img
-                            src={photoPreview}
-                            className="max-h-full max-w-full object-contain rounded-2xl"
-                            alt="Preview"
-                        />
+                    {/* Photo Container */}
+                    <div className="flex-1 px-8 min-h-0 flex flex-col justify-start pt-6 items-center">
+                        <div className="w-full max-w-sm aspect-[3/4] max-h-[55vh] rounded-[2rem] overflow-hidden relative shadow-2xl bg-slate-800/50">
+                            <img
+                                src={photoPreview}
+                                className="absolute inset-0 w-full h-full object-cover"
+                                alt="Preview"
+                            />
+                        </div>
                     </div>
 
-                    {/* Action buttons - always visible at bottom */}
-                    <div className="bg-slate-900 p-4 flex gap-3 shrink-0 pb-safe">
+                    {/* Action buttons */}
+                    <div 
+                        className="px-6 flex gap-4 shrink-0"
+                        style={{
+                            paddingTop: '8px',
+                            paddingBottom: 'calc(24px + env(safe-area-inset-bottom, 0px))'
+                        }}
+                    >
                         <button
                             onClick={() => { setIsCapturing(false); setCapturedPhoto(null); setPhotoPreview(null); }}
-                            className="flex-1 py-4 bg-slate-700 text-slate-300 rounded-2xl font-black uppercase text-xs flex items-center justify-center gap-2 active:scale-95 transition-all"
+                            className="flex-[1] py-4 bg-slate-800 text-slate-300 rounded-2xl font-black uppercase text-xs flex items-center justify-center gap-2 active:scale-95 transition-all"
                         >
                             <Trash2 size={16} /> Descartar
                         </button>
@@ -614,7 +642,8 @@ const RoundsControl: React.FC<RoundsControlProps> = ({ onBack }) => {
                             {loading ? <Loader2 className="animate-spin" size={16} /> : <UploadCloud size={16} />} Subir Evidencia
                         </button>
                     </div>
-                </div>
+                </div>,
+                document.body
             )}
 
             {/* History Area */}
@@ -675,84 +704,105 @@ const RoundsControl: React.FC<RoundsControlProps> = ({ onBack }) => {
                 </div>
             </div>
 
-            {/* Stop Round Result Modal */}
-            {showResultModal && (
-                <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-md z-[110] flex items-end sm:items-center justify-center animate-in fade-in duration-300">
-                    <div className="w-full sm:max-w-sm bg-white rounded-t-[2.5rem] sm:rounded-[2.5rem] p-6 shadow-2xl animate-in slide-in-from-bottom-8 sm:zoom-in-95 duration-300 max-h-[90vh] overflow-y-auto">
-                        <div className="w-10 h-1 bg-slate-200 rounded-full mx-auto mb-5 sm:hidden" />
-                        <div className="text-center space-y-1 mb-5">
-                            <h3 className="text-xl font-black text-slate-800 tracking-tight leading-none">Finalizar Ronda</h3>
-                            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Seleccione el resultado de la vigilancia</p>
+            {/* Stop Round Result Modal - centrado, tamaño justo al contenido */}
+            {showResultModal && createPortal(
+                <div 
+                    className="fixed inset-0 bg-black/70 z-[110] flex items-center justify-center px-5 animate-in fade-in duration-200"
+                    style={{
+                        position: 'fixed',
+                        top: 0,
+                        left: 0,
+                        right: 0,
+                        bottom: 0,
+                        width: '100%',
+                        height: '100%',
+                        overflow: 'hidden'
+                    }}
+                >
+                    <div className="w-full max-w-xs bg-white rounded-3xl shadow-2xl animate-in zoom-in-95 duration-200 overflow-hidden">
+                        {/* Header compacto */}
+                        <div className="pt-5 px-5 pb-3 text-center border-b border-slate-100">
+                            <h3 className="text-lg font-black text-slate-800 leading-none">Finalizar Ronda</h3>
+                            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">Selecciona el resultado</p>
                         </div>
 
-                        <div className="space-y-2 mb-4">
-                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Notas de la ronda (Opcional)</label>
+                        {/* Textarea notas compacto */}
+                        <div className="px-5 pt-3 pb-2">
                             <textarea
                                 value={roundNotes}
                                 onChange={(e) => setRoundNotes(e.target.value)}
-                                placeholder="Agregar notas de ronda opcional"
-                                className="w-full p-3 bg-slate-50 border border-slate-100 rounded-2xl text-sm focus:ring-2 focus:ring-blue-500 outline-none resize-none h-20 placeholder:text-slate-300 font-medium"
+                                placeholder="Notas opcionales..."
+                                className="w-full p-3 bg-slate-50 border border-slate-100 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none resize-none h-16 placeholder:text-slate-300 font-medium"
                             />
                         </div>
 
-                        <div className="grid grid-cols-1 gap-2 mb-3">
+                        {/* Botones resultado - compactos */}
+                        <div className="px-5 pb-2 flex flex-col gap-2">
                             <button
                                 onClick={() => confirmStopRound('SIN_NOVEDAD')}
                                 disabled={loading}
-                                className="flex items-center gap-3 p-4 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-2xl transition-all active:scale-95 group border border-emerald-100"
+                                className="flex items-center gap-3 px-4 py-3 bg-emerald-50 text-emerald-700 rounded-xl active:scale-95 transition-all border border-emerald-100"
                             >
-                                <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center shadow-sm text-emerald-600 group-hover:scale-110 transition-transform shrink-0">
-                                    <ShieldCheck size={22} />
-                                </div>
+                                <ShieldCheck size={20} className="shrink-0" />
                                 <div className="text-left">
-                                    <p className="font-black uppercase text-sm leading-none mb-0.5">Sin Novedad</p>
-                                    <p className="text-[10px] font-bold opacity-60">Todo en orden en la sucursal.</p>
+                                    <p className="font-black uppercase text-xs leading-none">Sin Novedad</p>
+                                    <p className="text-[10px] opacity-60 mt-0.5">Todo en orden en la sucursal.</p>
                                 </div>
                             </button>
 
                             <button
                                 onClick={() => confirmStopRound('SOSPECHA')}
                                 disabled={loading}
-                                className="flex items-center gap-3 p-4 bg-amber-50 hover:bg-amber-100 text-amber-700 rounded-2xl transition-all active:scale-95 group border border-amber-100"
+                                className="flex items-center gap-3 px-4 py-3 bg-amber-50 text-amber-700 rounded-xl active:scale-95 transition-all border border-amber-100"
                             >
-                                <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center shadow-sm text-amber-600 group-hover:scale-110 transition-transform shrink-0">
-                                    <AlertCircle size={22} />
-                                </div>
+                                <AlertCircle size={20} className="shrink-0" />
                                 <div className="text-left">
-                                    <p className="font-black uppercase text-sm leading-none mb-0.5">Con Sospecha</p>
-                                    <p className="text-[10px] font-bold opacity-60">Situaciones irregulares leves.</p>
+                                    <p className="font-black uppercase text-xs leading-none">Con Sospecha</p>
+                                    <p className="text-[10px] opacity-60 mt-0.5">Situaciones irregulares leves.</p>
                                 </div>
                             </button>
 
                             <button
                                 onClick={() => confirmStopRound('CON_NOVEDAD')}
                                 disabled={loading}
-                                className="flex items-center gap-3 p-4 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-2xl transition-all active:scale-95 group border border-rose-100"
+                                className="flex items-center gap-3 px-4 py-3 bg-rose-50 text-rose-700 rounded-xl active:scale-95 transition-all border border-rose-100"
                             >
-                                <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center shadow-sm text-rose-600 group-hover:scale-110 transition-transform shrink-0">
-                                    <ShieldAlert size={22} />
-                                </div>
+                                <ShieldAlert size={20} className="shrink-0" />
                                 <div className="text-left">
-                                    <p className="font-black uppercase text-sm leading-none mb-0.5">Con Novedad</p>
-                                    <p className="text-[10px] font-bold opacity-60">Incidentes graves o directos.</p>
+                                    <p className="font-black uppercase text-xs leading-none">Con Novedad</p>
+                                    <p className="text-[10px] opacity-60 mt-0.5">Incidentes graves o directos.</p>
                                 </div>
                             </button>
                         </div>
 
+                        {/* Cancelar */}
                         <button
                             onClick={() => setShowResultModal(false)}
-                            className="w-full py-3 text-slate-400 text-[10px] font-black uppercase tracking-widest hover:text-slate-600 transition-colors"
+                            className="w-full py-3.5 text-slate-400 text-[10px] font-black uppercase tracking-widest border-t border-slate-100"
                         >
                             Cancelar
                         </button>
                     </div>
-                </div>
+                </div>,
+                document.body
             )}
 
-            {/* GPS Sabotage Blocker Modal */}
 
-            {activeRound && gpsStatus === 'SABOTEADO' && (
-                <div className="fixed inset-0 bg-rose-900/95 backdrop-blur-md z-[9999] p-6 flex flex-col items-center justify-center animate-in fade-in duration-300">
+            {/* GPS Sabotage Blocker Modal */}
+            {activeRound && gpsStatus === 'SABOTEADO' && createPortal(
+                <div 
+                    className="fixed inset-0 bg-rose-900/95 backdrop-blur-md z-[9999] p-6 flex flex-col items-center justify-center animate-in fade-in duration-300"
+                    style={{
+                        position: 'fixed',
+                        top: 0,
+                        left: 0,
+                        right: 0,
+                        bottom: 0,
+                        width: '100%',
+                        height: '100%',
+                        overflow: 'hidden'
+                    }}
+                >
                     <div className="w-full max-w-sm bg-white rounded-[3rem] p-8 shadow-2xl space-y-8 text-center">
                         <div className="w-24 h-24 bg-rose-100 text-rose-600 rounded-full flex items-center justify-center mx-auto mb-4 animate-bounce">
                             <ShieldAlert size={48} />
@@ -770,7 +820,8 @@ const RoundsControl: React.FC<RoundsControlProps> = ({ onBack }) => {
                             <span className="font-black uppercase tracking-widest text-sm">Reintentar GPS</span>
                         </button>
                     </div>
-                </div>
+                </div>,
+                document.body
             )}
         </div>
     );

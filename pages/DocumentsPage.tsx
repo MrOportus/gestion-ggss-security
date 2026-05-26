@@ -764,14 +764,14 @@ const DocumentsPage: React.FC = () => {
 
                             {/* PASO 1: INSTRUCCIONES */}
                             {signingStep === 'instructions' && (
-                                <div className="h-full flex flex-col p-5 animate-in fade-in slide-in-from-bottom-4 duration-500">
-                                    <div className="flex flex-col items-center text-center space-y-4 pt-2">
+                                <div className="h-full flex flex-col justify-center items-center p-5 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                                    <div className="w-full max-w-md flex flex-col items-center text-center space-y-6 -mt-20">
                                         <div className="w-14 h-14 bg-blue-50 text-blue-600 rounded-[1.25rem] flex items-center justify-center shadow-inner shrink-0">
                                             <Info size={28} />
                                         </div>
-                                        <div className="w-full max-w-md space-y-3">
+                                        <div className="w-full space-y-4">
                                             <h3 className="text-lg font-black text-slate-800 uppercase tracking-tight">Instrucciones de Firma</h3>
-                                            <div className="space-y-3 text-left bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
+                                            <div className="space-y-3 text-left bg-white p-5 rounded-2xl border border-slate-100 shadow-sm">
                                                 <div className="flex gap-3 items-start">
                                                     <div className="w-6 h-6 bg-blue-600 text-white rounded-full flex items-center justify-center text-[10px] font-black shrink-0 mt-0.5">1</div>
                                                     <p className="text-sm font-bold text-slate-600 leading-snug">Toca sobre el documento para ubicar tu firma.</p>
@@ -786,11 +786,10 @@ const DocumentsPage: React.FC = () => {
                                                 </div>
                                             </div>
                                         </div>
-                                    </div>
-                                    <div className="mt-auto pt-4">
+                                        
                                         <button
                                             onClick={() => setSigningStep('position')}
-                                            className="w-full py-4 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl font-black uppercase tracking-widest shadow-xl shadow-blue-200 active:scale-95 transition-all text-sm"
+                                            className="w-full mt-4 py-4 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl font-black uppercase tracking-widest shadow-xl shadow-blue-200 active:scale-95 transition-all text-sm"
                                         >
                                             Entendido, Comenzar
                                         </button>
