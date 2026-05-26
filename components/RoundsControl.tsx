@@ -429,9 +429,16 @@ const RoundsControl: React.FC<RoundsControlProps> = ({ onBack }) => {
                 }
             }
 
+            const base64Photo = await new Promise<string>((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onloadend = () => resolve(reader.result as string);
+                reader.onerror = reject;
+                reader.readAsDataURL(capturedPhoto);
+            });
+
             const evidencePayload = {
                 roundId: activeRound.id,
-                photoBlob: capturedPhoto,
+                photoBase64: base64Photo,
                 lat: photoPos?.coords.latitude || 0,
                 lng: photoPos?.coords.longitude || 0,
                 timestamp: new Date().toISOString()

@@ -6,7 +6,7 @@ import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import { User, Employee, Site, AttendanceLog, Document, DigitalDocument, ComparisonRecord, DailyPayment, AppNotification, AppConfirmation, ContractRecord, Advance, SupervisorTask, ChecklistTemplate, ResignationRequest, RecurringSupervisorTask, SupervisorSubTask, BoardNote, GuardRound, Loan } from '../types';
 import { db, auth, secondaryAuth, storage } from '../lib/firebase';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { ref, uploadBytes, getDownloadURL, uploadString } from 'firebase/storage';
 import {
   signInWithEmailAndPassword,
   signOut,
@@ -164,6 +164,7 @@ interface AppState {
   updateLoan: (id: string, data: Partial<Loan>) => Promise<void>;
   deleteLoan: (id: string) => Promise<void>;
   uploadLoanPdf: (file: File, filename: string) => Promise<string>;
+  uploadBase64: (base64String: string, path: string) => Promise<string>;
   // Digital Document Actions
   fetchDigitalDocuments: () => Promise<void>;
   addDigitalDocument: (doc: Omit<DigitalDocument, 'id' | 'createdAt' | 'status'>) => Promise<void>;
@@ -219,9 +220,9 @@ export const useAppStore = create<AppState>()(
               } else if (item.actionType === 'UPDATE_ROUND') {
                 await updateDoc(doc(db, "Rondas", item.payload.id), item.payload.data);
               } else if (item.actionType === 'UPLOAD_EVIDENCE') {
-                const { roundId, photoBlob, lat, lng, timestamp } = item.payload;
+                const { roundId, photoBase64, lat, lng, timestamp } = item.payload;
                 const fileName = `evidencias/${get().currentUser?.uid || 'offline'}/${roundId}/foto_${Date.now()}.jpg`;
-                const downloadUrl = await get().uploadFile(photoBlob, fileName);
+                const downloadUrl = await get().uploadBase64(photoBase64, fileName);
                 
                 await updateDoc(doc(db, "Rondas", roundId), {
                   evidences: arrayUnion({ photoUrl: downloadUrl, lat, lng, timestamp })
@@ -1618,6 +1619,20 @@ export const useAppStore = create<AppState>()(
           if (error.code === 'storage/unauthorized') {
             throw new Error("Privilegios insuficientes para subir a Firebase Storage. Verifica las reglas de seguridad.");
           }
+          throw new Error(`Error de Firebase Storage: ${error.message}`);
+        }
+      },
+
+      uploadBase64: async (base64String, path) => {
+        try {
+          console.log(`Zustand: Iniciando uploadBase64 a ${path}...`);
+          const storageRef = ref(storage, path);
+          const metadata = { contentType: 'image/jpeg' };
+          const snapshot = await uploadString(storageRef, base64String, 'data_url', metadata);
+          const url = await getDownloadURL(snapshot.ref);
+          return url;
+        } catch (error: any) {
+          console.error("Zustand: Error detallado en uploadBase64:", error);
           throw new Error(`Error de Firebase Storage: ${error.message}`);
         }
       },
