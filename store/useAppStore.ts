@@ -213,27 +213,53 @@ export const useAppStore = create<AppState>()(
 
         try {
           const pending = await SyncQueueService.getPending();
+          console.log(`[SyncQueue] Procesando ${pending.length} elementos pendientes...`);
+
           for (const item of pending) {
             try {
               if (item.actionType === 'ADD_ROUND') {
+                // La ronda base debe sincronizarse antes que sus actualizaciones.
+                // Si falla, hacemos break para mantener el orden cronológico.
                 await setDoc(doc(db, "Rondas", item.payload.id), item.payload);
+                await SyncQueueService.markCompleted(item.id);
+                console.log(`[SyncQueue] ADD_ROUND ${item.payload.id} sincronizado.`);
+
               } else if (item.actionType === 'UPDATE_ROUND') {
                 await updateDoc(doc(db, "Rondas", item.payload.id), item.payload.data);
+                await SyncQueueService.markCompleted(item.id);
+                console.log(`[SyncQueue] UPDATE_ROUND ${item.payload.id} sincronizado.`);
+
               } else if (item.actionType === 'UPLOAD_EVIDENCE') {
                 const { roundId, photoBase64, lat, lng, timestamp } = item.payload;
+
+                // Validar que el dato base64 llegó intacto desde localforage
+                if (!photoBase64 || typeof photoBase64 !== 'string' || photoBase64.length < 100) {
+                  console.error(`[SyncQueue] UPLOAD_EVIDENCE ${item.id}: payload base64 corrupto o vacío. Descartando.`, { len: photoBase64?.length });
+                  await SyncQueueService.markCompleted(item.id); // Descartar elemento corrupto
+                  continue;
+                }
+
+                console.log(`[SyncQueue] Subiendo foto para ronda ${roundId}, base64 len: ${photoBase64.length}`);
                 const fileName = `evidencias/${get().currentUser?.uid || 'offline'}/${roundId}/foto_${Date.now()}.jpg`;
                 const downloadUrl = await get().uploadBase64(photoBase64, fileName);
-                
+
                 await updateDoc(doc(db, "Rondas", roundId), {
                   evidences: arrayUnion({ photoUrl: downloadUrl, lat, lng, timestamp })
                 });
+                await SyncQueueService.markCompleted(item.id);
+                console.log(`[SyncQueue] UPLOAD_EVIDENCE ${item.id} sincronizado. URL: ${downloadUrl}`);
               }
-              await SyncQueueService.markCompleted(item.id);
+
             } catch (err: any) {
-              console.error("Error processing queue item:", item, err);
+              console.error(`[SyncQueue] Error procesando item ${item.id} (${item.actionType}):`, err);
               await SyncQueueService.incrementRetry(item);
-              // Stop processing on first error to maintain chronological order
-              break;
+
+              // Solo detenemos el proceso para ADD_ROUND ya que los UPDATE/UPLOAD
+              // son independientes y no deben bloquearse entre sí.
+              if (item.actionType === 'ADD_ROUND') {
+                break;
+              }
+              // Para UPDATE_ROUND y UPLOAD_EVIDENCE: continuar con los demás.
             }
           }
         } finally {

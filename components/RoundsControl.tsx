@@ -456,9 +456,11 @@ const RoundsControl: React.FC<RoundsControlProps> = ({ onBack }) => {
 
             const updatedEvidences = [...(activeRound.evidences || []), newEvidence];
             
+            // Actualizar SOLO el estado local de React para mostrar la foto inmediatamente.
+            // NO llamar a updateGuardRound aquí ya que encola un UPDATE_ROUND con una blob URL
+            // que expira y sobreescribe la evidencia real cuando se sincroniza.
+            // El UPLOAD_EVIDENCE en la cola es el único responsable de escribir en Firestore.
             setActiveRound(prev => prev ? { ...prev, evidences: updatedEvidences } : null);
-            
-            updateGuardRound(activeRound.id, { evidences: updatedEvidences });
 
             showNotification("Evidencia guardada localmente", "success");
             setCapturedPhoto(null);
