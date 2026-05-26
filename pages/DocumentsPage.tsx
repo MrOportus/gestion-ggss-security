@@ -764,37 +764,40 @@ const DocumentsPage: React.FC = () => {
 
                             {/* PASO 1: INSTRUCCIONES */}
                             {signingStep === 'instructions' && (
-                                <div className="h-full flex flex-col p-4 text-center animate-in fade-in slide-in-from-bottom-4 duration-500">
-                                    <div className="flex flex-col items-center justify-center h-full space-y-5">
-                                        <div className="w-16 h-16 bg-blue-50 text-blue-600 rounded-[1.5rem] flex items-center justify-center shadow-inner">
-                                            <Info size={32} />
+                                <div className="h-full flex flex-col p-5 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                                    <div className="flex flex-col items-center text-center space-y-4 pt-2">
+                                        <div className="w-14 h-14 bg-blue-50 text-blue-600 rounded-[1.25rem] flex items-center justify-center shadow-inner shrink-0">
+                                            <Info size={28} />
                                         </div>
-                                        <div className="max-w-md space-y-4 w-full">
-                                            <h3 className="text-xl font-black text-slate-800 uppercase tracking-tight">Instrucciones de Firma</h3>
-                                            <div className="space-y-3 text-left bg-white p-5 rounded-3xl border border-slate-100 shadow-sm">
-                                                <div className="flex gap-4 items-start">
+                                        <div className="w-full max-w-md space-y-3">
+                                            <h3 className="text-lg font-black text-slate-800 uppercase tracking-tight">Instrucciones de Firma</h3>
+                                            <div className="space-y-3 text-left bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
+                                                <div className="flex gap-3 items-start">
                                                     <div className="w-6 h-6 bg-blue-600 text-white rounded-full flex items-center justify-center text-[10px] font-black shrink-0 mt-0.5">1</div>
                                                     <p className="text-sm font-bold text-slate-600 leading-snug">Toca sobre el documento para ubicar tu firma.</p>
                                                 </div>
-                                                <div className="flex gap-4 items-start">
+                                                <div className="flex gap-3 items-start">
                                                     <div className="w-6 h-6 bg-blue-600 text-white rounded-full flex items-center justify-center text-[10px] font-black shrink-0 mt-0.5">2</div>
                                                     <p className="text-sm font-bold text-slate-600 leading-snug">Gira el celular de forma horizontal si te lo pide.</p>
                                                 </div>
-                                                <div className="flex gap-4 items-start">
+                                                <div className="flex gap-3 items-start">
                                                     <div className="w-6 h-6 bg-blue-600 text-white rounded-full flex items-center justify-center text-[10px] font-black shrink-0 mt-0.5">3</div>
                                                     <p className="text-sm font-bold text-slate-600 leading-snug">Dibuja tu firma y presiona en Confirmar.</p>
                                                 </div>
                                             </div>
                                         </div>
                                     </div>
-                                    <button
-                                        onClick={() => setSigningStep('position')}
-                                        className="w-full mt-4 py-4 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl font-black uppercase tracking-widest shadow-xl shadow-blue-200 active:scale-95 transition-all text-sm shrink-0"
-                                    >
-                                        Entendido, Comenzar
-                                    </button>
+                                    <div className="mt-auto pt-4">
+                                        <button
+                                            onClick={() => setSigningStep('position')}
+                                            className="w-full py-4 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl font-black uppercase tracking-widest shadow-xl shadow-blue-200 active:scale-95 transition-all text-sm"
+                                        >
+                                            Entendido, Comenzar
+                                        </button>
+                                    </div>
                                 </div>
                             )}
+
 
                             {/* PASO 2: SELECCIÓN DE POSICIÓN */}
                             {signingStep === 'position' && (

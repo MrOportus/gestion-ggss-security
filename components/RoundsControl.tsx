@@ -19,7 +19,8 @@ import {
     ShieldAlert,
     ShieldCheck,
     WifiOff,
-    RefreshCw
+    RefreshCw,
+    X
 } from 'lucide-react';
 import { GuardRound, RoundEvidence } from '../types';
 import { noSleep } from '../lib/noSleep';
@@ -576,26 +577,42 @@ const RoundsControl: React.FC<RoundsControlProps> = ({ onBack }) => {
 
             {/* Evidence Preview Modal */}
             {isCapturing && photoPreview && (
-                <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-md z-[100] p-6 flex flex-col items-center justify-center">
-                    <div className="w-full max-w-sm bg-white rounded-[2.5rem] overflow-hidden shadow-2xl">
-                        <div className="relative aspect-[3/4] bg-slate-100">
-                            <img src={photoPreview} className="w-full h-full object-cover" alt="Preview" />
-                        </div>
-                        <div className="p-6 flex gap-3">
-                            <button
-                                onClick={() => { setIsCapturing(false); setCapturedPhoto(null); setPhotoPreview(null); }}
-                                className="flex-1 py-4 bg-slate-100 text-slate-500 rounded-2xl font-black uppercase text-xs flex items-center justify-center gap-2"
-                            >
-                                <Trash2 size={16} /> Descartar
-                            </button>
-                            <button
-                                onClick={handleUploadEvidence}
-                                disabled={loading}
-                                className="flex-2 flex-[2] py-4 bg-blue-600 text-white rounded-2xl font-black uppercase text-xs flex items-center justify-center gap-2 shadow-lg shadow-blue-200"
-                            >
-                                {loading ? <Loader2 className="animate-spin" /> : <UploadCloud size={16} />} Subir Evidencia
-                            </button>
-                        </div>
+                <div className="fixed inset-0 bg-slate-900/95 backdrop-blur-md z-[100] flex flex-col">
+                    {/* Top bar */}
+                    <div className="bg-slate-900 px-4 py-3 flex items-center justify-between shrink-0">
+                        <p className="text-white text-xs font-black uppercase tracking-widest opacity-60">Vista previa</p>
+                        <button
+                            onClick={() => { setIsCapturing(false); setCapturedPhoto(null); setPhotoPreview(null); }}
+                            className="p-2 text-white/60 hover:text-white transition-colors"
+                        >
+                            <X size={20} />
+                        </button>
+                    </div>
+
+                    {/* Photo - fills remaining space but never pushes buttons off screen */}
+                    <div className="flex-1 overflow-hidden flex items-center justify-center bg-slate-900 px-4 py-2">
+                        <img
+                            src={photoPreview}
+                            className="max-h-full max-w-full object-contain rounded-2xl"
+                            alt="Preview"
+                        />
+                    </div>
+
+                    {/* Action buttons - always visible at bottom */}
+                    <div className="bg-slate-900 p-4 flex gap-3 shrink-0 pb-safe">
+                        <button
+                            onClick={() => { setIsCapturing(false); setCapturedPhoto(null); setPhotoPreview(null); }}
+                            className="flex-1 py-4 bg-slate-700 text-slate-300 rounded-2xl font-black uppercase text-xs flex items-center justify-center gap-2 active:scale-95 transition-all"
+                        >
+                            <Trash2 size={16} /> Descartar
+                        </button>
+                        <button
+                            onClick={handleUploadEvidence}
+                            disabled={loading}
+                            className="flex-[2] py-4 bg-blue-600 text-white rounded-2xl font-black uppercase text-xs flex items-center justify-center gap-2 shadow-lg shadow-blue-900/50 active:scale-95 transition-all disabled:opacity-50"
+                        >
+                            {loading ? <Loader2 className="animate-spin" size={16} /> : <UploadCloud size={16} />} Subir Evidencia
+                        </button>
                     </div>
                 </div>
             )}
@@ -660,34 +677,35 @@ const RoundsControl: React.FC<RoundsControlProps> = ({ onBack }) => {
 
             {/* Stop Round Result Modal */}
             {showResultModal && (
-                <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-md z-[110] p-6 flex flex-col items-center justify-center animate-in fade-in duration-300">
-                    <div className="w-full max-w-sm bg-white rounded-[3rem] p-8 shadow-2xl space-y-8 animate-in zoom-in-95 duration-300">
-                        <div className="text-center space-y-2">
-                            <h3 className="text-2xl font-black text-slate-800 tracking-tight leading-none">Finalizar Ronda</h3>
-                            <p className="text-xs text-slate-400 font-bold uppercase tracking-widest">Seleccione el resultado de la vigilancia</p>
+                <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-md z-[110] flex items-end sm:items-center justify-center animate-in fade-in duration-300">
+                    <div className="w-full sm:max-w-sm bg-white rounded-t-[2.5rem] sm:rounded-[2.5rem] p-6 shadow-2xl animate-in slide-in-from-bottom-8 sm:zoom-in-95 duration-300 max-h-[90vh] overflow-y-auto">
+                        <div className="w-10 h-1 bg-slate-200 rounded-full mx-auto mb-5 sm:hidden" />
+                        <div className="text-center space-y-1 mb-5">
+                            <h3 className="text-xl font-black text-slate-800 tracking-tight leading-none">Finalizar Ronda</h3>
+                            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Seleccione el resultado de la vigilancia</p>
                         </div>
 
-                        <div className="space-y-2">
+                        <div className="space-y-2 mb-4">
                             <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Notas de la ronda (Opcional)</label>
                             <textarea
                                 value={roundNotes}
                                 onChange={(e) => setRoundNotes(e.target.value)}
                                 placeholder="Agregar notas de ronda opcional"
-                                className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl text-sm focus:ring-2 focus:ring-blue-500 outline-none resize-none h-24 placeholder:text-slate-300 font-medium"
+                                className="w-full p-3 bg-slate-50 border border-slate-100 rounded-2xl text-sm focus:ring-2 focus:ring-blue-500 outline-none resize-none h-20 placeholder:text-slate-300 font-medium"
                             />
                         </div>
 
-                        <div className="grid grid-cols-1 gap-3">
+                        <div className="grid grid-cols-1 gap-2 mb-3">
                             <button
                                 onClick={() => confirmStopRound('SIN_NOVEDAD')}
                                 disabled={loading}
-                                className="flex items-center gap-4 p-5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-3xl transition-all active:scale-95 group border border-emerald-100"
+                                className="flex items-center gap-3 p-4 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-2xl transition-all active:scale-95 group border border-emerald-100"
                             >
-                                <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center shadow-sm text-emerald-600 group-hover:scale-110 transition-transform">
-                                    <ShieldCheck size={28} />
+                                <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center shadow-sm text-emerald-600 group-hover:scale-110 transition-transform shrink-0">
+                                    <ShieldCheck size={22} />
                                 </div>
                                 <div className="text-left">
-                                    <p className="font-black uppercase text-sm leading-none mb-1">Sin Novedad</p>
+                                    <p className="font-black uppercase text-sm leading-none mb-0.5">Sin Novedad</p>
                                     <p className="text-[10px] font-bold opacity-60">Todo en orden en la sucursal.</p>
                                 </div>
                             </button>
@@ -695,13 +713,13 @@ const RoundsControl: React.FC<RoundsControlProps> = ({ onBack }) => {
                             <button
                                 onClick={() => confirmStopRound('SOSPECHA')}
                                 disabled={loading}
-                                className="flex items-center gap-4 p-5 bg-amber-50 hover:bg-amber-100 text-amber-700 rounded-3xl transition-all active:scale-95 group border border-amber-100"
+                                className="flex items-center gap-3 p-4 bg-amber-50 hover:bg-amber-100 text-amber-700 rounded-2xl transition-all active:scale-95 group border border-amber-100"
                             >
-                                <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center shadow-sm text-amber-600 group-hover:scale-110 transition-transform">
-                                    <AlertCircle size={28} />
+                                <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center shadow-sm text-amber-600 group-hover:scale-110 transition-transform shrink-0">
+                                    <AlertCircle size={22} />
                                 </div>
                                 <div className="text-left">
-                                    <p className="font-black uppercase text-sm leading-none mb-1">Con Sospecha</p>
+                                    <p className="font-black uppercase text-sm leading-none mb-0.5">Con Sospecha</p>
                                     <p className="text-[10px] font-bold opacity-60">Situaciones irregulares leves.</p>
                                 </div>
                             </button>
@@ -709,13 +727,13 @@ const RoundsControl: React.FC<RoundsControlProps> = ({ onBack }) => {
                             <button
                                 onClick={() => confirmStopRound('CON_NOVEDAD')}
                                 disabled={loading}
-                                className="flex items-center gap-4 p-5 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-3xl transition-all active:scale-95 group border border-rose-100"
+                                className="flex items-center gap-3 p-4 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-2xl transition-all active:scale-95 group border border-rose-100"
                             >
-                                <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center shadow-sm text-rose-600 group-hover:scale-110 transition-transform">
-                                    <ShieldAlert size={28} />
+                                <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center shadow-sm text-rose-600 group-hover:scale-110 transition-transform shrink-0">
+                                    <ShieldAlert size={22} />
                                 </div>
                                 <div className="text-left">
-                                    <p className="font-black uppercase text-sm leading-none mb-1">Con Novedad</p>
+                                    <p className="font-black uppercase text-sm leading-none mb-0.5">Con Novedad</p>
                                     <p className="text-[10px] font-bold opacity-60">Incidentes graves o directos.</p>
                                 </div>
                             </button>
@@ -723,7 +741,7 @@ const RoundsControl: React.FC<RoundsControlProps> = ({ onBack }) => {
 
                         <button
                             onClick={() => setShowResultModal(false)}
-                            className="w-full py-4 text-slate-400 text-[10px] font-black uppercase tracking-widest hover:text-slate-600 transition-colors"
+                            className="w-full py-3 text-slate-400 text-[10px] font-black uppercase tracking-widest hover:text-slate-600 transition-colors"
                         >
                             Cancelar
                         </button>
@@ -732,6 +750,7 @@ const RoundsControl: React.FC<RoundsControlProps> = ({ onBack }) => {
             )}
 
             {/* GPS Sabotage Blocker Modal */}
+
             {activeRound && gpsStatus === 'SABOTEADO' && (
                 <div className="fixed inset-0 bg-rose-900/95 backdrop-blur-md z-[9999] p-6 flex flex-col items-center justify-center animate-in fade-in duration-300">
                     <div className="w-full max-w-sm bg-white rounded-[3rem] p-8 shadow-2xl space-y-8 text-center">
