@@ -11,7 +11,7 @@ import { downloadAndInstallUpdate, notifyAppReady } from '../lib/UpdateService';
 // Este valor debe actualizarse manualmente (o con el script
 // scripts/publish-version.js) cada vez que generes un nuevo APK.
 // ────────────────────────────────────────────────────────────────
-export const APP_VERSION = '2.0.0';
+export const APP_VERSION = '2.0.1';
 
 interface AppVersionConfig {
   version: string; // Versión del APK
