@@ -1,6 +1,15 @@
 /**
  * Compresses an image file using Canvas and optionally adds a watermark.
+ * 
+ * Barrera de compresión:
+ * - Resolución máxima limitada a maxWidth (default 1024px) para evitar fotos 4K innecesarias.
+ * - Exportación en formato WebP (calidad 0.6) para reducir peso drásticamente (~50-80KB).
+ * - Fallback automático a JPEG si el navegador no soporta WebP.
  */
+
+const PREFERRED_FORMAT = 'image/webp';
+const FALLBACK_FORMAT = 'image/jpeg';
+
 export const compressImage = (
     file: File, 
     quality = 0.6, 
@@ -90,18 +99,32 @@ export const compressImage = (
                     ctx.fillText(`🛡️ Código de Foto: ${watermarkData.verifyCode}`, padding, mainRowY + (width * 0.105));
                 }
 
+                // --- BARRERA 2: Exportación WebP con fallback a JPEG ---
+                // Intentar WebP primero (compresión ~40% superior a JPEG a calidad visual similar)
                 canvas.toBlob(
-                    (blob) => {
-                        if (blob) {
-                            const jpegBlob = blob.type === 'image/jpeg'
-                                ? blob
-                                : new Blob([blob], { type: 'image/jpeg' });
-                            resolve(jpegBlob);
+                    (webpBlob) => {
+                        // Si el navegador soporta WebP y generó un blob válido, usarlo
+                        if (webpBlob && webpBlob.size > 0 && webpBlob.type === PREFERRED_FORMAT) {
+                            console.log(`[compressImage] WebP OK: ${(webpBlob.size / 1024).toFixed(1)} KB`);
+                            resolve(webpBlob);
                         } else {
-                            reject(new Error('Canvas toBlob failed'));
+                            // Fallback a JPEG si WebP no es soportado
+                            console.warn('[compressImage] WebP no soportado, fallback a JPEG');
+                            canvas.toBlob(
+                                (jpegBlob) => {
+                                    if (jpegBlob) {
+                                        console.log(`[compressImage] JPEG fallback: ${(jpegBlob.size / 1024).toFixed(1)} KB`);
+                                        resolve(jpegBlob);
+                                    } else {
+                                        reject(new Error('Canvas toBlob failed (JPEG fallback)'));
+                                    }
+                                },
+                                FALLBACK_FORMAT,
+                                quality
+                            );
                         }
                     },
-                    'image/jpeg',
+                    PREFERRED_FORMAT,
                     quality
                 );
             };

@@ -383,7 +383,9 @@ const RoundsControl: React.FC<RoundsControlProps> = ({ onBack }) => {
             const verifyCode = `${activeRound?.id.slice(-4).toUpperCase() || 'RND'}${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
 
             // Comprimir imagen y aplicar marca de agua
-            const compressedBlob = await compressImage(file, 0.7, 1280, {
+            // Barrera 1: maxWidth 1024px (no necesitamos 4K para auditoría)
+            // Barrera 2: quality 0.6 + WebP (manejado internamente por compressImage)
+            const compressedBlob = await compressImage(file, 0.6, 1024, {
                 time: timeStr,
                 date: dateStr,
                 day: dayStr.charAt(0).toUpperCase() + dayStr.slice(1),

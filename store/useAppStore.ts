@@ -240,7 +240,10 @@ export const useAppStore = create<AppState>()(
                 }
 
                 console.log(`[SyncQueue] Subiendo foto para ronda ${roundId}, base64 len: ${photoBase64.length}`);
-                const fileName = `evidencias/${get().currentUser?.uid || 'offline'}/${roundId}/foto_${Date.now()}.jpg`;
+                // Detectar extensión del formato (WebP o JPEG fallback)
+                const isWebP = photoBase64.startsWith('data:image/webp');
+                const ext = isWebP ? 'webp' : 'jpg';
+                const fileName = `evidencias/${get().currentUser?.uid || 'offline'}/${roundId}/foto_${Date.now()}.${ext}`;
                 const downloadUrl = await get().uploadBase64(photoBase64, fileName);
 
                 await updateDoc(doc(db, "Rondas", roundId), {
@@ -1653,7 +1656,11 @@ export const useAppStore = create<AppState>()(
         try {
           console.log(`Zustand: Iniciando uploadBase64 a ${path}...`);
           const storageRef = ref(storage, path);
-          const metadata = { contentType: 'image/jpeg' };
+          // Detectar contentType dinámicamente del data URL (soporta WebP, JPEG, PNG)
+          let contentType = 'image/webp'; // Default optimizado
+          const match = base64String.match(/^data:(image\/\w+);/);
+          if (match) contentType = match[1];
+          const metadata = { contentType };
           const snapshot = await uploadString(storageRef, base64String, 'data_url', metadata);
           const url = await getDownloadURL(snapshot.ref);
           return url;
