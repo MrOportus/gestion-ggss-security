@@ -1,6 +1,7 @@
 import { jsPDF } from "jspdf";
 import { format } from "date-fns";
 import { SyncQueueService } from '../lib/SyncQueueService';
+import { STORAGE_CACHE_METADATA } from '../lib/imageUtils';
 import { Network } from '@capacitor/network';
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
@@ -677,7 +678,11 @@ export const useAppStore = create<AppState>()(
 
       uploadAttendancePhoto: async (file, filename) => {
         const storageRef = ref(storage, `attendance/${filename}`);
-        await uploadBytes(storageRef, file);
+        const metadata = {
+          contentType: file.type || 'image/webp',
+          ...STORAGE_CACHE_METADATA
+        };
+        await uploadBytes(storageRef, file, metadata);
         return await getDownloadURL(storageRef);
       },
 
@@ -1634,8 +1639,8 @@ export const useAppStore = create<AppState>()(
             else contentType = 'application/octet-stream';
           }
 
-          const metadata = { contentType };
-          console.log(`Zustand: contentType resuelto: ${contentType}`);
+          const metadata = { contentType, ...STORAGE_CACHE_METADATA };
+          console.log(`Zustand: contentType resuelto: ${contentType} | Cache: immutable`);
 
           const snapshot = await uploadBytes(storageRef, file, metadata);
           console.log("Zustand: Upload exitoso, obteniendo URL...");
@@ -1660,7 +1665,7 @@ export const useAppStore = create<AppState>()(
           let contentType = 'image/webp'; // Default optimizado
           const match = base64String.match(/^data:(image\/\w+);/);
           if (match) contentType = match[1];
-          const metadata = { contentType };
+          const metadata = { contentType, ...STORAGE_CACHE_METADATA };
           const snapshot = await uploadString(storageRef, base64String, 'data_url', metadata);
           const url = await getDownloadURL(snapshot.ref);
           return url;

@@ -1,6 +1,7 @@
 
 import React, { useState } from 'react';
 import { useAppStore } from '../store/useAppStore';
+import { getThumbnailUrl } from '../lib/imageUtils';
 import {
     Navigation,
     Search,
@@ -246,8 +247,10 @@ const RoundsAdminPage: React.FC = () => {
                                                     <div key={idx} className="shrink-0 group/photo relative cursor-pointer" onClick={() => setSelectedRound(round)}>
                                                         <div className="w-16 h-16 rounded-xl border-2 border-slate-100 flex items-center justify-center bg-slate-50 overflow-hidden relative group-hover/photo:border-blue-400 transition-colors">
                                                             <img
-                                                                src={evi.photoUrl}
+                                                                src={getThumbnailUrl(evi.photoUrl)}
                                                                 alt="Evi"
+                                                                loading="lazy"
+                                                                decoding="async"
                                                                 className="w-full h-full object-cover"
                                                                 onError={(e) => {
                                                                     const target = e.target as HTMLImageElement;

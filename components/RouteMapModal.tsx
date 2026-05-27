@@ -5,6 +5,7 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { X, Navigation, MapPin, Camera, Image, Clock as ClockIcon, ChevronLeft, ChevronRight } from 'lucide-react';
 import { getHaversineDistance, movingAverage } from '../lib/gpsUtils';
+import { getThumbnailUrl } from '../lib/imageUtils';
 
 // Fix for Leaflet default icon issues in React using CDN URLs
 const DefaultIcon = L.icon({
@@ -314,8 +315,10 @@ const RouteMapModal: React.FC<RouteMapModalProps> = ({ round, onClose }) => {
                                         <Popup>
                                             <div className="w-48 overflow-hidden rounded-lg">
                                                 <img
-                                                    src={evidence.photoUrl}
+                                                    src={getThumbnailUrl(evidence.photoUrl)}
                                                     alt="Evidencia"
+                                                    loading="lazy"
+                                                    decoding="async"
                                                     className="w-full aspect-square object-cover mb-2 cursor-pointer"
                                                     onClick={() => setSelectedPhotoIndex(idx)}
                                                 />
@@ -413,7 +416,9 @@ const RouteMapModal: React.FC<RouteMapModalProps> = ({ round, onClose }) => {
                                     >
                                         <div className="aspect-[4/3] relative bg-slate-100 flex items-center justify-center">
                                             <img
-                                                src={evidence.photoUrl}
+                                                src={getThumbnailUrl(evidence.photoUrl)}
+                                                loading="lazy"
+                                                decoding="async"
                                                 className="w-full h-full object-cover transition-transform group-hover:scale-105"
                                                 alt={`Evidencia ${idx}`}
                                                 onError={(e) => {

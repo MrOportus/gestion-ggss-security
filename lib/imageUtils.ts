@@ -132,3 +132,59 @@ export const compressImage = (
         reader.onerror = (error) => reject(error);
     });
 };
+
+/**
+ * Metadatos estándar de caché para Firebase Storage.
+ * Todas las subidas de imágenes deben usar estos metadatos para:
+ * - Forzar caché en CDN Edge de Google (1 año, inmutable)
+ * - Eliminar tráfico Egress de visitas repetidas
+ */
+export const STORAGE_CACHE_METADATA = {
+    cacheControl: 'public, max-age=31536000, immutable',
+};
+
+/**
+ * Transforma una URL de Firebase Storage original en la URL de su miniatura
+ * generada por la extensión "Resize Images" de Firebase.
+ * 
+ * La extensión genera copias con sufijo _200x200 en la misma ruta.
+ * Ejemplo:
+ *   Original:  .../foto_123.webp?token=...
+ *   Thumbnail: .../foto_123_200x200.webp?token=...
+ * 
+ * Compatible con URLs que tienen query params (token de Firebase) y
+ * con nombres de archivo codificados en URL (%2F).
+ * 
+ * Si la URL es una blob URL local (offline), se retorna sin modificar.
+ */
+export const getThumbnailUrl = (originalUrl: string): string => {
+    if (!originalUrl || originalUrl.startsWith('blob:')) return originalUrl;
+
+    try {
+        // Las URLs de Firebase Storage tienen el path codificado antes de ?alt=media&token=...
+        // Formato: https://firebasestorage.googleapis.com/v0/b/BUCKET/o/PATH?alt=media&token=TOKEN
+        // El PATH está URL-encoded (/ -> %2F)
+        
+        // Buscar la última extensión de imagen en el path (antes de query params)
+        // Soporta: .webp, .jpg, .jpeg, .png
+        const extensionRegex = /(\.(webp|jpg|jpeg|png))/i;
+        
+        // Separar path de query string
+        const queryIndex = originalUrl.indexOf('?');
+        const basePart = queryIndex !== -1 ? originalUrl.substring(0, queryIndex) : originalUrl;
+        const queryPart = queryIndex !== -1 ? originalUrl.substring(queryIndex) : '';
+
+        // Insertar _200x200 antes de la extensión
+        const match = basePart.match(extensionRegex);
+        if (match && match.index !== undefined) {
+            const beforeExt = basePart.substring(0, match.index);
+            const ext = match[1];
+            return `${beforeExt}_200x200${ext}${queryPart}`;
+        }
+
+        // Si no se puede parsear, retornar original
+        return originalUrl;
+    } catch {
+        return originalUrl;
+    }
+};
