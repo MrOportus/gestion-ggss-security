@@ -1,6 +1,6 @@
 
 import { initializeApp } from "firebase/app";
-import { getFirestore } from "firebase/firestore";
+import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager } from "firebase/firestore";
 import { getAuth, indexedDBLocalPersistence, initializeAuth } from "firebase/auth";
 import { getMessaging, isSupported as isMessagingSupported } from "firebase/messaging";
 import { getStorage } from "firebase/storage";
@@ -17,9 +17,16 @@ const firebaseConfig = {
   measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID
 };
 
-// 1. Inicializar App Principal
+// 1. Inicializar App Principal con Caché Persistente (IndexedDB)
+//    - persistentLocalCache: Almacena datos en disco para evitar re-lecturas al servidor
+//    - persistentMultipleTabManager: Sincroniza el caché entre múltiples pestañas/WebViews
+//    - Reduce drásticamente las lecturas de Firestore en cada recarga de la app
 const app = initializeApp(firebaseConfig);
-export const db = getFirestore(app);
+export const db = initializeFirestore(app, {
+  localCache: persistentLocalCache({
+    tabManager: persistentMultipleTabManager()
+  })
+});
 
 // 2. Auth con persistencia indexedDB — compatible con WebViews de Capacitor (Android/iOS)
 //    indexedDBLocalPersistence evita problemas de sesión en entornos sin localStorage completo

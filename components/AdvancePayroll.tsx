@@ -1,5 +1,5 @@
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useAppStore } from '../store/useAppStore';
 import { db } from '../lib/firebase';
 import { collection, query, where, getDocs } from 'firebase/firestore';
@@ -47,6 +47,13 @@ const AdvancePayroll: React.FC<AdvancePayrollProps> = ({ onBack }) => {
     const [currentNomina, setCurrentNomina] = useState<Record<string, WorkerEntry>>({});
 
     const [showConfirmModal, setShowConfirmModal] = useState(false);
+
+    // Refs para acceder a datos del store sin ponerlos como dependencias del useEffect
+    // Evita re-ejecución del fetch de programación cada vez que cambia un empleado o sitio
+    const storeEmployeesRef = useRef(storeEmployees);
+    storeEmployeesRef.current = storeEmployees;
+    const sitesRef = useRef(sites);
+    sitesRef.current = sites;
 
     useEffect(() => {
         fetchAdvances();
@@ -113,7 +120,7 @@ const AdvancePayroll: React.FC<AdvancePayrollProps> = ({ onBack }) => {
                     if (siteIdsToQuery.some(sid => String(sid) === String(data.siteId))) {
                         uniqueWorkerIds.add(data.employeeId);
                         if (!tempWorkerSiteMap[data.employeeId]) {
-                            const s = sites.find(site => String(site.id) === String(data.siteId));
+                            const s = sitesRef.current.find(site => String(site.id) === String(data.siteId));
                             tempWorkerSiteMap[data.employeeId] = {
                                 siteId: data.siteId,
                                 siteName: s?.name || 'Desconocida'
@@ -124,11 +131,11 @@ const AdvancePayroll: React.FC<AdvancePayrollProps> = ({ onBack }) => {
 
                 // 2. FALLBACK/COMPLEMENTO: Incluir trabajadores asignados estáticamente a la sucursal
                 // Buscamos en la lista de 'Colaboradores' por el campo currentSiteId
-                storeEmployees.forEach(emp => {
+                storeEmployeesRef.current.forEach(emp => {
                     if (emp.isActive && emp.currentSiteId && siteIdsToQuery.some(sid => String(sid) === String(emp.currentSiteId))) {
                         uniqueWorkerIds.add(emp.id);
                         if (!tempWorkerSiteMap[emp.id]) {
-                            const s = sites.find(site => String(site.id) === String(emp.currentSiteId));
+                            const s = sitesRef.current.find(site => String(site.id) === String(emp.currentSiteId));
                             tempWorkerSiteMap[emp.id] = {
                                 siteId: emp.currentSiteId,
                                 siteName: s?.name || 'Asignación Directa'
@@ -140,7 +147,7 @@ const AdvancePayroll: React.FC<AdvancePayrollProps> = ({ onBack }) => {
                 setWorkerSiteMap(tempWorkerSiteMap);
 
                 // Mapear IDs a perfiles completos (usando storeEmployees que vienen de la colección Colaboradores)
-                const filtered = storeEmployees.filter(e => uniqueWorkerIds.has(e.id) && e.isActive);
+                const filtered = storeEmployeesRef.current.filter(e => uniqueWorkerIds.has(e.id) && e.isActive);
                 setWorkersFromShifts(filtered);
 
             } catch (error) {
@@ -152,7 +159,9 @@ const AdvancePayroll: React.FC<AdvancePayrollProps> = ({ onBack }) => {
         };
 
         fetchWorkers();
-    }, [selectedSiteId, selectedSite, sites, storeEmployees]);
+        // OPTIMIZACIÓN: Solo re-ejecutar cuando cambia la sucursal seleccionada
+        // storeEmployees y sites se leen via refs (no causan re-ejecución)
+    }, [selectedSiteId]);
 
     const handleUpdateWorkerAmount = (worker: Employee, type: '50000' | '100000' | 'manual', manualVal?: string) => {
         const siteInfo = workerSiteMap[worker.id] || { siteId: selectedSite?.id || '', siteName: selectedSite?.name || '' };

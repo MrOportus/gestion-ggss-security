@@ -47,6 +47,7 @@ interface AppState {
   notifications: AppNotification[];
   confirmation: AppConfirmation | null;
   isLoading: boolean;
+  lastFetchTimestamp: number | null;
   supervisorTasks: SupervisorTask[];
   checklistTemplates: ChecklistTemplate[];
   resignationRequests: ResignationRequest[];
@@ -61,7 +62,7 @@ interface AppState {
   initializeAuthListener: () => void; // Para persistencia de sesión
 
   // Data Actions
-  fetchInitialData: () => Promise<void>;
+  fetchInitialData: (force?: boolean) => Promise<void>;
   toggleEmployeeStatus: (id: string) => Promise<void>;
   updateEmployee: (id: string, data: Partial<Employee>) => Promise<void>;
   deleteEmployee: (id: string) => Promise<void>;
@@ -200,6 +201,7 @@ export const useAppStore = create<AppState>()(
 
       confirmation: null,
       isLoading: false,
+      lastFetchTimestamp: null,
       isSyncing: false,
       unsubDigitalDocuments: () => { },
 
@@ -352,9 +354,17 @@ export const useAppStore = create<AppState>()(
         }
       },
 
-      fetchInitialData: async () => {
-        const { currentUser } = get();
+      fetchInitialData: async (force = false) => {
+        const { currentUser, lastFetchTimestamp } = get();
         if (!currentUser) return;
+
+        // Debounce: No hacer fetch si el último fue hace menos de 60 segundos
+        // A menos que sea un "force" reload (ej: clic manual en botón Recargar)
+        const now = Date.now();
+        if (!force && lastFetchTimestamp && (now - lastFetchTimestamp < 60000)) {
+          console.log("Fetch skipped: datos cacheados recientemente (<60s)");
+          return;
+        }
 
         set({ isLoading: true });
         try {
@@ -431,6 +441,8 @@ export const useAppStore = create<AppState>()(
             get().fetchAdvances();
             get().fetchContractHistory();
           }
+          
+          set({ lastFetchTimestamp: Date.now() });
 
         } catch (error) {
           console.error("Error cargando datos:", error);
@@ -639,16 +651,17 @@ export const useAppStore = create<AppState>()(
 
       checkAndCloseStaleShifts: async () => {
         try {
-          // Buscar todos los registros 'check_in'
-          // Nota: quitamos el filtro de status "active" porque algunos logs antiguos 
-          // podrían no tenerlo seteado, pero siguen sin tener 'completed'
+          // OPTIMIZACIÓN: Solo buscar check_in no completados, limitado a 50
+          // Antes: descargaba TODOS los check_in históricos sin límite
           const q = query(
             collection(db, "Asistencia"), 
-            where("type", "==", "check_in")
+            where("type", "==", "check_in"),
+            where("status", "!=", "completed"),
+            limit(50)
           );
           const snapshot = await getDocs(q);
           const now = new Date();
-          const limit = 24 * 60 * 60 * 1000; // 24 horas en ms
+          const staleThreshold = 24 * 60 * 60 * 1000; // 24 horas en ms
 
           for (const docSnap of snapshot.docs) {
             const data = docSnap.data() as AttendanceLog;
@@ -658,7 +671,7 @@ export const useAppStore = create<AppState>()(
 
             const startTime = new Date(data.timestamp).getTime();
             
-            if (now.getTime() - startTime > limit) {
+            if (now.getTime() - startTime > staleThreshold) {
               console.log(`Auto-cerrando turno stale para: ${data.employeeName || 'Usuario'}`);
               
               // 14 horas después del inicio como fin teórico
@@ -951,7 +964,8 @@ export const useAppStore = create<AppState>()(
       fetchDailyPayments: async () => {
         set({ isLoading: true });
         try {
-          const q = collection(db, "TurnosDiarios");
+          // OPTIMIZACIÓN: Limitar a 200 registros más recientes
+          const q = query(collection(db, "TurnosDiarios"), orderBy("createdAt", "desc"), limit(200));
           const snapshot = await getDocs(q);
           const payments: DailyPayment[] = [];
           snapshot.forEach(doc => {
@@ -1067,7 +1081,8 @@ export const useAppStore = create<AppState>()(
       fetchAdvances: async () => {
         set({ isLoading: true });
         try {
-          const q = collection(db, "Anticipos");
+          // OPTIMIZACIÓN: Limitar a 200 registros más recientes
+          const q = query(collection(db, "Anticipos"), orderBy("createdAt", "desc"), limit(200));
           const snapshot = await getDocs(q);
           const advances: Advance[] = [];
           snapshot.forEach(doc => {
@@ -1166,7 +1181,8 @@ export const useAppStore = create<AppState>()(
           let q;
           if (currentUser.role === 'admin') {
             // Admins can see all tasks to manage them
-            q = collection(db, "SupervisorTasks");
+            // OPTIMIZACIÓN: Limitar a 100 tareas para admin
+            q = query(collection(db, "SupervisorTasks"), limit(100));
           } else {
             // Supervisors only see tasks assigned to them
             q = query(collection(db, "SupervisorTasks"), where("supervisorId", "==", currentUser.uid));
@@ -1213,7 +1229,8 @@ export const useAppStore = create<AppState>()(
 
       fetchChecklistTemplates: async () => {
         try {
-          const snapshot = await getDocs(collection(db, "ChecklistTemplates"));
+          // OPTIMIZACIÓN: Limitar a 50 templates
+          const snapshot = await getDocs(query(collection(db, "ChecklistTemplates"), limit(50)));
           const templates: ChecklistTemplate[] = [];
           snapshot.forEach(doc => templates.push({ ...doc.data(), id: doc.id } as ChecklistTemplate));
           set({ checklistTemplates: templates });
@@ -1249,7 +1266,8 @@ export const useAppStore = create<AppState>()(
         try {
           let q;
           if (currentUser.role === 'admin') {
-            q = query(collection(db, "ResignationRequests"), orderBy("createdAt", "desc"));
+            // OPTIMIZACIÓN: Limitar a 50 solicitudes para admin
+            q = query(collection(db, "ResignationRequests"), orderBy("createdAt", "desc"), limit(50));
           } else {
             q = query(
               collection(db, "ResignationRequests"),
@@ -1304,7 +1322,8 @@ export const useAppStore = create<AppState>()(
         try {
           let q;
           if (currentUser.role === 'admin') {
-            q = collection(db, "RecurringSupervisorTasks");
+            // OPTIMIZACIÓN: Limitar a 50 tareas recurrentes para admin
+            q = query(collection(db, "RecurringSupervisorTasks"), limit(50));
           } else {
             q = query(collection(db, "RecurringSupervisorTasks"), where("supervisorId", "==", currentUser.uid));
           }
@@ -1322,7 +1341,8 @@ export const useAppStore = create<AppState>()(
         try {
           let q;
           if (currentUser.role === 'admin') {
-            q = collection(db, "SupervisorSubTasks");
+            // OPTIMIZACIÓN: Limitar a 100 subtareas para admin
+            q = query(collection(db, "SupervisorSubTasks"), limit(100));
           } else {
             q = query(collection(db, "SupervisorSubTasks"), where("supervisorId", "==", currentUser.uid));
           }
@@ -1390,7 +1410,8 @@ export const useAppStore = create<AppState>()(
 
         try {
           // Las notas son privadas para cada cuenta (Admin o Supervisor)
-          const q = query(collection(db, "BoardNotes"), where("createdBy", "==", currentUser.uid));
+          // OPTIMIZACIÓN: Limitar a 50 notas
+          const q = query(collection(db, "BoardNotes"), where("createdBy", "==", currentUser.uid), limit(50));
           const snapshot = await getDocs(q);
           const notes: BoardNote[] = [];
           snapshot.forEach(doc => notes.push({ ...doc.data(), id: doc.id } as BoardNote));
@@ -1569,7 +1590,8 @@ export const useAppStore = create<AppState>()(
         try {
           let q;
           if (currentUser.role === 'admin' || currentUser.role === 'supervisor') {
-            q = query(collection(db, "Prestamos"), orderBy("createdAt", "desc"));
+            // OPTIMIZACIÓN: Limitar a 100 préstamos para admin
+            q = query(collection(db, "Prestamos"), orderBy("createdAt", "desc"), limit(100));
           } else {
             q = query(
               collection(db, "Prestamos"),
@@ -1686,7 +1708,8 @@ export const useAppStore = create<AppState>()(
         try {
           let q;
           if (currentUser.role === 'admin' || currentUser.role === 'supervisor') {
-            q = query(collection(db, "documents"), orderBy("createdAt", "desc"));
+            // OPTIMIZACIÓN: Limitar a 100 documentos para admin
+            q = query(collection(db, "documents"), orderBy("createdAt", "desc"), limit(100));
           } else {
             q = query(
               collection(db, "documents"),

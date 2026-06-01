@@ -461,7 +461,7 @@ const App: React.FC = () => {
           </div>
 
           <button
-            onClick={() => fetchInitialData()}
+            onClick={() => fetchInitialData(true)}
             disabled={isLoading}
             className="w-full flex items-center gap-2 px-4 py-2 text-sm text-blue-600 hover:bg-blue-50 rounded-lg transition font-medium disabled:opacity-50"
           >

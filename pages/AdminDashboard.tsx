@@ -1,9 +1,8 @@
-
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { useAppStore } from '../store/useAppStore';
 import { normalizeText } from '../lib/textUtils';
 
-import { collection, query, where, onSnapshot, orderBy, doc, updateDoc } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, orderBy, doc, updateDoc, limit } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { Employee, BoardNote } from '../types';
 import {
@@ -26,6 +25,10 @@ const AdminDashboard: React.FC = () => {
 
   const [closingLogInfo, setClosingLogInfo] = useState<{ id: string; name: string; timestamp: string } | null>(null);
   const [exitTime, setExitTime] = useState('');
+
+  // Ref para acceder al valor actual de employees dentro del onSnapshot sin ponerlo como dependencia
+  const employeesRef = useRef(employees);
+  employeesRef.current = employees;
 
   // --- 1. Lógica de Fechas y Filtros ---
   const today = new Date();
@@ -184,20 +187,27 @@ const AdminDashboard: React.FC = () => {
   // --- 4. Lógica de Sincronización con Programación (Gestión de Turnos) ---
   React.useEffect(() => {
     // 1. Sincronizar logs de asistencia en tiempo real
-    const qLogs = query(collection(db, 'Asistencia'));
+    //    OPTIMIZACIÓN: Solo escuchar check_in activos (no completados) + limit
+    //    Antes: descargaba TODA la colección "Asistencia" sin filtros (fuga masiva)
+    const qLogs = query(
+      collection(db, 'Asistencia'),
+      where('type', '==', 'check_in'),
+      where('status', '!=', 'completed'),
+      limit(200)
+    );
     const unsubLogs = onSnapshot(qLogs, (snapshot) => {
       const logs = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id })) as any[];
       logs.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
       setLocalAttendanceLogs(logs);
     });
 
-    // 1. Query para Programación (X)
+    // 2. Query para Programación (X) — filtrado por fecha del día
     const qProg = query(
       collection(db, 'programacion'),
       where('date', '==', todayStr)
     );
 
-    // 2. Query para Asistencia Manual (✓)
+    // 3. Query para Asistencia Manual (✓) — filtrado por fecha del día
     const qManual = query(
       collection(db, 'asistencia_manual'),
       where('date', '==', todayStr)
@@ -223,8 +233,8 @@ const AdminDashboard: React.FC = () => {
     const unsubManual = onSnapshot(qManual, (snapshotMan) => {
       const manuals = snapshotMan.docs.map(doc => {
         const data = doc.data();
-        // Intentar encontrar su sucursal actual desde los empleados si no está en el doc manual
-        const emp = employees.find(e => e.id === data.employeeId);
+        // Usar employeesRef.current para leer el valor actual sin agregarlo como dependencia
+        const emp = employeesRef.current.find(e => e.id === data.employeeId);
         return {
           employeeId: data.employeeId,
           siteId: emp?.currentSiteId || 'all',
@@ -238,10 +248,11 @@ const AdminDashboard: React.FC = () => {
       });
     });
 
-    // 3. Recordatorios
+    // 4. Recordatorios — limitados a 50
     const qReminders = query(
       collection(db, 'BoardNotes'),
-      where('createdBy', '==', currentUser?.uid)
+      where('createdBy', '==', currentUser?.uid),
+      limit(50)
     );
     const unsubReminders = onSnapshot(qReminders, (snapshot) => {
       const list = snapshot.docs
@@ -259,7 +270,9 @@ const AdminDashboard: React.FC = () => {
       unsubManual();
       unsubReminders();
     };
-  }, [employees, currentUser]);
+    // OPTIMIZACIÓN: Solo primitivos estables como dependencias
+    // employees se lee via employeesRef.current (no causa re-suscripción)
+  }, [currentUser?.uid, todayStr]);
 
 
   const activeSites = sites.filter(s =>

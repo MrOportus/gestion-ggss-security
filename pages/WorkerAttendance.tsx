@@ -982,7 +982,7 @@ const WorkerAttendance: React.FC = () => {
           {/* Menu Footer */}
           <div className="p-6 border-t border-slate-100">
             <button
-              onClick={() => fetchInitialData()}
+              onClick={() => fetchInitialData(true)}
               disabled={isLoading}
               className="w-full p-4 bg-blue-50 hover:bg-blue-100 text-blue-600 rounded-2xl flex items-center justify-center gap-3 transition-all font-black text-sm uppercase tracking-widest mb-2 disabled:opacity-50"
             >

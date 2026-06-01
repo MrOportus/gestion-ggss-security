@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useAppStore } from '../store/useAppStore';
 import { db } from '../lib/firebase';
-import { collection, query, onSnapshot, doc, setDoc, updateDoc, deleteDoc, Timestamp } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, doc, setDoc, updateDoc, deleteDoc, Timestamp } from 'firebase/firestore';
 import {
     Calendar as CalendarIcon,
     MapPin,
@@ -121,9 +121,20 @@ const ShiftManagement: React.FC = () => {
     }, []);
 
     // --- Firebase Listeners ---
+    // OPTIMIZACIÓN: Filtrar por rango de fechas del mes visible + sitio seleccionado
+    // Antes: descargaba las 3 colecciones COMPLETAS sin filtro (fuga masiva)
+    const firstDay = formatDateKey(new Date(currentDate.getFullYear(), currentDate.getMonth(), 1));
+    const lastDay = formatDateKey(new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0));
+
     useEffect(() => {
-        // 1. Listen to Programming
-        const progQuery = query(collection(db, 'programacion'));
+        if (!selectedSiteId) return;
+
+        // 1. Listen to Programming — filtrado por mes visible
+        const progQuery = query(
+            collection(db, 'programacion'),
+            where('date', '>=', firstDay),
+            where('date', '<=', lastDay)
+        );
         const unsubProg = onSnapshot(progQuery, (snapshot) => {
             const map: Record<string, ProgramacionDoc> = {};
             snapshot.docs.forEach(doc => {
@@ -134,8 +145,12 @@ const ShiftManagement: React.FC = () => {
             setProgrammingMap(map);
         });
 
-        // 2. Listen to Digital Attendance
-        const digQuery = collection(db, 'asistencia_digital');
+        // 2. Listen to Digital Attendance — filtrado por mes visible
+        const digQuery = query(
+            collection(db, 'asistencia_digital'),
+            where('date', '>=', firstDay),
+            where('date', '<=', lastDay)
+        );
         const unsubDig = onSnapshot(digQuery, (snapshot) => {
             const map: Record<string, AsistenciaDigitalDoc> = {};
             snapshot.docs.forEach(doc => {
@@ -147,8 +162,12 @@ const ShiftManagement: React.FC = () => {
             setDigitalAttendanceMap(map);
         });
 
-        // 3. Listen to Manual Attendance
-        const manQuery = collection(db, 'asistencia_manual');
+        // 3. Listen to Manual Attendance — filtrado por mes visible
+        const manQuery = query(
+            collection(db, 'asistencia_manual'),
+            where('date', '>=', firstDay),
+            where('date', '<=', lastDay)
+        );
         const unsubMan = onSnapshot(manQuery, (snapshot) => {
             const map: Record<string, AsistenciaManualDoc> = {};
             snapshot.docs.forEach(doc => {
@@ -164,7 +183,7 @@ const ShiftManagement: React.FC = () => {
             unsubDig();
             unsubMan();
         };
-    }, [currentDate]);
+    }, [firstDay, lastDay, selectedSiteId]);
 
     // --- Helpers ---
     const getDaysInMonth = (date: Date) => {
