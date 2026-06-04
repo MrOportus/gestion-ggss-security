@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useAppStore } from '../store/useAppStore';
-import { normalizeText } from '../lib/textUtils';
+import { normalizeText, matchesEmployeeSearch } from '../lib/textUtils';
 import { db } from '../lib/firebase';
 
 import { collection, query, onSnapshot, doc, setDoc, Timestamp, deleteDoc } from 'firebase/firestore';
@@ -48,10 +48,9 @@ const PanelAdminSolicitudes: React.FC = () => {
   }, [sites, siteSearch]);
 
   const filteredGuards = useMemo(() => {
-    const lower = normalizeText(guardSearch);
     return workers.filter(w => 
       !selectedGuards.includes(w.id) &&
-      (normalizeText(w.firstName).includes(lower) || normalizeText(w.lastNamePaterno).includes(lower) || normalizeText(w.rut).includes(lower))
+      matchesEmployeeSearch(guardSearch, w)
     );
   }, [workers, guardSearch, selectedGuards]);
 

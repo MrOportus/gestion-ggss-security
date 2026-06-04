@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useAppStore } from '../store/useAppStore';
-import { normalizeText } from '../lib/textUtils';
+import { normalizeText, matchesEmployeeSearch } from '../lib/textUtils';
 
 import { User, X, Search, Check } from 'lucide-react';
 
@@ -39,8 +39,7 @@ const ManageStaffModal: React.FC<ManageStaffModalProps> = ({ isOpen, onClose, cu
     const currentSiteName = sites.find(s => s.id == currentSiteId)?.name || 'la sucursal';
 
     const filteredEmployees = employees.filter(emp => {
-        const full = normalizeText(`${emp.firstName} ${emp.lastNamePaterno} ${emp.rut}`);
-        return full.includes(normalizeText(searchTerm));
+        return matchesEmployeeSearch(searchTerm, emp);
     });
 
     const toggleSelection = (id: string) => {

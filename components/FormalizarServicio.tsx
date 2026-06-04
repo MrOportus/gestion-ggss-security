@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useAppStore } from '../store/useAppStore';
-import { normalizeText } from '../lib/textUtils';
+import { normalizeText, matchesEmployeeSearch } from '../lib/textUtils';
 
 import { Search, MapPin, ArrowLeft, Copy, X, Table as TableIcon } from 'lucide-react';
 
@@ -48,9 +48,8 @@ const FormalizarServicio: React.FC<FormalizarServicioProps> = ({ onBack }) => {
   }, [sites, formalizarSiteSearch]);
 
   const filteredFormalizarEmp = useMemo(() => {
-    const lower = normalizeText(formalizarEmpSearch);
     return employees.filter(e =>
-      e.isActive && (normalizeText(e.firstName).includes(lower) || normalizeText(e.lastNamePaterno).includes(lower) || normalizeText(e.rut).includes(lower))
+      e.isActive && matchesEmployeeSearch(formalizarEmpSearch, e)
     );
   }, [employees, formalizarEmpSearch]);
 

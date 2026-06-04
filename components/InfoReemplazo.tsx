@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useAppStore } from '../store/useAppStore';
-import { normalizeText } from '../lib/textUtils';
+import { normalizeText, matchesEmployeeSearch } from '../lib/textUtils';
 
 import {
   Copy, CheckCircle, UserPlus, Calendar, Search, MapPin, ArrowLeft
@@ -56,16 +56,14 @@ const InfoReemplazo: React.FC<InfoReemplazoProps> = ({ onBack }) => {
   }, [sites, siteSearch]);
 
   const filteredActual = useMemo(() => {
-    const lower = normalizeText(actualSearch);
     return employees.filter(e =>
-      e.isActive && (normalizeText(e.firstName).includes(lower) || normalizeText(e.lastNamePaterno).includes(lower) || normalizeText(e.rut).includes(lower))
+      e.isActive && matchesEmployeeSearch(actualSearch, e)
     );
   }, [employees, actualSearch]);
 
   const filteredReplacement = useMemo(() => {
-    const lower = normalizeText(replacementSearch);
     return employees.filter(e => {
-      const matchesSearch = normalizeText(e.firstName).includes(lower) || normalizeText(e.lastNamePaterno).includes(lower) || normalizeText(e.rut).includes(lower);
+      const matchesSearch = matchesEmployeeSearch(replacementSearch, e);
       const matchesStatus = showInactive ? true : e.isActive;
       return matchesSearch && matchesStatus;
     });

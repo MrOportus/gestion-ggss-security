@@ -25,14 +25,16 @@ import {
   UserCircle,
   Info,
   Zap,
-  Calendar
+  Calendar,
+  Lock
 } from 'lucide-react';
 
 import DocumentsPage from './DocumentsPage';
 import { GlobalOverlay } from '../components/GlobalOverlay';
-import { db } from '../lib/firebase';
+import { db, auth } from '../lib/firebase';
 import { collection, query, where, getDocs, onSnapshot, doc as firestoreDoc } from 'firebase/firestore';
 import { getToken, onMessage } from 'firebase/messaging';
+import { EmailAuthProvider, reauthenticateWithCredential, updatePassword } from 'firebase/auth';
 import { messaging } from '../lib/firebase';
 
 import RoundsControl from '../components/RoundsControl';
@@ -80,6 +82,13 @@ const WorkerAttendance: React.FC = () => {
     fechaNacimiento: ''
   });
 
+  const [passwordData, setPasswordData] = useState({
+    currentPassword: '',
+    newPassword: '',
+    confirmPassword: ''
+  });
+  const [isChangingPassword, setIsChangingPassword] = useState(false);
+
   const employee = useAppStore(state =>
     state.currentUser ? state.employees.find(e => e.id === state.currentUser?.uid) : undefined
   );
@@ -117,7 +126,7 @@ const WorkerAttendance: React.FC = () => {
           setError(msg);
           throw new Error(msg);
         }
-        
+
         const pos = await Geolocation.getCurrentPosition({
           enableHighAccuracy: true,
           timeout: 15000
@@ -306,7 +315,7 @@ const WorkerAttendance: React.FC = () => {
         employeeName: `${employee.firstName} ${employee.lastNamePaterno}`,
         rut: employee.rut,
         type: actionType,
-        timestamp: actionTimestamp, 
+        timestamp: actionTimestamp,
         locationLat: finalCoords.lat,
         locationLng: finalCoords.lng,
         siteId: employee.currentSiteId ?? null,
@@ -348,6 +357,46 @@ const WorkerAttendance: React.FC = () => {
     } catch (err) {
       console.error("Error al actualizar perfil:", err);
       setError("Error al actualizar perfil.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleChangePassword = async () => {
+    if (!passwordData.currentPassword || !passwordData.newPassword || !passwordData.confirmPassword) {
+      setError("Por favor completa todos los campos de contraseña.");
+      return;
+    }
+    if (passwordData.newPassword !== passwordData.confirmPassword) {
+      setError("Las contraseñas nuevas no coinciden.");
+      return;
+    }
+    if (passwordData.newPassword.length < 6) {
+      setError("La nueva contraseña debe tener al menos 6 caracteres.");
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+    try {
+      const user = auth.currentUser;
+      if (!user || !user.email) {
+        throw new Error("No hay usuario autenticado.");
+      }
+      const credential = EmailAuthProvider.credential(user.email, passwordData.currentPassword);
+      await reauthenticateWithCredential(user, credential);
+      await updatePassword(user, passwordData.newPassword);
+
+      showNotification("Contraseña actualizada exitosamente", "success");
+      setPasswordData({ currentPassword: '', newPassword: '', confirmPassword: '' });
+      setIsChangingPassword(false);
+    } catch (err: any) {
+      console.error("Error al cambiar contraseña:", err);
+      if (err.code === 'auth/invalid-credential') {
+        setError("La contraseña actual es incorrecta.");
+      } else {
+        setError("Error al actualizar la contraseña: " + err.message);
+      }
     } finally {
       setLoading(false);
     }
@@ -420,7 +469,7 @@ const WorkerAttendance: React.FC = () => {
           {/* Mini version for Identification/Rounds - Extremely compact */}
           {(step === 'keypad' || step === 'rounds' || step === 'market') && (
             <div className="flex items-center justify-center py-1 mt-1 animate-in fade-in duration-200 zoom-in-95 will-change-transform">
-               <div className="w-10 h-10 bg-amber-400/20 rounded-xl flex items-center justify-center text-amber-400 border border-amber-400/30">
+              <div className="w-10 h-10 bg-amber-400/20 rounded-xl flex items-center justify-center text-amber-400 border border-amber-400/30">
                 {step === 'market' ? <Zap size={24} /> : <ShieldCheck size={24} />}
               </div>
               <h1 className="ml-3 text-sm font-black tracking-widest opacity-90 uppercase">
@@ -454,7 +503,7 @@ const WorkerAttendance: React.FC = () => {
                   <Clock size={48} className="group-hover:scale-110 transition-transform" />
                   <span className="text-2xl font-black tracking-widest">INICIAR TURNO</span>
                 </button>
-                
+
                 <button
                   onClick={() => setStep('market')}
                   className="w-full py-6 bg-indigo-600 hover:bg-indigo-700 text-white rounded-[2rem] shadow-xl shadow-indigo-200 flex flex-col items-center justify-center gap-2 transition-all active:scale-95 group border-b-8 border-indigo-800 relative mt-4 overflow-hidden"
@@ -527,7 +576,7 @@ const WorkerAttendance: React.FC = () => {
         {step === 'rounds' && (
           <RoundsControl onBack={() => setStep('status')} />
         )}
-        
+
         {step === 'market' && (
           <div className="bg-slate-50 min-h-screen pb-20 -mx-6">
             <div className="bg-white p-4 flex items-center gap-4 sticky top-0 z-30 shadow-sm border-b mb-4">
@@ -690,7 +739,7 @@ const WorkerAttendance: React.FC = () => {
               <CheckCircle size={64} className="text-emerald-500" />
             </div>
             <div className="text-center space-y-2">
-              <h2 className="text-3xl font-black text-slate-800 tracking-tighter uppercase leading-tight">¡Bienvenido <br/> <span className="text-blue-600">{displayShortName}</span>!</h2>
+              <h2 className="text-3xl font-black text-slate-800 tracking-tighter uppercase leading-tight">¡Bienvenido <br /> <span className="text-blue-600">{displayShortName}</span>!</h2>
               <p className="text-slate-400 font-bold">Tu registro se ha realizado con éxito.</p>
             </div>
             <div className="p-4 bg-emerald-50 rounded-2xl border border-emerald-100 text-[10px] font-black uppercase tracking-[0.2em] text-emerald-600">
@@ -708,6 +757,8 @@ const WorkerAttendance: React.FC = () => {
                   onClick={() => {
                     setStep('status');
                     setIsEditing(false);
+                    setIsChangingPassword(false);
+                    setPasswordData({ currentPassword: '', newPassword: '', confirmPassword: '' });
                     setError(null);
                   }}
                   className="p-2 text-slate-500 hover:bg-slate-100 rounded-full transition-all"
@@ -862,6 +913,82 @@ const WorkerAttendance: React.FC = () => {
                       )}
                     </div>
                   </div>
+                </div>
+
+                <div className="bg-white rounded-[2rem] p-8 shadow-sm border border-slate-100 space-y-6">
+                  <div className="flex justify-between items-center border-b pb-2">
+                    <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] flex items-center gap-2">
+                      <Lock size={14} className="text-slate-400" />
+                      Seguridad
+                    </h4>
+                    {!isChangingPassword ? (
+                      <button
+                        onClick={() => setIsChangingPassword(true)}
+                        className="text-[10px] font-black text-blue-600 uppercase tracking-widest hover:text-blue-700 transition-colors"
+                      >
+                        Cambiar Contraseña
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => {
+                          setIsChangingPassword(false);
+                          setPasswordData({ currentPassword: '', newPassword: '', confirmPassword: '' });
+                          setError(null);
+                        }}
+                        className="text-[10px] font-black text-slate-400 uppercase tracking-widest hover:text-slate-600 transition-colors"
+                      >
+                        Cancelar
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Correo Electrónico</label>
+                    <p className="px-4 py-3 bg-slate-100/50 rounded-xl font-bold text-slate-400">{employee.email || 'No registrado'}</p>
+                  </div>
+
+                  {isChangingPassword && (
+                    <div className="space-y-4 animate-in fade-in slide-in-from-top-4 duration-300">
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Contraseña Actual</label>
+                        <input
+                          type="password"
+                          value={passwordData.currentPassword}
+                          onChange={(e) => setPasswordData({ ...passwordData, currentPassword: e.target.value })}
+                          className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-xl focus:border-blue-500 outline-none transition-all font-bold text-slate-700"
+                          placeholder="Ingresa tu contraseña actual"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Nueva Contraseña</label>
+                        <input
+                          type="password"
+                          value={passwordData.newPassword}
+                          onChange={(e) => setPasswordData({ ...passwordData, newPassword: e.target.value })}
+                          className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-xl focus:border-blue-500 outline-none transition-all font-bold text-slate-700"
+                          placeholder="Mínimo 6 caracteres"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Confirmar Nueva Contraseña</label>
+                        <input
+                          type="password"
+                          value={passwordData.confirmPassword}
+                          onChange={(e) => setPasswordData({ ...passwordData, confirmPassword: e.target.value })}
+                          className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-xl focus:border-blue-500 outline-none transition-all font-bold text-slate-700"
+                          placeholder="Repite la nueva contraseña"
+                        />
+                      </div>
+                      <button
+                        onClick={handleChangePassword}
+                        disabled={loading}
+                        className="w-full py-3 mt-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-black text-xs uppercase tracking-widest shadow-lg shadow-blue-200 active:scale-95 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                      >
+                        {loading && <Loader2 size={16} className="animate-spin" />}
+                        Actualizar Contraseña
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
 

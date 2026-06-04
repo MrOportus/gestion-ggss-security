@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useAppStore } from '../store/useAppStore';
-import { normalizeText } from '../lib/textUtils';
+import { normalizeText, matchesEmployeeSearch } from '../lib/textUtils';
 
 import {
   FileText, Send, Clock, MapPin, Briefcase, DollarSign, Download, ArrowLeft, Search, Calendar, UserCheck, UserX, Eye, Loader2, History
@@ -47,9 +47,8 @@ const GenerarContrato: React.FC<GenerarContratoProps> = ({ onBack }) => {
   }, []);
 
   const filteredContratoEmp = useMemo(() => {
-    const lower = normalizeText(contratoEmpSearch);
     return employees.filter(e => {
-      const matchesSearch = normalizeText(e.firstName).includes(lower) || normalizeText(e.lastNamePaterno).includes(lower) || normalizeText(e.rut).includes(lower);
+      const matchesSearch = matchesEmployeeSearch(contratoEmpSearch, e);
       const matchesStatus = showInactiveContrato ? true : e.isActive;
       return matchesSearch && matchesStatus;
     });

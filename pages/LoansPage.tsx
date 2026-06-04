@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { useAppStore } from '../store/useAppStore';
-import { normalizeText } from '../lib/textUtils';
+import { normalizeText, matchesEmployeeSearch } from '../lib/textUtils';
 
 import {
     DollarSign, Search, Calendar, Plus, Trash2,
@@ -41,13 +41,8 @@ const LoansPage: React.FC = () => {
     // Workers filtered for search
     const filteredWorkers = useMemo(() => {
         if (!workerSearch) return employees.filter(e => e.isActive).slice(0, 5);
-        const lowSearch = normalizeText(workerSearch);
         return employees.filter(e =>
-            e.isActive && (
-                normalizeText(e.firstName).includes(lowSearch) ||
-                normalizeText(e.lastNamePaterno).includes(lowSearch) ||
-                normalizeText(e.rut).includes(lowSearch)
-            )
+            e.isActive && matchesEmployeeSearch(workerSearch, e)
         ).slice(0, 5);
     }, [employees, workerSearch]);
 
@@ -176,15 +171,16 @@ const LoansPage: React.FC = () => {
     };
 
     // Filtered loans for display
-    const activeLoans = loans.filter(l => l.status !== 'PAID' && (
-        normalizeText(l.workerName).includes(normalizeText(searchTerm)) ||
-        normalizeText(l.workerRut).includes(normalizeText(searchTerm))
-    ));
+    const searchWords = normalizeText(searchTerm).split(/\s+/).filter(Boolean);
+    const matchesLoanSearch = (name: string, rut: string) => {
+        if (searchWords.length === 0) return true;
+        const fullText = normalizeText(`${name} ${rut}`);
+        return searchWords.every(word => fullText.includes(word));
+    };
 
-    const historyLoans = loans.filter(l => l.status === 'PAID' && (
-        normalizeText(l.workerName).includes(normalizeText(searchTerm)) ||
-        normalizeText(l.workerRut).includes(normalizeText(searchTerm))
-    ));
+    const activeLoans = loans.filter(l => l.status !== 'PAID' && matchesLoanSearch(l.workerName, l.workerRut));
+
+    const historyLoans = loans.filter(l => l.status === 'PAID' && matchesLoanSearch(l.workerName, l.workerRut));
 
     // Render Progress Bar
     const renderProgressBar = (loan: Loan) => {

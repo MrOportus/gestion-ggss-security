@@ -14,7 +14,7 @@ import {
 } from 'lucide-react';
 import { GoogleGenAI } from "@google/genai";
 import { useAppStore } from '../store/useAppStore';
-import { normalizeText } from '../lib/textUtils';
+import { normalizeText, matchesEmployeeSearch } from '../lib/textUtils';
 
 
 interface ExtractedData {
@@ -51,9 +51,7 @@ const SmartAutofill: React.FC<{ onBack: () => void }> = ({ onBack }) => {
     // --- SEARCH LOGIC ---
     const filteredEmployees = employees.filter(e => {
         if (!searchTerm) return false;
-        const term = normalizeText(searchTerm);
-        const fullName = normalizeText(`${e.firstName} ${e.lastNamePaterno} ${e.lastNameMaterno || ''}`);
-        return fullName.includes(term) || normalizeText(e.rut).includes(term);
+        return matchesEmployeeSearch(searchTerm, e);
     });
 
     const handleEmployeeSelect = (emp: typeof employees[0]) => {

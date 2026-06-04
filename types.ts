@@ -41,6 +41,7 @@ export interface Employee {
   sueldoLiquido?: number; // Nuevo campo
   fechaVencimientoOS10?: string; // ISO Date string
   fechaInicioContrato?: string; // ISO Date string
+  tipoContrato?: 'Plazo Fijo' | 'Indefinido' | 'Obra y Faena';
   fechaTerminoContrato?: string; // ISO Date string
   isActive: boolean;
   currentSiteId?: number;

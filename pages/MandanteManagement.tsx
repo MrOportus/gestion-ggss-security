@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useAppStore } from '../store/useAppStore';
-import { normalizeText } from '../lib/textUtils';
+import { normalizeText, matchesEmployeeSearch } from '../lib/textUtils';
 
 import {
     User, Search, CheckCircle, Square, Building2, Save
@@ -40,7 +40,7 @@ const MandanteManagement: React.FC = () => {
                             />
                         </div>
                         <div className="space-y-1 max-h-[60vh] overflow-y-auto custom-scrollbar pr-2">
-                            {employees.filter(e => e.role === 'mandante' && normalizeText(e.firstName + ' ' + e.lastNamePaterno).includes(normalizeText(searchTerm))).map(mand => (
+                            {employees.filter(e => e.role === 'mandante' && matchesEmployeeSearch(searchTerm, e)).map(mand => (
                                 <button
                                     key={mand.id}
                                     onClick={() => setSelectedMandante(mand.id)}

@@ -1,7 +1,7 @@
 
 import React, { useState, useRef } from 'react';
 import { useAppStore } from '../store/useAppStore';
-import { normalizeText } from '../lib/textUtils';
+import { normalizeText, matchesEmployeeSearch } from '../lib/textUtils';
 
 import { Search, Plus, UserCheck, UserX, Eye, FileSpreadsheet, Loader2, Building2, Sparkles } from 'lucide-react';
 import EmployeeModal from '../components/EmployeeModal';
@@ -27,16 +27,9 @@ const EmployeesPage: React.FC = () => {
   // Filtrado
   const filteredEmployees = employees.filter(e => {
     const term = normalizeText(searchTerm);
-    // Convertir a string y normalizar para búsqueda segura
-    const fName = normalizeText(e.firstName);
-    const lName = normalizeText(e.lastNamePaterno);
-    const rut = normalizeText(e.rut);
 
-    // 1. Filtro Texto
-    const matchesSearch =
-      fName.includes(term) ||
-      lName.includes(term) ||
-      rut.includes(term);
+    // 1. Filtro Texto (búsqueda inteligente multi-palabra)
+    const matchesSearch = matchesEmployeeSearch(searchTerm, e);
 
     // 2. Filtro Estado
     const matchesStatus =

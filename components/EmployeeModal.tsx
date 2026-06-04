@@ -346,14 +346,29 @@ const EmployeeModal: React.FC<EmployeeModalProps> = ({ employee, onClose }) => {
                 />
 
                 <DataField
-                  label="Término Contrato"
-                  value={editData.fechaTerminoContrato?.split('T')[0]}
-                  displayValue={editData.fechaTerminoContrato ? new Date(editData.fechaTerminoContrato).toLocaleDateString() : 'Indefinido'}
-                  name="fechaTerminoContrato"
-                  type="date"
+                  label="Tipo de Contrato"
+                  value={editData.tipoContrato || 'Plazo Fijo'}
+                  name="tipoContrato"
                   isEditing={isEditing}
                   onChange={handleInputChange}
+                  options={[
+                    { val: 'Plazo Fijo', label: 'Plazo Fijo' },
+                    { val: 'Indefinido', label: 'Indefinido' },
+                    { val: 'Obra y Faena', label: 'Obra y Faena' }
+                  ]}
                 />
+
+                {(!editData.tipoContrato || editData.tipoContrato === 'Plazo Fijo') && (
+                  <DataField
+                    label="Término Contrato"
+                    value={editData.fechaTerminoContrato?.split('T')[0]}
+                    displayValue={editData.fechaTerminoContrato ? new Date(editData.fechaTerminoContrato).toLocaleDateString() : 'No registrada'}
+                    name="fechaTerminoContrato"
+                    type="date"
+                    isEditing={isEditing}
+                    onChange={handleInputChange}
+                  />
+                )}
 
                 <DataField
                   label="Sueldo Líquido"

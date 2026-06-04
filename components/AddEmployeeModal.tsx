@@ -15,7 +15,8 @@ const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({ onClose }) => {
     nacionalidad: 'Chilena',
     estadoCivil: 'Soltero',
     cargo: 'Guardia',
-    role: 'worker'
+    role: 'worker',
+    tipoContrato: 'Plazo Fijo'
   });
   const [password, setPassword] = useState('');
 
@@ -209,9 +210,25 @@ const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({ onClose }) => {
                   <input type="date" name="fechaInicioContrato" onChange={handleChange} className={inputClass} />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Término Contrato</label>
-                  <input type="date" name="fechaTerminoContrato" onChange={handleChange} className={inputClass} />
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Tipo de Contrato</label>
+                  <select 
+                    name="tipoContrato" 
+                    onChange={handleChange} 
+                    className={inputClass}
+                    value={formData.tipoContrato || 'Plazo Fijo'}
+                  >
+                    <option value="Plazo Fijo">Plazo Fijo</option>
+                    <option value="Indefinido">Indefinido</option>
+                    <option value="Obra y Faena">Obra y Faena</option>
+                  </select>
                 </div>
+
+                {(!formData.tipoContrato || formData.tipoContrato === 'Plazo Fijo') && (
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Término Contrato</label>
+                    <input type="date" name="fechaTerminoContrato" onChange={handleChange} className={inputClass} />
+                  </div>
+                )}
 
                 {/* Rol de usuario */}
                 <div>

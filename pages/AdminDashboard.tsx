@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { useAppStore } from '../store/useAppStore';
-import { normalizeText } from '../lib/textUtils';
+import { normalizeText, matchesEmployeeSearch } from '../lib/textUtils';
 
 import { collection, query, where, onSnapshot, orderBy, doc, updateDoc, limit } from 'firebase/firestore';
 import { db } from '../lib/firebase';
@@ -91,16 +91,16 @@ const AdminDashboard: React.FC = () => {
 
   const expiredOS10List = activeEmployees.filter(e => isBefore(e.fechaVencimientoOS10, today));
 
-  const expiredContractsList = activeEmployees.filter(e => isBefore(e.fechaTerminoContrato, today));
-  const expiringContracts_30 = activeEmployees.filter(e => isBetween(e.fechaTerminoContrato, today, thirtyDaysFromNow));
+  const expiredContractsList = activeEmployees.filter(e => (!e.tipoContrato || e.tipoContrato === 'Plazo Fijo') && isBefore(e.fechaTerminoContrato, today));
+  const expiringContracts_30 = activeEmployees.filter(e => (!e.tipoContrato || e.tipoContrato === 'Plazo Fijo') && isBetween(e.fechaTerminoContrato, today, thirtyDaysFromNow));
   const expiringContracts_60 = activeEmployees.filter(e => {
-    if (!e.fechaTerminoContrato) return false;
+    if ((e.tipoContrato && e.tipoContrato !== 'Plazo Fijo') || !e.fechaTerminoContrato) return false;
     const d = new Date(e.fechaTerminoContrato);
     d.setHours(0, 0, 0, 0);
     return d > thirtyDaysFromNow && d <= sixtyDaysFromNow;
   });
   const expiringContracts_90 = activeEmployees.filter(e => {
-    if (!e.fechaTerminoContrato) return false;
+    if ((e.tipoContrato && e.tipoContrato !== 'Plazo Fijo') || !e.fechaTerminoContrato) return false;
     const d = new Date(e.fechaTerminoContrato);
     d.setHours(0, 0, 0, 0);
     return d > sixtyDaysFromNow && d <= ninetyDaysFromNow;
@@ -151,10 +151,7 @@ const AdminDashboard: React.FC = () => {
 
   // Filtrado por buscador local (sobre la lista seleccionada)
   const filteredList = currentList.filter(e => {
-    const searchLower = normalizeText(searchTerm);
-    return normalizeText(e.firstName).includes(searchLower) ||
-      normalizeText(e.lastNamePaterno).includes(searchLower) ||
-      normalizeText(e.rut).includes(searchLower);
+    return matchesEmployeeSearch(searchTerm, e);
   });
 
   // --- 3. Lógica Monitor en Vivo ---
@@ -324,9 +321,7 @@ const AdminDashboard: React.FC = () => {
 
     // 3. Aplicar filtro de búsqueda
     const filteredEmps = empsWithStatus.filter(emp => {
-      const searchLower = normalizeText(searchTerm);
-      return normalizeText(emp.firstName).includes(searchLower) ||
-        normalizeText(emp.lastNamePaterno).includes(searchLower);
+      return matchesEmployeeSearch(searchTerm, emp);
     });
 
     const siteMatchesSearch = normalizeText(site.name).includes(normalizeText(searchTerm));
@@ -365,6 +360,10 @@ const AdminDashboard: React.FC = () => {
       return <span className={`font-bold ${textColor}`}>{date}</span>;
     }
     if (activeFilter === 'contracts_all') {
+      if (emp.tipoContrato && emp.tipoContrato !== 'Plazo Fijo') {
+        return <span className="font-bold text-slate-500 uppercase text-[10px] tracking-widest">{emp.tipoContrato}</span>;
+      }
+
       const isExpired = isBefore(emp.fechaTerminoContrato, today);
       const is30D = isBetween(emp.fechaTerminoContrato, today, thirtyDaysFromNow);
       const date = emp.fechaTerminoContrato ? new Date(emp.fechaTerminoContrato).toLocaleDateString() : 'N/A';

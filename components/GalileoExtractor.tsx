@@ -7,7 +7,7 @@ import {
 } from 'lucide-react';
 import { GoogleGenAI } from "@google/genai";
 import { useAppStore } from '../store/useAppStore';
-import { normalizeText } from '../lib/textUtils';
+import { normalizeText, matchesEmployeeSearch } from '../lib/textUtils';
 
 
 interface GalileoExtractorProps {
@@ -56,13 +56,8 @@ const GalileoExtractor: React.FC<GalileoExtractorProps> = ({ onBack }) => {
 
     const filteredWorkers = useMemo(() => {
         if (!workerSearch) return employees.filter(e => e.isActive).slice(0, 10);
-        const lower = normalizeText(workerSearch);
         return employees.filter(e =>
-            e.isActive && (
-                normalizeText(e.firstName).includes(lower) ||
-                normalizeText(e.lastNamePaterno).includes(lower) ||
-                normalizeText(e.rut).includes(lower)
-            )
+            e.isActive && matchesEmployeeSearch(workerSearch, e)
         ).slice(0, 10);
     }, [employees, workerSearch]);
 
