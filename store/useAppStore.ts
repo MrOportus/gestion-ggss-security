@@ -594,7 +594,24 @@ export const useAppStore = create<AppState>()(
             }
           } else if (log.type === 'check_out') {
             try {
-              // Eliminar pulso y marcar ticket en el día que corresponde a la jornada
+              // 1. Marcar el check_in previo como 'completed' para que desaparezca de Turnos en Vivo
+              const qCheckIn = query(
+                collection(db, "Asistencia"),
+                where("employeeId", "==", log.employeeId),
+                orderBy("timestamp", "desc"),
+                limit(10)
+              );
+              const snapshotCheckIn = await getDocs(qCheckIn);
+              const activeCheckIn = snapshotCheckIn.docs.find(d => d.data().type === 'check_in' && d.data().status !== 'completed');
+              if (activeCheckIn) {
+                await updateDoc(doc(db, 'Asistencia', activeCheckIn.id), {
+                  status: 'completed',
+                  endTime: timestamp
+                });
+                console.log("[SYNC TURNOS] ✅ check_in previo marcado como completado:", activeCheckIn.id);
+              }
+
+              // 2. Eliminar pulso y marcar ticket en el día que corresponde a la jornada
               await deleteDoc(doc(db, 'asistencia_digital', digId));
               console.log("[SYNC TURNOS] ✅ asistencia_digital eliminado:", digId);
               

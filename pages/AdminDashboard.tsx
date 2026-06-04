@@ -184,13 +184,14 @@ const AdminDashboard: React.FC = () => {
   // --- 4. Lógica de Sincronización con Programación (Gestión de Turnos) ---
   React.useEffect(() => {
     // 1. Sincronizar logs de asistencia en tiempo real
-    //    OPTIMIZACIÓN: Solo escuchar check_in activos (no completados) + limit
-    //    Antes: descargaba TODA la colección "Asistencia" sin filtros (fuga masiva)
+    //    OPTIMIZACIÓN: Traer solo los logs de las últimas 24 horas para mantener la
+    //    consulta extremadamente ligera, y dejar que la lógica local defina el estado activo.
+    //    Esto evita fallos por índices compuestos en Firebase y es muy eficiente.
+    const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
     const qLogs = query(
       collection(db, 'Asistencia'),
-      where('type', '==', 'check_in'),
-      where('status', '!=', 'completed'),
-      limit(200)
+      where('timestamp', '>=', twentyFourHoursAgo),
+      orderBy('timestamp', 'desc')
     );
     const unsubLogs = onSnapshot(qLogs, (snapshot) => {
       const logs = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id })) as any[];

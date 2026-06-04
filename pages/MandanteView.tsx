@@ -12,16 +12,19 @@ import {
     Camera,
     ShieldCheck,
     AlertCircle,
-    ShieldAlert
+    ShieldAlert,
+    LogOut,
+    RefreshCw
 } from 'lucide-react';
 import RouteMapModal from '../components/RouteMapModal';
 
 const MandanteView: React.FC = () => {
-    const { guardRounds, sites, currentUser, employees } = useAppStore();
+    const { guardRounds, sites, currentUser, employees, logout, fetchInitialData } = useAppStore();
     const [searchTerm, setSearchTerm] = useState('');
     const [notesSearch, setNotesSearch] = useState('');
     const [resultFilter, setResultFilter] = useState<'all' | 'SIN_NOVEDAD' | 'CON_NOVEDAD' | 'SOSPECHA'>('all');
-    const [dateFilter, setDateFilter] = useState('');
+    const [startDateFilter, setStartDateFilter] = useState('');
+    const [endDateFilter, setEndDateFilter] = useState('');
     const [selectedSiteId, setSelectedSiteId] = useState<string | 'all'>('all');
     const [selectedRound, setSelectedRound] = useState<any | null>(null);
 
@@ -47,7 +50,15 @@ const MandanteView: React.FC = () => {
 
         const matchesResult = resultFilter === 'all' || round.result === resultFilter;
 
-        const matchesDate = !dateFilter || round.startTime.startsWith(dateFilter);
+        let matchesDate = true;
+        const roundDate = round.startTime.substring(0, 10);
+        if (startDateFilter) {
+            matchesDate = matchesDate && roundDate >= startDateFilter;
+        }
+        if (endDateFilter) {
+            matchesDate = matchesDate && roundDate <= endDateFilter;
+        }
+
         const matchesSite = selectedSiteId === 'all' || round.siteId.toString() === selectedSiteId;
 
         return matchesSearch && matchesNotes && matchesResult && matchesDate && matchesSite;
@@ -55,6 +66,32 @@ const MandanteView: React.FC = () => {
 
     return (
         <div className="flex flex-col h-full bg-slate-50 min-h-screen relative">
+            {/* Top User Bar */}
+            <div className="bg-slate-900 text-white px-4 md:px-6 py-2.5 flex justify-between items-center text-[10px] md:text-xs font-bold z-40 relative">
+                <div className="flex items-center gap-2 max-w-[50%]">
+                    <span className="text-slate-400 hidden sm:inline">Sesión iniciada como:</span>
+                    <span className="text-blue-400 truncate" title={currentUser?.email || ''}>{currentUser?.email}</span>
+                </div>
+                <div className="flex items-center gap-4 md:gap-6">
+                    <button 
+                        onClick={() => fetchInitialData(true)} 
+                        className="flex items-center gap-1.5 hover:text-blue-400 transition tracking-widest uppercase"
+                    >
+                        <RefreshCw size={14} /> <span className="hidden sm:inline">Recargar Datos</span>
+                    </button>
+                    <button 
+                        onClick={() => {
+                            if (window.confirm('¿Estás seguro que deseas cerrar sesión?')) {
+                                logout();
+                            }
+                        }}
+                        className="flex items-center gap-1.5 text-rose-400 hover:text-rose-300 transition tracking-widest uppercase"
+                    >
+                        <LogOut size={14} /> <span className="hidden sm:inline">Cerrar Sesión</span>
+                    </button>
+                </div>
+            </div>
+
             {/* HEADER */}
             <header className="bg-white border-b border-slate-200 px-4 md:px-6 py-6 sticky top-0 z-30">
                 <div className="max-w-7xl mx-auto flex flex-col lg:flex-row lg:items-center justify-between gap-6">
@@ -75,14 +112,26 @@ const MandanteView: React.FC = () => {
                             />
                         </div>
 
-                        <div className="relative w-full">
-                            <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-                            <input
-                                type="date"
-                                className="pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none text-slate-700 font-bold w-full"
-                                value={dateFilter}
-                                onChange={(e) => setDateFilter(e.target.value)}
-                            />
+                        <div className="flex gap-2 w-full lg:w-auto">
+                            <div className="relative w-full">
+                                <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                                <input
+                                    type="date"
+                                    className="pl-9 pr-2 py-2 bg-slate-50 border border-slate-200 rounded-xl text-[10px] md:text-sm focus:ring-2 focus:ring-blue-500 outline-none text-slate-700 font-bold w-full"
+                                    value={startDateFilter}
+                                    onChange={(e) => setStartDateFilter(e.target.value)}
+                                    title="Fecha Desde"
+                                />
+                            </div>
+                            <div className="relative w-full">
+                                <input
+                                    type="date"
+                                    className="px-2 py-2 bg-slate-50 border border-slate-200 rounded-xl text-[10px] md:text-sm focus:ring-2 focus:ring-blue-500 outline-none text-slate-700 font-bold w-full"
+                                    value={endDateFilter}
+                                    onChange={(e) => setEndDateFilter(e.target.value)}
+                                    title="Fecha Hasta"
+                                />
+                            </div>
                         </div>
 
                         <select

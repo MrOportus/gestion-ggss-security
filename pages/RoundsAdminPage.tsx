@@ -22,7 +22,8 @@ const RoundsAdminPage: React.FC = () => {
     const [searchTerm, setSearchTerm] = useState('');
     const [notesSearch, setNotesSearch] = useState('');
     const [resultFilter, setResultFilter] = useState<'all' | 'SIN_NOVEDAD' | 'CON_NOVEDAD' | 'SOSPECHA'>('all');
-    const [dateFilter, setDateFilter] = useState('');
+    const [startDateFilter, setStartDateFilter] = useState('');
+    const [endDateFilter, setEndDateFilter] = useState('');
     const [selectedSiteId, setSelectedSiteId] = useState<string | 'all'>('all');
     const [selectedRound, setSelectedRound] = useState<any | null>(null);
 
@@ -36,7 +37,15 @@ const RoundsAdminPage: React.FC = () => {
 
         const matchesResult = resultFilter === 'all' || round.result === resultFilter;
 
-        const matchesDate = !dateFilter || round.startTime.startsWith(dateFilter);
+        let matchesDate = true;
+        const roundDate = round.startTime.substring(0, 10);
+        if (startDateFilter) {
+            matchesDate = matchesDate && roundDate >= startDateFilter;
+        }
+        if (endDateFilter) {
+            matchesDate = matchesDate && roundDate <= endDateFilter;
+        }
+
         const matchesSite = selectedSiteId === 'all' || round.siteId.toString() === selectedSiteId;
 
         return matchesSearch && matchesNotes && matchesResult && matchesDate && matchesSite;
@@ -75,14 +84,26 @@ const RoundsAdminPage: React.FC = () => {
                             />
                         </div>
 
-                        <div className="relative w-full">
-                            <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-                            <input
-                                type="date"
-                                className="pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none text-slate-700 font-bold w-full"
-                                value={dateFilter}
-                                onChange={(e) => setDateFilter(e.target.value)}
-                            />
+                        <div className="flex gap-2 w-full lg:w-auto">
+                            <div className="relative w-full">
+                                <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                                <input
+                                    type="date"
+                                    className="pl-9 pr-2 py-2 bg-slate-50 border border-slate-200 rounded-xl text-[10px] md:text-sm focus:ring-2 focus:ring-blue-500 outline-none text-slate-700 font-bold w-full"
+                                    value={startDateFilter}
+                                    onChange={(e) => setStartDateFilter(e.target.value)}
+                                    title="Fecha Desde"
+                                />
+                            </div>
+                            <div className="relative w-full">
+                                <input
+                                    type="date"
+                                    className="px-2 py-2 bg-slate-50 border border-slate-200 rounded-xl text-[10px] md:text-sm focus:ring-2 focus:ring-blue-500 outline-none text-slate-700 font-bold w-full"
+                                    value={endDateFilter}
+                                    onChange={(e) => setEndDateFilter(e.target.value)}
+                                    title="Fecha Hasta"
+                                />
+                            </div>
                         </div>
 
                         <select

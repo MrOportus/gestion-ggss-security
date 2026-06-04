@@ -47,11 +47,17 @@ const MyFixedShifts: React.FC = () => {
   }, [currentUser?.uid]);
 
   // Obtener fecha de hoy formateada localmente YYYY-MM-DD
-  const todayStr = new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD local format
+  const todayDate = new Date();
+  const todayStr = todayDate.toLocaleDateString('en-CA'); // YYYY-MM-DD local format
+
+  // Calcular límite de 15 días hacia adelante
+  const maxDate = new Date(todayDate);
+  maxDate.setDate(maxDate.getDate() + 15);
+  const maxDateStr = maxDate.toLocaleDateString('en-CA');
 
   // Filtrar próximos vs pasados
-  // Consideramos de hoy en adelante como Próximos
-  const proximosTurnos = turnos.filter(t => t.date >= todayStr && t.status !== 'descanso');
+  // Consideramos de hoy hasta +15 días como Próximos
+  const proximosTurnos = turnos.filter(t => t.date >= todayStr && t.date <= maxDateStr && t.status !== 'descanso');
   const historialTurnos = turnos.filter(t => t.date < todayStr && t.status !== 'descanso');
 
   // Ordenar historial de más reciente a más antiguo

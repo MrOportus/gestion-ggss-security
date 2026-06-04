@@ -10,6 +10,12 @@ const MarketTurnos: React.FC = () => {
   const [ofertas, setOfertas] = useState<SolicitudTurno[]>([]);
   const [processingId, setProcessingId] = useState<string | null>(null);
   const [showConfirmModal, setShowConfirmModal] = useState<SolicitudTurno | null>(null);
+  const [currentTime, setCurrentTime] = useState(new Date());
+
+  useEffect(() => {
+    const timer = setInterval(() => setCurrentTime(new Date()), 60000);
+    return () => clearInterval(timer);
+  }, []);
 
   // Estado para las solicitudes descartadas visualmente por el usuario
   const [dismissedShifts, setDismissedShifts] = useState<string[]>(() => {
@@ -58,7 +64,7 @@ const MarketTurnos: React.FC = () => {
         else if (turno.estado === 'asignado' || turno.estado === 'completado') {
           const assignDate = turno.fecha_asignacion ? new Date(turno.fecha_asignacion) : new Date(turno.fecha_creacion);
           const hoursDiff = (now.getTime() - assignDate.getTime()) / (1000 * 60 * 60);
-          if (hoursDiff <= 24) {
+          if (hoursDiff <= 2) {
             data.push(turno);
           }
         }
@@ -66,7 +72,7 @@ const MarketTurnos: React.FC = () => {
         else if (turno.estado === 'cancelado') {
           const cancelDate = turno.fecha_cancelacion ? new Date(turno.fecha_cancelacion) : new Date(turno.fecha_creacion);
           const hoursDiff = (now.getTime() - cancelDate.getTime()) / (1000 * 60 * 60);
-          if (hoursDiff <= 24) {
+          if (hoursDiff <= 2) {
             data.push(turno);
           }
         }
@@ -161,6 +167,7 @@ const MarketTurnos: React.FC = () => {
           <div className="grid gap-4">
             {ofertas
               .filter(o => !dismissedShifts.includes(o.id))
+              .filter(o => new Date(o.horario_inicio) > currentTime)
               .slice(0, 10)
               .map(oferta => {
                 const isProcessing = processingId === oferta.id;
@@ -208,19 +215,13 @@ const MarketTurnos: React.FC = () => {
                         </div>
 
                         {oferta.estado === 'disponible' ? (
-                          isPast ? (
-                            <div className="px-4 py-2 bg-red-100/50 text-red-500 rounded-xl font-black text-[10px] border border-red-200/50 uppercase tracking-widest">
-                               Turno Expirado / No tomado
-                            </div>
-                          ) : (
-                            <button
-                              onClick={() => setShowConfirmModal(oferta)}
-                              disabled={isProcessing}
-                              className="px-8 py-4 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl font-black text-sm uppercase tracking-widest shadow-lg shadow-blue-200 active:scale-95 transition-all disabled:opacity-50 flex items-center justify-center min-w-[160px]"
-                            >
-                              {isProcessing ? 'PROCESANDO...' : 'ACEPTAR TURNO'}
-                            </button>
-                          )
+                          <button
+                            onClick={() => setShowConfirmModal(oferta)}
+                            disabled={isProcessing}
+                            className="px-8 py-4 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl font-black text-sm uppercase tracking-widest shadow-lg shadow-blue-200 active:scale-95 transition-all disabled:opacity-50 flex items-center justify-center min-w-[160px]"
+                          >
+                            {isProcessing ? 'PROCESANDO...' : 'ACEPTAR TURNO'}
+                          </button>
                         ) : (
                           <div className="flex flex-col items-stretch sm:items-end gap-2 w-full min-w-[160px]">
                             <div className={`px-4 py-2 rounded-xl font-black text-[10px] border uppercase tracking-widest text-center ${

@@ -45,10 +45,12 @@ const MyExtraShifts: React.FC = () => {
   const proximosTurnos = turnos.filter(t => new Date(t.horario_inicio) >= now || new Date(t.horario_fin) >= now);
   const historialTurnos = turnos.filter(t => new Date(t.horario_fin) < now && new Date(t.horario_inicio) < now);
 
-  // Ordenar historial de más reciente a más antiguo
-  historialTurnos.sort((a, b) => new Date(b.horario_inicio).getTime() - new Date(a.horario_inicio).getTime());
+  // Ordenar historial de más reciente a más antiguo y limitar a 20
+  const limitedHistorialTurnos = historialTurnos
+    .sort((a, b) => new Date(b.horario_inicio).getTime() - new Date(a.horario_inicio).getTime())
+    .slice(0, 20);
 
-  const displayedTurnos = activeTab === 'proximos' ? proximosTurnos : historialTurnos;
+  const displayedTurnos = activeTab === 'proximos' ? proximosTurnos : limitedHistorialTurnos;
 
   return (
     <div className="p-6 max-w-4xl mx-auto space-y-6 animate-fade-in pb-24">
@@ -90,7 +92,7 @@ const MyExtraShifts: React.FC = () => {
               : 'text-slate-500 hover:text-slate-700'
           }`}
         >
-          Historial ({historialTurnos.length})
+          Historial ({limitedHistorialTurnos.length})
         </button>
       </div>
 
