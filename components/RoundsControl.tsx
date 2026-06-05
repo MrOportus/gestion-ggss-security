@@ -29,6 +29,8 @@ import { compressImage } from '../lib/imageUtils';
 import { roundsDB } from '../lib/roundsDB';
 import { Capacitor } from '@capacitor/core';
 import { Camera as CapacitorCamera } from '@capacitor/camera';
+import { useSecurityGeolocation } from '../hooks/useSecurityGeolocation';
+import { isValidLocation, GpsPoint } from '../lib/gpsUtils';
 
 
 // --- CONFIGURACIÓN DE API EXTERNA ---
@@ -62,8 +64,11 @@ const RoundsControl: React.FC<RoundsControlProps> = ({ onBack }) => {
     const [gpsStatus, setGpsStatus] = useState<'OK' | 'SABOTEADO' | 'PERDIDA_SENAL'>('OK');
 
     const timerRef = useRef<NodeJS.Timeout | null>(null);
+    // gpsIntervalRef is kept for the web error-path retryGPS call only
     const gpsIntervalRef = useRef<number | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
+    // Tracks the last GpsPoint accepted by the Bouncer — used for anti-jump filter
+    const lastSavedPointRef = useRef<GpsPoint | null>(null);
 
 
     const employee = employees.find(e => e.id === currentUser?.uid);
@@ -95,42 +100,60 @@ const RoundsControl: React.FC<RoundsControlProps> = ({ onBack }) => {
         }
     }, [guardRounds, currentUser?.uid]);
 
+    // ── GPS position callback — called by useSecurityGeolocation with normalized points ──
+    const handleGpsLocation = React.useCallback((point: GpsPoint) => {
+        // Build a synthetic GeolocationPosition-like object for setCurrentPos display
+        setGpsStatus('OK');
+        setCurrentPos({
+            coords: {
+                latitude: point.lat,
+                longitude: point.lng,
+                accuracy: point.accuracy,
+                altitude: null,
+                altitudeAccuracy: null,
+                heading: null,
+                speed: null,
+            },
+            timestamp: new Date(point.timestamp).getTime(),
+        } as GeolocationPosition);
+
+        // ── Bouncer filter ────────────────────────────────────────────────────
+        const lastPoint = lastSavedPointRef.current;
+        if (!isValidLocation(point, lastPoint)) return;
+        // Point passed — update ref and persist
+        lastSavedPointRef.current = point;
+        handlePositionUpdate(point);
+    // handlePositionUpdate is stable (defined below), deps intentionally omitted
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    // ── GPS error callback ────────────────────────────────────────────────────
+    const handleGpsError = React.useCallback((code: number, _message: string) => {
+        const syntheticErr = { code, message: _message } as GeolocationPositionError;
+        handleWatchError(syntheticErr);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    // ── Activate the hybrid GPS hook while a round is in progress ─────────────
+    useSecurityGeolocation(
+        !!activeRound,
+        handleGpsLocation,
+        handleGpsError
+    );
+
     useEffect(() => {
         if (activeRound) {
             timerRef.current = setInterval(() => {
                 setElapsedTime(prev => prev + 1);
             }, 1000);
-
-            // Use watchPosition for better tracking
-            if ('geolocation' in navigator) {
-                const watchId = navigator.geolocation.watchPosition(
-                    (pos) => {
-                        setGpsStatus('OK');
-                        setCurrentPos(pos);
-                        handlePositionUpdate(pos);
-                    },
-                    (err) => {
-                        console.error("Watch GPS Error:", err);
-                        handleWatchError(err);
-                    },
-                    {
-                        enableHighAccuracy: true,
-                        maximumAge: 0,
-                        timeout: 10000
-                    }
-                );
-                gpsIntervalRef.current = watchId;
-            }
-
         } else {
             if (timerRef.current) clearInterval(timerRef.current);
-            if (gpsIntervalRef.current !== null) navigator.geolocation.clearWatch(gpsIntervalRef.current);
             setElapsedTime(0);
-            noSleep.disable();
+            // Reset the Bouncer's last-point memory when the round ends
+            lastSavedPointRef.current = null;
         }
         return () => {
             if (timerRef.current) clearInterval(timerRef.current);
-            if (gpsIntervalRef.current !== null) navigator.geolocation.clearWatch(gpsIntervalRef.current);
         };
     }, [activeRound?.id]);
 
@@ -186,41 +209,38 @@ const RoundsControl: React.FC<RoundsControlProps> = ({ onBack }) => {
         );
     };
 
-    const handlePositionUpdate = async (pos: GeolocationPosition) => {
-        // Ignorar si la precisión es muy baja (> 40m)
-        if (pos.coords.accuracy > 40) return;
-
+    /**
+     * handlePositionUpdate
+     *
+     * Receives a GpsPoint that has ALREADY passed the Bouncer filter.
+     * Responsibility: persist the point to the round's path (state → Firestore),
+     * or fall back to IndexedDB when offline.
+     *
+     * The time-throttle and accuracy checks previously here are now handled
+     * upstream by isValidLocation — this function trusts its input.
+     */
+    const handlePositionUpdate = async (point: GpsPoint) => {
         const state = useAppStore.getState();
         if (!activeRound) return;
 
         const currentRound = state.guardRounds.find(r => r.id === activeRound.id);
-        if (currentRound) {
-            const lastPoint = currentRound.path && currentRound.path.length > 0
-                ? currentRound.path[currentRound.path.length - 1]
-                : null;
+        if (!currentRound) return;
 
-            const lastTime = lastPoint ? new Date(lastPoint.timestamp).getTime() : 0;
-            const now = Date.now();
+        const newPoint = {
+            lat: point.lat,
+            lng: point.lng,
+            timestamp: point.timestamp,
+            accuracy: point.accuracy,
+            location_source: 'GPS_OK' as const
+        };
 
-            // Guardar punto cada 5 segundos para optimizar batería y datos
-            if (now - lastTime > 5000) {
-                const newPoint = {
-                    lat: pos.coords.latitude,
-                    lng: pos.coords.longitude,
-                    timestamp: new Date().toISOString(),
-                    accuracy: pos.coords.accuracy,
-                    location_source: 'GPS_OK' as const
-                };
-
-                try {
-                    const updatedPath = [...(currentRound.path || []), newPoint];
-                    await state.updateGuardRound(currentRound.id, { path: updatedPath });
-                } catch (err) {
-                    // Si falla (offline), guardamos en IndexedDB
-                    console.warn("Offline: Guardando punto en IndexedDB");
-                    await roundsDB.savePoint({ roundId: currentRound.id, ...newPoint });
-                }
-            }
+        try {
+            const updatedPath = [...(currentRound.path || []), newPoint];
+            await state.updateGuardRound(currentRound.id, { path: updatedPath });
+        } catch (err) {
+            // Offline fallback — persist in IndexedDB, sync later
+            console.warn('[RoundsControl] Offline: guardando punto en IndexedDB');
+            await roundsDB.savePoint({ roundId: currentRound.id, ...newPoint });
         }
     };
 

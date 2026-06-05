@@ -4,6 +4,72 @@ export interface LatLng {
 }
 
 /**
+ * A normalized GPS point used across the Bouncer filter.
+ */
+export interface GpsPoint extends LatLng {
+    accuracy: number;
+    timestamp: string; // ISO string
+}
+
+// --- BOUNCER: Triple-filter validation ---
+
+const BOUNCER_MAX_ACCURACY_M = 25;       // Discard if accuracy radius > 25m
+const BOUNCER_MIN_INTERVAL_MS = 5000;    // Discard if < 5s since last point
+const BOUNCER_MAX_SPEED_MS = 4.16;       // ~15 km/h — discard if GPS jumps faster
+
+/**
+ * Validates an incoming GPS point against three quality filters:
+ *  1. Accuracy:  Rejects points with accuracy > 25m
+ *  2. Time gate: Rejects points arriving < 5s after the last saved point
+ *  3. Anti-jump: Uses Haversine + elapsed time to compute implied speed;
+ *                rejects points implying movement faster than 15 km/h
+ *
+ * @param newPoint  The candidate GPS point
+ * @param lastPoint The last accepted GPS point (or null if first point)
+ * @returns true if the point should be accepted and saved
+ */
+export function isValidLocation(
+    newPoint: GpsPoint,
+    lastPoint: GpsPoint | null
+): boolean {
+    // --- Filter 1: Precision ---
+    if (newPoint.accuracy > BOUNCER_MAX_ACCURACY_M) {
+        console.debug(`[Bouncer] REJECTED — accuracy ${newPoint.accuracy.toFixed(1)}m > ${BOUNCER_MAX_ACCURACY_M}m`);
+        return false;
+    }
+
+    // First point always passes filters 2 & 3 (nothing to compare against)
+    if (!lastPoint) return true;
+
+    const newTime = new Date(newPoint.timestamp).getTime();
+    const lastTime = new Date(lastPoint.timestamp).getTime();
+    const deltaMs = newTime - lastTime;
+
+    // --- Filter 2: Time gate ---
+    if (deltaMs < BOUNCER_MIN_INTERVAL_MS) {
+        console.debug(`[Bouncer] REJECTED — only ${deltaMs}ms since last point`);
+        return false;
+    }
+
+    // --- Filter 3: Anti-jump (Haversine speed check) ---
+    const distanceM = getHaversineDistance(
+        { lat: lastPoint.lat, lng: lastPoint.lng },
+        { lat: newPoint.lat, lng: newPoint.lng }
+    );
+    const deltaS = deltaMs / 1000;
+    const speedMS = distanceM / deltaS;
+
+    if (speedMS > BOUNCER_MAX_SPEED_MS) {
+        console.debug(
+            `[Bouncer] REJECTED — speed ${speedMS.toFixed(2)} m/s (${(speedMS * 3.6).toFixed(1)} km/h) > ${BOUNCER_MAX_SPEED_MS * 3.6} km/h`
+        );
+        return false;
+    }
+
+    return true;
+}
+
+/**
  * Calculates the Haversine distance between two points in meters.
  */
 export function getHaversineDistance(p1: LatLng, p2: LatLng): number {

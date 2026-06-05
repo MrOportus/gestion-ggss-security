@@ -24,6 +24,16 @@
 
         </activity>
 
+        <!--
+            BackgroundGeolocation Foreground Service
+            Required by @capacitor-community/background-geolocation to keep the
+            GPS tracking alive when the guard locks the screen.
+        -->
+        <service
+            android:name="com.equimapsa.backgroundgeolocation.LocationService"
+            android:foregroundServiceType="location"
+            android:exported="false" />
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
@@ -52,6 +62,25 @@
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-feature android:name="android.hardware.location.gps" android:required="false" />
+
+    <!--
+        ACCESS_BACKGROUND_LOCATION: Required on Android 10+ to track location
+        when the app is in the background (screen locked).
+        The user must explicitly grant "Allow all the time" in device settings.
+    -->
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
+
+    <!--
+        FOREGROUND_SERVICE: Allows the plugin to start a persistent foreground
+        service that survives when the WebView is backgrounded.
+    -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+
+    <!--
+        FOREGROUND_SERVICE_LOCATION: Required on Android 14+ (API 34+) to declare
+        that the foreground service specifically accesses location data.
+    -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
 
     <!-- Microphone Permissions -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />

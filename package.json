@@ -14,6 +14,7 @@
     "build:update": "npm run build && node scripts/zip-dist.js"
   },
   "dependencies": {
+    "@capacitor-community/background-geolocation": "^1.2.26",
     "@capacitor/android": "^8.3.4",
     "@capacitor/camera": "^8.2.0",
     "@capacitor/core": "^8.3.4",
