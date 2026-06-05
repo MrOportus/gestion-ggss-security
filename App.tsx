@@ -98,6 +98,25 @@ const App: React.FC = () => {
       try {
         setFcmDebug(prev => ({ ...prev, platform: Capacitor.getPlatform() }));
 
+        // Crear canal de notificación para el sonido personalizado en Android
+        if (Capacitor.getPlatform() === 'android') {
+          try {
+            await PushNotifications.createChannel({
+              id: 'ggss_notifications',
+              name: 'Notificaciones GGSS',
+              description: 'Canal con sonido personalizado para alertas de GGSS Security',
+              importance: 5, // IMPORTANCE_HIGH (prioridad máxima con sonido)
+              sound: 'notificacion_ggss', // apunta a res/raw/notificacion_ggss.mp3 (sin extensión)
+              visibility: 1, // VISIBILITY_PUBLIC
+              vibration: true,
+              lights: true
+            });
+            console.log('[PUSH] Canal con sonido personalizado "notificacion_ggss" registrado.');
+          } catch (channelError) {
+            console.warn('[PUSH] Error al crear canal de notificaciones:', channelError);
+          }
+        }
+
         // 1. Agregar listeners antes de registrar
         const regListener = await PushNotifications.addListener('registration', async (token) => {
           if (isSubscribed) {
@@ -215,6 +234,13 @@ const App: React.FC = () => {
                 `${payload.notification.title}: ${payload.notification.body}`,
                 'info'
               );
+              // Reproducir sonido personalizado en web
+              try {
+                const audio = new Audio('/Notificacion-GGSS.mp3');
+                audio.play().catch(err => console.warn('[PUSH Web] Audio.play bloqueado o fallido:', err));
+              } catch (audioErr) {
+                console.warn('[PUSH Web] Error al reproducir sonido:', audioErr);
+              }
             }
           });
         }
