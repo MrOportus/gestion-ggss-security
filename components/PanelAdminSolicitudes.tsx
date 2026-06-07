@@ -3,12 +3,12 @@ import { useAppStore } from '../store/useAppStore';
 import { normalizeText, matchesEmployeeSearch } from '../lib/textUtils';
 import { db } from '../lib/firebase';
 
-import { collection, query, onSnapshot, doc, setDoc, Timestamp, deleteDoc } from 'firebase/firestore';
+import { collection, query, onSnapshot, doc, setDoc, deleteDoc } from 'firebase/firestore';
 import { SolicitudTurno } from '../types';
-import { Calendar, DollarSign, MapPin, Clock, Plus, Trash2, CheckCircle, Search, X } from 'lucide-react';
+import { Calendar, DollarSign, MapPin, Clock, Plus, Trash2, Search, X, Info, Layers } from 'lucide-react';
 
 const PanelAdminSolicitudes: React.FC = () => {
-  const { sites, currentUser, employees } = useAppStore();
+  const { sites, currentUser, employees, showNotification } = useAppStore();
   const [solicitudes, setSolicitudes] = useState<SolicitudTurno[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   
@@ -61,8 +61,8 @@ const PanelAdminSolicitudes: React.FC = () => {
       snapshot.forEach((doc) => {
         data.push({ id: doc.id, ...doc.data() } as SolicitudTurno);
       });
-      // Sort by creation date descending
-      data.sort((a, b) => new Date(b.fecha_creacion).getTime() - new Date(a.fecha_creacion).getTime());
+      // Sort by turno date descending so multi-day ranges appear grouped
+      data.sort((a, b) => new Date(b.horario_inicio).getTime() - new Date(a.horario_inicio).getTime());
       setSolicitudes(data);
     });
 
@@ -72,7 +72,15 @@ const PanelAdminSolicitudes: React.FC = () => {
   const handleCreateSolicitud = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedSiteId || !fechaInicio || !horaInicio || !fechaFin || !horaFin || !monto) {
-      alert("Por favor, completa todos los campos (los guardias son opcionales si quieres que sea para todos, pero se recomienda seleccionar).");
+      showNotification("Por favor, completa todos los campos.", "error");
+      return;
+    }
+
+    const start = new Date(`${fechaInicio}T00:00:00`);
+    const end = new Date(`${fechaFin}T00:00:00`);
+
+    if (end < start) {
+      showNotification("La fecha de fin no puede ser anterior a la fecha de inicio.", "error");
       return;
     }
 
@@ -80,13 +88,15 @@ const PanelAdminSolicitudes: React.FC = () => {
     try {
       const sucursal = sites.find(s => s.id.toString() === selectedSiteId);
       const newRef = doc(collection(db, 'solicitudes_turnos'));
-      
+
       const newSolicitud: SolicitudTurno = {
         id: newRef.id,
         id_sucursal: selectedSiteId,
         sucursal_nombre: sucursal?.name || 'Sucursal Desconocida',
         horario_inicio: `${fechaInicio}T${horaInicio}`,
         horario_fin: `${fechaFin}T${horaFin}`,
+        hora_entrada: horaInicio,
+        hora_salida: horaFin,
         monto: Number(monto),
         estado: 'disponible',
         guardias_permitidos: selectedGuards,
@@ -96,7 +106,9 @@ const PanelAdminSolicitudes: React.FC = () => {
       };
 
       await setDoc(newRef, newSolicitud);
-      
+
+      showNotification('Turno publicado correctamente.', 'success');
+
       // Reset form
       setFechaInicio('');
       setHoraInicio('');
@@ -109,7 +121,7 @@ const PanelAdminSolicitudes: React.FC = () => {
       setSelectedSiteId('');
     } catch (error) {
       console.error("Error creating solicitud:", error);
-      alert("Hubo un error al crear la oferta de turno.");
+      showNotification("Hubo un error al crear la oferta de turno.", "error");
     } finally {
       setIsLoading(false);
     }
@@ -210,7 +222,7 @@ const PanelAdminSolicitudes: React.FC = () => {
 
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1">
-                <label className="text-xs font-bold text-slate-500 uppercase tracking-widest">Fecha Inicio</label>
+                <label className="text-xs font-bold text-slate-500 uppercase tracking-widest">Desde (Fecha Inicio)</label>
                 <input
                   type="date"
                   value={fechaInicio}
@@ -220,7 +232,7 @@ const PanelAdminSolicitudes: React.FC = () => {
                 />
               </div>
               <div className="space-y-1">
-                <label className="text-xs font-bold text-slate-500 uppercase tracking-widest">Hora Inicio</label>
+                <label className="text-xs font-bold text-slate-500 uppercase tracking-widest">Hora Entrada</label>
                 <input
                   type="time"
                   value={horaInicio}
@@ -233,7 +245,7 @@ const PanelAdminSolicitudes: React.FC = () => {
 
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1">
-                <label className="text-xs font-bold text-slate-500 uppercase tracking-widest">Fecha Fin</label>
+                <label className="text-xs font-bold text-slate-500 uppercase tracking-widest">Hasta (Fecha Fin)</label>
                 <input
                   type="date"
                   value={fechaFin}
@@ -243,7 +255,7 @@ const PanelAdminSolicitudes: React.FC = () => {
                 />
               </div>
               <div className="space-y-1">
-                <label className="text-xs font-bold text-slate-500 uppercase tracking-widest">Hora Fin</label>
+                <label className="text-xs font-bold text-slate-500 uppercase tracking-widest">Hora Salida</label>
                 <input
                   type="time"
                   value={horaFin}
@@ -253,6 +265,26 @@ const PanelAdminSolicitudes: React.FC = () => {
                 />
               </div>
             </div>
+
+            {/* Indicador de período a crear */}
+            {fechaInicio && fechaFin && (() => {
+              const start = new Date(`${fechaInicio}T00:00:00`);
+              const end = new Date(`${fechaFin}T00:00:00`);
+              if (isNaN(start.getTime()) || isNaN(end.getTime()) || end < start) return null;
+              const diffDays = Math.round((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+              if (diffDays <= 1) return null;
+              const montoTotal = monto ? Number(monto) * diffDays : null;
+              return (
+                <div className="flex items-start gap-2 p-3 bg-indigo-50 border border-indigo-200 rounded-xl text-indigo-700">
+                  <Layers size={16} className="text-indigo-500 shrink-0 mt-0.5" />
+                  <div className="text-xs font-bold space-y-0.5">
+                    <p>Período de <span className="text-indigo-900 font-black">{diffDays} días</span> — se enviará <span className="text-indigo-900 font-black">1 sola notificación</span> al guardia.</p>
+                    <p className="text-indigo-400 font-medium">El guardia aceptará el período completo y verá cada día por separado en "Mis Turnos Extra".</p>
+                    {montoTotal && <p className="text-emerald-700 font-black">Monto total del período: ${montoTotal.toLocaleString()}</p>}
+                  </div>
+                </div>
+              );
+            })()}
 
             <div className="space-y-1">
               <label className="text-xs font-bold text-slate-500 uppercase tracking-widest">Monto a Pagar ($)</label>
@@ -279,7 +311,7 @@ const PanelAdminSolicitudes: React.FC = () => {
               />
             </div>
 
-            <div className="space-y-3 pt-4 border-t border-slate-100" ref={guardRef} style={{ zIndex: showGuardList ? 90 : 1 }}>
+            <div className="space-y-3 pt-4 border-t border-slate-100" ref={guardRef} style={{ position: 'relative', zIndex: showGuardList ? 200 : 1 }}>
               <div>
                 <label className="text-xs font-bold text-slate-500 uppercase tracking-widest flex justify-between items-center">
                   <span>Selección de Guardias (Opcional)</span>
@@ -314,28 +346,36 @@ const PanelAdminSolicitudes: React.FC = () => {
                   className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:border-blue-500 outline-none font-bold text-slate-700 cursor-pointer"
                   value={guardSearch}
                   onFocus={() => setShowGuardList(true)}
-                  onClick={() => setShowGuardList(true)}
                   onChange={(e) => { setGuardSearch(e.target.value); setShowGuardList(true); }}
+                  onBlur={() => setTimeout(() => setShowGuardList(false), 150)}
                 />
                 {showGuardList && (
-                  <div className="absolute top-full left-0 w-full bg-white border border-slate-200 rounded-b-lg shadow-2xl max-h-60 overflow-auto z-[110] mt-1">
-                    {filteredGuards.map(w => (
-                      <div
-                        key={w.id}
-                        className="px-4 py-3 hover:bg-blue-50 cursor-pointer border-b border-slate-50 flex items-center justify-between transition-colors"
-                        onClick={() => {
-                          setSelectedGuards(prev => [...prev, w.id]);
-                          setGuardSearch('');
-                        }}
-                      >
-                        <div>
-                          <p className="text-sm font-bold text-slate-700">{w.firstName} {w.lastNamePaterno}</p>
-                          <p className="text-[10px] text-slate-400 font-mono">{w.rut}</p>
+                  <div className="absolute top-full left-0 w-full bg-white border border-slate-200 rounded-b-lg shadow-2xl max-h-60 overflow-auto z-[300] mt-1">
+                    {filteredGuards.length === 0 ? (
+                      <div className="p-4 text-xs text-slate-400 italic text-center">No se encontraron guardias o todos ya fueron seleccionados</div>
+                    ) : (
+                      filteredGuards.map(w => (
+                        <div
+                          key={w.id}
+                          className="px-4 py-3 hover:bg-blue-50 cursor-pointer border-b border-slate-50 flex items-center justify-between transition-colors select-none"
+                          onMouseDown={(e) => {
+                            // Prevent document mousedown handler from closing dropdown
+                            // and prevent blur from firing before selection is registered
+                            e.preventDefault();
+                            e.stopPropagation();
+                            setSelectedGuards(prev => [...prev, w.id]);
+                            setGuardSearch('');
+                            setShowGuardList(true); // keep open to add more guards
+                          }}
+                        >
+                          <div>
+                            <p className="text-sm font-bold text-slate-700">{w.firstName} {w.lastNamePaterno}</p>
+                            <p className="text-[10px] text-slate-400 font-mono">{w.rut}</p>
+                          </div>
+                          <Plus size={16} className="text-blue-500" />
                         </div>
-                        <Plus size={16} className="text-blue-500" />
-                      </div>
-                    ))}
-                    {filteredGuards.length === 0 && <div className="p-4 text-xs text-slate-400 italic text-center">No se encontraron guardias o todos ya fueron seleccionados</div>}
+                      ))
+                    )}
                   </div>
                 )}
               </div>
@@ -387,22 +427,52 @@ const PanelAdminSolicitudes: React.FC = () => {
                       </div>
                     </div>
 
-                    {/* Horario */}
+                    {/* Horario — muestra rango multi-día si corresponde */}
                     <div className="lg:col-span-3">
-                      <div className="flex flex-col">
-                        <span className="text-xs font-bold text-slate-600 flex items-center gap-1">
-                          <Calendar size={12} className="text-slate-400" />
-                          {new Date(sol.horario_inicio).toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit' })}
-                        </span>
-                        <span className="text-[10px] font-medium text-slate-400">
-                          {new Date(sol.horario_inicio).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })} - {new Date(sol.horario_fin).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })}
-                        </span>
-                      </div>
+                      {(() => {
+                        const inicio = new Date(sol.horario_inicio);
+                        const fin = new Date(sol.horario_fin);
+                        const mismoDia = inicio.toDateString() === fin.toDateString();
+                        const diffMs = fin.setHours(0,0,0,0) - inicio.setHours(0,0,0,0);
+                        const dias = Math.round(diffMs / 86400000) + 1;
+                        const horaE = sol.hora_entrada || new Date(sol.horario_inicio).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' });
+                        const horaS = sol.hora_salida || new Date(sol.horario_fin).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' });
+                        return (
+                          <div className="flex flex-col gap-0.5">
+                            {mismoDia ? (
+                              <span className="text-xs font-bold text-slate-600 flex items-center gap-1">
+                                <Calendar size={12} className="text-slate-400" />
+                                {new Date(sol.horario_inicio).toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit', year: '2-digit' })}
+                              </span>
+                            ) : (
+                              <span className="text-xs font-bold text-slate-600 flex items-center gap-1">
+                                <Layers size={12} className="text-indigo-400" />
+                                {new Date(sol.horario_inicio).toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit' })}
+                                {' → '}
+                                {new Date(sol.horario_fin).toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit' })}
+                                <span className="ml-1 bg-indigo-100 text-indigo-600 text-[9px] font-black px-1.5 py-0.5 rounded-full">{dias}d</span>
+                              </span>
+                            )}
+                            <span className="text-[10px] font-medium text-slate-400">{horaE} – {horaS}</span>
+                          </div>
+                        );
+                      })()}
                     </div>
 
-                    {/* Monto */}
+                    {/* Monto — muestra por día y total si es multi-día */}
                     <div className="lg:col-span-2 text-left lg:text-right">
-                      <span className="text-sm font-black text-emerald-600">${sol.monto.toLocaleString()}</span>
+                      {(() => {
+                        const inicio = new Date(sol.horario_inicio);
+                        const fin = new Date(sol.horario_fin);
+                        const diff = Math.round((new Date(sol.horario_fin.split('T')[0]).getTime() - new Date(sol.horario_inicio.split('T')[0]).getTime()) / 86400000) + 1;
+                        const multi = diff > 1;
+                        return (
+                          <div>
+                            <div className="text-sm font-black text-emerald-600">${sol.monto.toLocaleString()}<span className="text-[9px] font-bold text-slate-400">/día</span></div>
+                            {multi && <div className="text-[9px] font-bold text-indigo-500">${(sol.monto * diff).toLocaleString()} total</div>}
+                          </div>
+                        );
+                      })()}
                     </div>
 
                     {/* Estado / Asignado */}

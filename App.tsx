@@ -106,12 +106,12 @@ const App: React.FC = () => {
               name: 'Notificaciones GGSS',
               description: 'Canal con sonido personalizado para alertas de GGSS Security',
               importance: 5, // IMPORTANCE_HIGH (prioridad máxima con sonido)
-              sound: 'notificacion_ggss', // apunta a res/raw/notificacion_ggss.mp3 (sin extensión)
+              sound: 'notificacion_ggss.mp3', // Important: must include extension for Capacitor 3+
               visibility: 1, // VISIBILITY_PUBLIC
               vibration: true,
               lights: true
             });
-            console.log('[PUSH] Canal con sonido personalizado "notificacion_ggss" registrado.');
+            console.log('[PUSH] Canal con sonido personalizado "notificacion_ggss.mp3" registrado.');
           } catch (channelError) {
             console.warn('[PUSH] Error al crear canal de notificaciones:', channelError);
           }

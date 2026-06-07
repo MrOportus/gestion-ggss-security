@@ -330,9 +330,11 @@ export interface SolicitudTurno {
   id: string;
   id_sucursal: number | string;
   sucursal_nombre: string;
-  horario_inicio: string;
-  horario_fin: string;
-  monto: number;
+  horario_inicio: string;   // "{primerDia}T{horaEntrada}" — inicio del primer día
+  horario_fin: string;      // "{últimoDía}T{horaSalida}"  — fin del último día
+  hora_entrada?: string;    // "07:30" — hora de entrada diaria (para períodos multi-día)
+  hora_salida?: string;     // "19:00" — hora de salida diaria (para períodos multi-día)
+  monto: number;            // monto por día
   estado: 'disponible' | 'asignado' | 'completado' | 'cancelado';
   guardias_permitidos: string[]; // Array of allowed guard UIDs
   id_colaborador_asignado?: string;

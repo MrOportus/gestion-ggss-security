@@ -150,6 +150,19 @@ exports.notificarNuevoDocumento = onDocumentCreated(
                     title: 'Nuevo documento disponible',
                     body: 'Tienes un nuevo documento para firmar disponible. Favor de firmarlo lo antes posible. Gracias.'
                 },
+                android: {
+                    notification: {
+                        channelId: 'ggss_notifications',
+                        sound: 'notificacion_ggss.mp3'
+                    }
+                },
+                apns: {
+                    payload: {
+                        aps: {
+                            sound: 'notificacion_ggss.mp3'
+                        }
+                    }
+                },
                 data: {
                     type: 'new_doc',
                     docId: event.params.docId
@@ -203,7 +216,34 @@ exports.notificarNuevaOfertaTurno = onDocumentCreated(
         const guardiasPermitidos = docData.guardias_permitidos || [];
         const sucursalNombre = docData.sucursal_nombre || 'una sucursal';
         const monto = docData.monto || 0;
-        
+
+        // ── Construir texto del rango de fechas ──────────────────────────────
+        const horarioInicio = docData.horario_inicio || '';
+        const horarioFin    = docData.horario_fin    || '';
+
+        let rangoTexto = '';
+        let diasCount  = 1;
+
+        if (horarioInicio && horarioFin) {
+            const fechaIni = new Date(horarioInicio.split('T')[0] + 'T00:00:00');
+            const fechaFin = new Date(horarioFin.split('T')[0]   + 'T00:00:00');
+            diasCount = Math.round((fechaFin - fechaIni) / 86400000) + 1;
+
+            const opts = { day: '2-digit', month: '2-digit' };
+            const strIni = fechaIni.toLocaleDateString('es-CL', opts);
+            const strFin = fechaFin.toLocaleDateString('es-CL', opts);
+
+            if (diasCount > 1) {
+                rangoTexto = `Del ${strIni} al ${strFin} (${diasCount} días)`;
+            } else {
+                rangoTexto = `El ${strIni}`;
+            }
+        }
+
+        const notifBody = diasCount > 1
+            ? `${rangoTexto} en ${sucursalNombre} · $${monto.toLocaleString('es-CL')}/día · Total: $${(monto * diasCount).toLocaleString('es-CL')}`
+            : `${rangoTexto && rangoTexto + ' '}en ${sucursalNombre} por $${monto.toLocaleString('es-CL')}`;
+
         let targetTokens = [];
         
         try {
@@ -245,12 +285,25 @@ exports.notificarNuevaOfertaTurno = onDocumentCreated(
                 const message = {
                     notification: {
                         title: '[GGSS] ¡Nuevo Turno Extra! 💰',
-                        body: `Se ha publicado un turno en ${sucursalNombre} por $${monto}.`
+                        body: notifBody
+                    },
+                    android: {
+                        notification: {
+                            channelId: 'ggss_notifications',
+                            sound: 'notificacion_ggss.mp3'
+                        }
+                    },
+                    apns: {
+                        payload: {
+                            aps: {
+                                sound: 'notificacion_ggss.mp3'
+                            }
+                        }
                     },
                     data: {
                         type: 'market_turno',
                         docId: event.params.docId,
-                        url: '/worker-attendance' // Opcional, para manejar la navegación en frontend si existe un handler
+                        url: '/worker-attendance'
                     },
                     tokens: chunk,
                 };
@@ -259,7 +312,6 @@ exports.notificarNuevaOfertaTurno = onDocumentCreated(
                 successCount += response.successCount;
                 failureCount += response.failureCount;
                 
-                // Limpieza de tokens fallidos (simplificada)
                 if (response.failureCount > 0) {
                     const tokensToRemove = [];
                     response.responses.forEach((resp, idx) => {
@@ -269,7 +321,6 @@ exports.notificarNuevaOfertaTurno = onDocumentCreated(
                     });
                     if (tokensToRemove.length > 0) {
                         console.log(`[FCM-TURNOS] Detectados ${tokensToRemove.length} tokens inválidos.`);
-                        // El sistema los limpiará gradualmente o en el siguiente registro
                     }
                 }
             }
