@@ -1,6 +1,6 @@
 
 import { initializeApp } from "firebase/app";
-import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager } from "firebase/firestore";
+import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, doc, getDoc } from "firebase/firestore";
 import { getAuth, indexedDBLocalPersistence, initializeAuth } from "firebase/auth";
 import { getMessaging, isSupported as isMessagingSupported } from "firebase/messaging";
 import { getStorage } from "firebase/storage";
@@ -70,3 +70,20 @@ export const messaging = (() => {
 // nuevo, el SDK cierre la sesión del administrador actual.
 const secondaryApp = initializeApp(firebaseConfig, "SecondaryApp");
 export const secondaryAuth = getAuth(secondaryApp);
+
+// 5. Carga dinámica de la API Key de Gemini
+export const getGeminiApiKey = async (): Promise<string | null> => {
+  try {
+    const docSnap = await getDoc(doc(db, "app_config", "gemini"));
+    if (docSnap.exists()) {
+      const data = docSnap.data();
+      if (data && data.apiKey) {
+        return data.apiKey;
+      }
+    }
+  } catch (error) {
+    console.warn("[GEMINI] No se pudo obtener la API Key desde Firestore, usando variable de entorno:", error);
+  }
+  return (import.meta as any).env?.VITE_API_KEY || null;
+};
+

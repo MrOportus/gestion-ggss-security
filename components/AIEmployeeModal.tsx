@@ -3,6 +3,7 @@ import { useAppStore } from '../store/useAppStore';
 import { GoogleGenAI } from '@google/genai';
 import { X, Sparkles, Loader2, Upload, Save, AlertCircle, FileText } from 'lucide-react';
 import { Employee } from '../types';
+import { getGeminiApiKey } from '../lib/firebase';
 
 interface AIEmployeeModalProps {
     onClose: () => void;
@@ -74,7 +75,7 @@ export const AIEmployeeModal: React.FC<AIEmployeeModalProps> = ({ onClose }) => 
 
         setIsProcessing(true);
         try {
-            const apiKey = (import.meta as any).env?.VITE_API_KEY;
+            const apiKey = await getGeminiApiKey();
             if (!apiKey) {
                 showNotification("Falta API KEY de Gemini", "error");
                 setIsProcessing(false);

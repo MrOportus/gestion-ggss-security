@@ -18,6 +18,7 @@ import InfoReemplazo from '../components/InfoReemplazo';
 import FormalizarServicio from '../components/FormalizarServicio';
 import Dia14Falabella from '../components/Dia14Falabella';
 import CompararF30 from '../components/CompararF30';
+import EmailExtractor from '../components/EmailExtractor';
 import GenerarContrato from '../components/GenerarContrato';
 import { Banknote } from 'lucide-react';
 import { auth as firebaseAuth } from '../lib/firebase';
@@ -28,7 +29,7 @@ const TasksPage: React.FC = () => {
     saveF30Comparison, saveContractRecord, showNotification,
     currentUser, supervisorTasks, updateSupervisorTask
   } = useAppStore();
-  const [activeTask, setActiveTask] = useState<'info_reemplazo' | 'comparar_f30' | 'smart_autofill' | 'generar_contrato' | 'plataforma_falabella' | 'nomina_anticipos' | 'formalizar_servicio' | 'informar_renuncia' | 'extractor_galileo' | null>(null);
+  const [activeTask, setActiveTask] = useState<'info_reemplazo' | 'comparar_f30' | 'smart_autofill' | 'generar_contrato' | 'plataforma_falabella' | 'nomina_anticipos' | 'formalizar_servicio' | 'informar_renuncia' | 'extractor_galileo' | 'extractor_correos' | null>(null);
 
   const tasks = [
     { id: 'info_reemplazo', title: 'Info Reemplazo', icon: <UserPlus className="text-blue-500" />, desc: 'Generar solicitud formal de reemplazo para Banco Falabella.' },
@@ -38,6 +39,7 @@ const TasksPage: React.FC = () => {
     { id: 'smart_autofill', title: 'Auto-llenado Inteligente', icon: <Sparkles className="text-amber-500" />, desc: 'Extracción de datos con IA para formularios web.' },
     { id: 'formalizar_servicio', title: 'Formalizar Servicio', icon: <ClipboardList className="text-rose-500" />, desc: 'Generar tabla de requerimiento de servicio Falabella.' },
     { id: 'extractor_galileo', title: 'Extractor de Turnos Galileo', icon: <TableIcon className="text-blue-600" />, desc: 'Extrae datos de notificaciones Galileo para planilla de cobros.' },
+    { id: 'extractor_correos', title: 'Extractor de Correos a Planilla', icon: <TableIcon className="text-indigo-500" />, desc: 'Convierte tablas de correo Gmail al formato de planilla Excel.' },
     { id: 'nomina_anticipos', title: 'Nómina Anticipos', icon: <Banknote className="text-amber-600" />, desc: 'Ingreso masivo de anticipos por sucursal para el día 15.', hidden: currentUser && currentUser.role === 'worker' },
 
     { id: 'informar_renuncia', title: 'Informar Renuncia', icon: <X className="text-rose-600" />, desc: 'Reportar renuncia de un trabajador con documentos adjuntos.', hidden: currentUser && currentUser.role === 'worker' },
@@ -80,6 +82,8 @@ const TasksPage: React.FC = () => {
         <AdvancePayroll onBack={() => setActiveTask(null)} />
       ) : activeTask === 'extractor_galileo' ? (
         <GalileoExtractor onBack={() => setActiveTask(null)} />
+      ) : activeTask === 'extractor_correos' ? (
+        <EmailExtractor onBack={() => setActiveTask(null)} />
       ) : activeTask === 'informar_renuncia' ? (
         <InformarRenuncia onBack={() => setActiveTask(null)} />
       ) : activeTask === 'formalizar_servicio' ? (

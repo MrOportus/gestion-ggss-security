@@ -275,6 +275,14 @@ const RoundsAdminPage: React.FC = () => {
                                                                 className="w-full h-full object-cover"
                                                                 onError={(e) => {
                                                                     const target = e.target as HTMLImageElement;
+                                                                    // Si la miniatura _200x200 falla, intentar con la imagen original
+                                                                    // (ocurre cuando Firebase Resize Images no generó thumbnail para .webp)
+                                                                    if (!(target as any).dataset.fallbackApplied && evi.photoUrl && target.src !== evi.photoUrl) {
+                                                                        (target as any).dataset.fallbackApplied = '1';
+                                                                        target.src = evi.photoUrl;
+                                                                        return;
+                                                                    }
+                                                                    // Si la original también falla, mostrar icono roto
                                                                     target.style.display = 'none';
                                                                     const parent = target.parentElement;
                                                                     if (parent) {

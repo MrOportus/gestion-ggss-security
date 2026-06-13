@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
     Sparkles,
     Terminal,
@@ -15,6 +15,7 @@ import {
 import { GoogleGenAI } from "@google/genai";
 import { useAppStore } from '../store/useAppStore';
 import { normalizeText, matchesEmployeeSearch } from '../lib/textUtils';
+import { getGeminiApiKey } from '../lib/firebase';
 
 
 interface ExtractedData {
@@ -44,9 +45,15 @@ const SmartAutofill: React.FC<{ onBack: () => void }> = ({ onBack }) => {
     const [scriptCopied, setScriptCopied] = useState(false);
 
     // Use env var or manual input
-    const envApiKey = (import.meta as any).env?.VITE_API_KEY;
+    const [envApiKey, setEnvApiKey] = useState<string>('');
     const [manualApiKey, setManualApiKey] = useState('');
     const finalApiKey = envApiKey || manualApiKey;
+
+    useEffect(() => {
+        getGeminiApiKey().then(key => {
+            if (key) setEnvApiKey(key);
+        });
+    }, []);
 
     // --- SEARCH LOGIC ---
     const filteredEmployees = employees.filter(e => {

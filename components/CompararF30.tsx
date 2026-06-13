@@ -8,6 +8,7 @@ import {
 import { GoogleGenAI } from "@google/genai";
 import * as XLSX from 'xlsx';
 import { ComparisonRecord } from '../types';
+import { getGeminiApiKey } from '../lib/firebase';
 
 interface CompararF30Props {
   onBack: () => void;
@@ -46,7 +47,7 @@ const CompararF30: React.FC<CompararF30Props> = ({ onBack }) => {
 
     setIsProcessing(true);
     try {
-      const apiKey = (import.meta as any).env?.VITE_API_KEY;
+      const apiKey = await getGeminiApiKey();
 
       if (!apiKey) {
         showNotification("Falta la API KEY de Gemini.", "error");

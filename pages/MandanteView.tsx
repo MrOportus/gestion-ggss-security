@@ -298,11 +298,19 @@ const MandanteView: React.FC = () => {
                                                             <img
                                                                 src={getThumbnailUrl(evi.photoUrl)}
                                                                 alt="Evi"
+                                                                width={60}
+                                                                height={60}
                                                                 loading="lazy"
                                                                 decoding="async"
                                                                 className="w-full h-full object-cover"
                                                                 onError={(e) => {
                                                                     const target = e.target as HTMLImageElement;
+                                                                    // Si el thumbnail _200x200 no existe, cargar original
+                                                                    if (!target.dataset.fallbackApplied && evi.photoUrl && target.src !== evi.photoUrl) {
+                                                                        target.dataset.fallbackApplied = '1';
+                                                                        target.src = evi.photoUrl;
+                                                                        return;
+                                                                    }
                                                                     target.style.display = 'none';
                                                                     const parent = target.parentElement;
                                                                     if (parent) {

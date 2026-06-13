@@ -604,11 +604,15 @@ export const useAppStore = create<AppState>()(
               const snapshotCheckIn = await getDocs(qCheckIn);
               const activeCheckIn = snapshotCheckIn.docs.find(d => d.data().type === 'check_in' && d.data().status !== 'completed');
               if (activeCheckIn) {
-                await updateDoc(doc(db, 'Asistencia', activeCheckIn.id), {
-                  status: 'completed',
-                  endTime: timestamp
-                });
-                console.log("[SYNC TURNOS] ✅ check_in previo marcado como completado:", activeCheckIn.id);
+                try {
+                  await updateDoc(doc(db, 'Asistencia', activeCheckIn.id), {
+                    status: 'completed',
+                    endTime: timestamp
+                  });
+                  console.log("[SYNC TURNOS] ✅ check_in previo marcado como completado:", activeCheckIn.id);
+                } catch (updateErr) {
+                  console.error("[SYNC TURNOS] ⚠️ Error actualizando check_in previo (puede ser falta de permisos):", updateErr);
+                }
               }
 
               // 2. Eliminar pulso y marcar ticket en el día que corresponde a la jornada

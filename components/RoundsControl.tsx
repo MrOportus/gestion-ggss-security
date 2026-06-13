@@ -258,47 +258,80 @@ const RoundsControl: React.FC<RoundsControlProps> = ({ onBack }) => {
             console.log("Activando WakeLock...");
             await noSleep.enable();
 
-            console.log("Solicitando ubicación actual...");
-            // Usamos una promesa para envolver getCurrentPosition con timeout
-            const getPos = () => new Promise<GeolocationPosition>((resolve, reject) => {
+            console.log("Solicitando ubicación inicial con validación de accuracy...");
+
+            /**
+             * Intentar obtener el punto de inicio con accuracy aceptable (≤ 50m).
+             * Android entrega el último fix cacheado primero (puede estar a 50-200m de error).
+             * Reintentamos hasta MAX_ATTEMPTS veces esperando que el GPS caliente.
+             */
+            const MAX_ATTEMPTS = 3;
+            const ACCURACY_THRESHOLD_M = 50; // Si accuracy > 50m, reintentar
+            const RETRY_DELAY_MS = 2500;
+
+            const getPos = (timeout = 15000) => new Promise<GeolocationPosition>((resolve, reject) => {
                 navigator.geolocation.getCurrentPosition(resolve, reject, {
                     enableHighAccuracy: true,
-                    timeout: 15000,
+                    timeout,
                     maximumAge: 0
                 });
             });
 
-            try {
-                const pos = await getPos();
-                console.log("Ubicación obtenida:", pos.coords);
+            let pos: GeolocationPosition | null = null;
+            let lastError: any = null;
 
-                const startLocation = {
-                    lat: pos.coords.latitude,
-                    lng: pos.coords.longitude,
-                    accuracy: pos.coords.accuracy
-                };
+            for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+                try {
+                    const candidate = await getPos(attempt === 1 ? 15000 : 8000);
+                    const accuracy = candidate.coords.accuracy;
+                    console.log(`[GPS inicio] Intento ${attempt}: accuracy=${accuracy.toFixed(1)}m`);
 
-                console.log("Llamando a addGuardRound...");
-                await addGuardRound({
-                    workerId: employee.id,
-                    workerName: `${employee.firstName} ${employee.lastNamePaterno}`,
-                    siteId: site.id,
-                    siteName: site.name,
-                    startLocation,
-                    path: [{ ...startLocation, timestamp: new Date().toISOString(), location_source: 'GPS_OK' }]
-                });
+                    if (accuracy <= ACCURACY_THRESHOLD_M || attempt === MAX_ATTEMPTS) {
+                        pos = candidate;
+                        break;
+                    }
 
-                showNotification("Ronda iniciada (GPS Activo)", "success");
-            } catch (err: any) {
-                console.error("Error de Geolocalización:", err);
-                let msg = "Error GPS: ";
-                if (err.code === 1) msg += "Permiso denegado. Activa el GPS.";
-                else if (err.code === 2) msg += "Ubicación no disponible.";
-                else if (err.code === 3) msg += "Tiempo de espera agotado.";
-                else msg += err.message;
-
-                showNotification(msg, "error");
+                    // accuracy inaceptable — esperar y reintentar
+                    showNotification(`Mejorando señal GPS... (${accuracy.toFixed(0)}m)`, 'info');
+                    await new Promise(r => setTimeout(r, RETRY_DELAY_MS));
+                } catch (err) {
+                    lastError = err;
+                    console.warn(`[GPS inicio] Intento ${attempt} falló:`, err);
+                    if (attempt === MAX_ATTEMPTS) break;
+                    await new Promise(r => setTimeout(r, RETRY_DELAY_MS));
+                }
             }
+
+            if (!pos) {
+                const err = lastError as any;
+                let msg = "Error GPS: ";
+                if (err?.code === 1) msg += "Permiso denegado. Activa el GPS.";
+                else if (err?.code === 2) msg += "Ubicación no disponible.";
+                else if (err?.code === 3) msg += "Tiempo de espera agotado.";
+                else msg += err?.message ?? "No se pudo obtener ubicación.";
+                showNotification(msg, "error");
+                return;
+            }
+
+            console.log("Ubicación obtenida:", pos.coords);
+
+            const startLocation = {
+                lat: pos.coords.latitude,
+                lng: pos.coords.longitude,
+                accuracy: pos.coords.accuracy
+            };
+
+            console.log("Llamando a addGuardRound...");
+            await addGuardRound({
+                workerId: employee.id,
+                workerName: `${employee.firstName} ${employee.lastNamePaterno}`,
+                siteId: site.id,
+                siteName: site.name,
+                startLocation,
+                path: [{ ...startLocation, timestamp: new Date().toISOString(), location_source: 'GPS_OK' }]
+            });
+
+            showNotification("Ronda iniciada (GPS Activo)", "success");
         } catch (err: any) {
             console.error("Error general al iniciar ronda:", err);
             showNotification("Error al procesar: " + err.message, "error");
@@ -306,6 +339,7 @@ const RoundsControl: React.FC<RoundsControlProps> = ({ onBack }) => {
             setLoading(false);
         }
     };
+
 
     const handleStopRound = async () => {
         if (!activeRound) return;
@@ -404,8 +438,8 @@ const RoundsControl: React.FC<RoundsControlProps> = ({ onBack }) => {
 
             // Comprimir imagen y aplicar marca de agua
             // Barrera 1: maxWidth 1024px (no necesitamos 4K para auditoría)
-            // Barrera 2: quality 0.6 + WebP (manejado internamente por compressImage)
-            const compressedBlob = await compressImage(file, 0.6, 1024, {
+            // Barrera 2: quality 0.7 + JPEG
+            const compressedBlob = await compressImage(file, 0.7, 1024, {
                 time: timeStr,
                 date: dateStr,
                 day: dayStr.charAt(0).toUpperCase() + dayStr.slice(1),

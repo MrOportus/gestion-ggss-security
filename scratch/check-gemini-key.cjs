@@ -7,11 +7,11 @@ admin.initializeApp({
 });
 
 const db = admin.firestore();
-db.collection('app_config').doc('version').get().then(doc => {
+db.collection('app_config').doc('gemini').get().then(doc => {
   if (doc.exists) {
-    console.log("Current DB Version config:", JSON.stringify(doc.data(), null, 2));
+    console.log("Current Gemini config:", JSON.stringify(doc.data(), null, 2));
   } else {
-    console.log("No version doc found");
+    console.log("No app_config/gemini doc found");
   }
   process.exit(0);
 }).catch(err => {

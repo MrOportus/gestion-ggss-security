@@ -150,9 +150,85 @@ const RouteMapModal: React.FC<RouteMapModalProps> = ({ round, onClose }) => {
     // For the coloring logic and smoothing, we need the valid points with timestamps
     const validPoints = rawPoints.filter((p: any) => typeof p.lat === 'number' && typeof p.lng === 'number' && p.timestamp);
 
+    // Si hay muy pocos puntos en el path (ej: ronda de solo 1 punto GPS desde Android),
+    // se incluye el startLocation y endLocation como puntos sintéticos para que siempre
+    // exista al menos un segmento dibujable en el mapa.
+    const augmentedValidPoints = [...validPoints];
+    if (round.startLocation?.lat && !isNaN(round.startLocation.lat)) {
+        const alreadyHasStart = augmentedValidPoints.some(
+            (p: any) => p.lat === round.startLocation.lat && p.lng === round.startLocation.lng
+        );
+        if (!alreadyHasStart) {
+            augmentedValidPoints.unshift({
+                lat: round.startLocation.lat,
+                lng: round.startLocation.lng,
+                timestamp: round.startTime,
+                accuracy: round.startLocation.accuracy || 10,
+                location_source: 'GPS_OK'
+            });
+        }
+    }
+    if (round.endLocation?.lat && !isNaN(round.endLocation.lat)) {
+        const alreadyHasEnd = augmentedValidPoints.some(
+            (p: any) => p.lat === round.endLocation.lat && p.lng === round.endLocation.lng
+        );
+        if (!alreadyHasEnd) {
+            augmentedValidPoints.push({
+                lat: round.endLocation.lat,
+                lng: round.endLocation.lng,
+                timestamp: round.endTime || new Date().toISOString(),
+                accuracy: round.endLocation.accuracy || 10,
+                location_source: 'GPS_OK'
+            });
+        }
+    }
+
     // Apply moving average smoothing (window size 3) to valid points to fulfill "suavizado" requirement
     // but preserving every point for stay detection logic.
-    const fullPathPoints = movingAverage(validPoints, 3);
+
+    // ── Siempre incluir coordenadas de fotos en el path ──
+    // Esto garantiza que NUNCA exista un marker de foto sin un segmento de ruta que lo conecte.
+    // Razón: si la persona tomó una foto, significa que estuvo en esa coordenada — debe aparecer en el trazado.
+    if (evidences.length > 0) {
+        const photoPoints = evidences
+            .filter((e: any) => e.lat && e.lng && !isNaN(e.lat) && !isNaN(e.lng))
+            .sort((a: any, b: any) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
+            .map((e: any) => ({
+                lat: e.lat,
+                lng: e.lng,
+                timestamp: e.timestamp,
+                accuracy: 15,
+                location_source: 'PHOTO_SYNTHETIC'
+            }));
+
+        if (photoPoints.length > 0) {
+            // Merge: GPS real + fotos, ordenado por timestamp, sin duplicados exactos
+            const existingKeys = new Set(augmentedValidPoints.map((p: any) => `${p.lat.toFixed(6)},${p.lng.toFixed(6)}}`));
+            const uniquePhotoPoints = photoPoints.filter(
+                (p: any) => !existingKeys.has(`${p.lat.toFixed(6)},${p.lng.toFixed(6)}`)
+            );
+            if (uniquePhotoPoints.length > 0) {
+                const merged = [...augmentedValidPoints, ...uniquePhotoPoints].sort(
+                    (a: any, b: any) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+                );
+                augmentedValidPoints.splice(0, augmentedValidPoints.length, ...merged);
+            }
+        }
+    }
+
+    const fullPathPoints = movingAverage(augmentedValidPoints, 3);
+
+    // ── Calcular distancia real recorrida (suma de Haversine entre puntos consecutivos) ──
+    const totalDistanceKm = fullPathPoints.reduce((acc: number, point: any, idx: number) => {
+        if (idx === 0) return 0;
+        const prev = fullPathPoints[idx - 1];
+        return acc + getHaversineDistance(prev, point) / 1000;
+    }, 0);
+    const distanceLabel = totalDistanceKm < 0.01
+        ? '<10 m'
+        : totalDistanceKm < 1
+            ? `${(totalDistanceKm * 1000).toFixed(0)} m`
+            : `${totalDistanceKm.toFixed(2)} km`;
 
     // Zoom and bounds calculations
     const finalPoints: [number, number][] = fullPathPoints.map((p: any) => [p.lat, p.lng]);
@@ -321,6 +397,13 @@ const RouteMapModal: React.FC<RouteMapModalProps> = ({ round, onClose }) => {
                                                     decoding="async"
                                                     className="w-full aspect-square object-cover mb-2 cursor-pointer"
                                                     onClick={() => setSelectedPhotoIndex(idx)}
+                                                    onError={(e) => {
+                                                        const target = e.target as HTMLImageElement;
+                                                        if (!target.dataset.fallbackApplied && evidence.photoUrl && target.src !== evidence.photoUrl) {
+                                                            target.dataset.fallbackApplied = '1';
+                                                            target.src = evidence.photoUrl;
+                                                        }
+                                                    }}
                                                 />
                                                 <div className="p-1 text-center">
                                                     <p className="font-black text-amber-600 text-[10px] uppercase">Evidencia Fotográfica</p>
@@ -423,6 +506,14 @@ const RouteMapModal: React.FC<RouteMapModalProps> = ({ round, onClose }) => {
                                                 alt={`Evidencia ${idx}`}
                                                 onError={(e) => {
                                                     const target = e.target as HTMLImageElement;
+                                                    // Si la miniatura _200x200 falla, intentar cargar la imagen original completa
+                                                    // (ocurre cuando la extensión Resize Images no generó thumbnail para .webp)
+                                                    if (!target.dataset.fallbackApplied && evidence.photoUrl && target.src !== evidence.photoUrl) {
+                                                        target.dataset.fallbackApplied = '1';
+                                                        target.src = evidence.photoUrl;
+                                                        return;
+                                                    }
+                                                    // Si también la original falla, mostrar placeholder
                                                     target.style.display = 'none';
                                                     const parent = target.parentElement;
                                                     if (parent) {
@@ -452,11 +543,11 @@ const RouteMapModal: React.FC<RouteMapModalProps> = ({ round, onClose }) => {
                             <div className="space-y-2">
                                 <div className="flex justify-between items-center">
                                     <span className="text-xs font-medium">Distancia estim.</span>
-                                    <span className="text-xs font-black">~{Math.round((round.path?.length || 0) * 0.05)} km</span>
+                                    <span className="text-xs font-black">~{distanceLabel}</span>
                                 </div>
                                 <div className="flex justify-between items-center">
                                     <span className="text-xs font-medium">Puntos GPS</span>
-                                    <span className="text-xs font-black">{round.path?.length || 0}</span>
+                                    <span className="text-xs font-black">{(round.path || []).filter((p: any) => p.location_source === 'GPS_OK').length}</span>
                                 </div>
                             </div>
                         </div>

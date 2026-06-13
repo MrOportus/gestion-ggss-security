@@ -109,7 +109,8 @@ export function useSecurityGeolocation(
                     requestPermissions: true,
                     // Ignore stale (cached) positions from before the watcher started
                     stale: false,
-                    // Only fire when the guard has moved at least 5 meters
+                    // Fire every 5m of movement — mejor relación señal/ruido para el Bouncer.
+                    // Con 2m el plugin dispara demasiado seguido y el Bouncer lo descarta por velocidad.
                     distanceFilter: 5,
                 },
                 (location, error) => {

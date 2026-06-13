@@ -12,17 +12,18 @@ export interface GpsPoint extends LatLng {
 }
 
 // --- BOUNCER: Triple-filter validation ---
-
-const BOUNCER_MAX_ACCURACY_M = 25;       // Discard if accuracy radius > 25m
-const BOUNCER_MIN_INTERVAL_MS = 5000;    // Discard if < 5s since last point
-const BOUNCER_MAX_SPEED_MS = 4.16;       // ~15 km/h — discard if GPS jumps faster
+// Nota: el plugin nativo ya aplica distanceFilter (5m) y stale:false.
+// Estos umbrales son el segundo nivel de validación — no deben ser tan agresivos.
+const BOUNCER_MAX_ACCURACY_M = 80;       // Acepta hasta 80m (GPS urbano / primer fix en Android puede ser 50-70m)
+const BOUNCER_MIN_INTERVAL_MS = 1000;    // Mínimo 1s entre puntos (el plugin ya filtra por distancia)
+const BOUNCER_MAX_SPEED_MS = 5.5;        // ~20 km/h — evita falsos positivos por timestamps con desfase
 
 /**
  * Validates an incoming GPS point against three quality filters:
- *  1. Accuracy:  Rejects points with accuracy > 25m
- *  2. Time gate: Rejects points arriving < 5s after the last saved point
+ *  1. Accuracy:  Rejects points with accuracy > BOUNCER_MAX_ACCURACY_M
+ *  2. Time gate: Rejects points arriving < BOUNCER_MIN_INTERVAL_MS since last saved point
  *  3. Anti-jump: Uses Haversine + elapsed time to compute implied speed;
- *                rejects points implying movement faster than 15 km/h
+ *                rejects points implying movement faster than BOUNCER_MAX_SPEED_MS
  *
  * @param newPoint  The candidate GPS point
  * @param lastPoint The last accepted GPS point (or null if first point)

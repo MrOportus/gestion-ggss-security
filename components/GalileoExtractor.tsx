@@ -8,6 +8,7 @@ import {
 import { GoogleGenAI } from "@google/genai";
 import { useAppStore } from '../store/useAppStore';
 import { normalizeText, matchesEmployeeSearch } from '../lib/textUtils';
+import { getGeminiApiKey } from '../lib/firebase';
 
 
 interface GalileoExtractorProps {
@@ -26,19 +27,28 @@ interface ExtractedData {
 
 interface ResultRow {
     id: string;
-    fHoy: string;
-    fSolicitud: string;
-    motivo: string;
-    workerRut: string;
-    workerName: string;
-    workerBirthDate: string;
+    supervisorSolicitante: string;
+    fechaSolicitud: string;
+    motivoSolicitud: string;
     sucursal: string;
-    dirSucursal: string;
+    direccionSucursal: string;
     cantDias: number;
-    fInicio: string;
-    fTermino: string;
-    hInicio: string;
-    hTermino: string;
+    fechaInicioServicio: string;
+    fechaTerminoServicio: string;
+    horaInicioServicio: string;
+    horaTerminoServicio: string;
+    dia: string;
+    noche: string;
+    horasDia: string;
+    horasNoche: string;
+    calculoHoras: string;
+    horasEfectivas: string;
+    valorHora: string;
+    costoTotal: string;
+    rutGuardia: string;
+    nombreGuardia: string;
+    fechaNacimiento: string;
+    sexo: string;
 }
 
 const GalileoExtractor: React.FC<GalileoExtractorProps> = ({ onBack }) => {
@@ -118,7 +128,7 @@ const GalileoExtractor: React.FC<GalileoExtractorProps> = ({ onBack }) => {
 
         setIsProcessing(true);
         try {
-            const apiKey = (import.meta as any).env?.VITE_API_KEY;
+            const apiKey = await getGeminiApiKey();
             if (!apiKey) {
                 showNotification("No se encontró la API KEY de Gemini.", "error");
                 setIsProcessing(false);
@@ -173,19 +183,28 @@ Responde ÚNICAMENTE el JSON sin markdown.`;
 
             const createRow = (start: Date, end: Date, count: number): ResultRow => ({
                 id: Math.random().toString(36).substr(2, 9),
-                fHoy: today,
-                fSolicitud: fSolStr,
-                motivo: extracted.motivo,
-                workerRut,
-                workerName,
-                workerBirthDate,
+                supervisorSolicitante: '',
+                fechaSolicitud: fSolStr,
+                motivoSolicitud: extracted.motivo,
                 sucursal: extracted.sucursal,
-                dirSucursal: 'vacío',
+                direccionSucursal: '',
                 cantDias: count,
-                fInicio: formatDate(start),
-                fTermino: formatDate(end),
-                hInicio: extracted.hora_inicio,
-                hTermino: extracted.hora_termino
+                fechaInicioServicio: formatDate(start),
+                fechaTerminoServicio: formatDate(end),
+                horaInicioServicio: extracted.hora_inicio,
+                horaTerminoServicio: extracted.hora_termino,
+                dia: '',
+                noche: '',
+                horasDia: '',
+                horasNoche: '',
+                calculoHoras: '',
+                horasEfectivas: '',
+                valorHora: '',
+                costoTotal: '',
+                rutGuardia: workerRut,
+                nombreGuardia: workerName,
+                fechaNacimiento: workerBirthDate,
+                sexo: '',
             });
 
             if (hasFullWeekPattern(extracted.dias)) {
@@ -259,15 +278,32 @@ Responde ÚNICAMENTE el JSON sin markdown.`;
     const handleCopyTable = async () => {
         if (results.length === 0) return;
 
-        const headers = ["FECHA HOY", "F. SOLICITUD", "MOTIVO SOLICITUD", "SUCURSAL", "DIR. SUCURSAL", "F. INICIO", "F. TERMINO", "H. INICIO", "H. TERMINO", "RUT", "NOMBRE DE GUARDIA", "FECHA DE NACIMIENTO"];
         const rows = results.map(r => [
-            r.fHoy, r.fSolicitud, r.motivo, r.sucursal, r.dirSucursal, r.fInicio, r.fTermino, r.hInicio, r.hTermino, r.workerRut, r.workerName, r.workerBirthDate
+            r.supervisorSolicitante,
+            r.fechaSolicitud,
+            r.motivoSolicitud,
+            r.sucursal,
+            r.direccionSucursal,
+            r.cantDias,
+            r.fechaInicioServicio,
+            r.fechaTerminoServicio,
+            r.horaInicioServicio,
+            r.horaTerminoServicio,
+            r.dia,
+            r.noche,
+            r.horasDia,
+            r.horasNoche,
+            r.calculoHoras,
+            r.horasEfectivas,
+            r.valorHora,
+            r.costoTotal,
+            r.rutGuardia,
+            r.nombreGuardia,
+            r.fechaNacimiento,
+            r.sexo,
         ]);
 
-        const tsvContent = [
-            headers.join('\t'),
-            ...rows.map(row => row.join('\t'))
-        ].join('\n');
+        const tsvContent = rows.map(row => row.join('\t')).join('\n');
 
         try {
             await navigator.clipboard.writeText(tsvContent);
@@ -490,36 +526,56 @@ Responde ÚNICAMENTE el JSON sin markdown.`;
                                     <table className="min-w-full divide-y divide-slate-100">
                                         <thead>
                                             <tr className="bg-slate-50/50">
-                                                <th className="px-5 py-4 text-left text-[10px] font-bold text-slate-400 uppercase tracking-widest whitespace-nowrap">Fecha Hoy</th>
+                                                <th className="px-5 py-4 text-left text-[10px] font-bold text-slate-400 uppercase tracking-widest whitespace-nowrap">Supervisor Solicitante</th>
                                                 <th className="px-5 py-4 text-left text-[10px] font-bold text-slate-400 uppercase tracking-widest whitespace-nowrap">F. Solicitud</th>
                                                 <th className="px-5 py-4 text-left text-[10px] font-bold text-slate-400 uppercase tracking-widest whitespace-nowrap">Motivo</th>
                                                 <th className="px-5 py-4 text-left text-[10px] font-bold text-slate-400 uppercase tracking-widest whitespace-nowrap">Sucursal</th>
-                                                <th className="px-5 py-4 text-left text-[10px] font-bold text-slate-400 uppercase tracking-widest whitespace-nowrap">Dirección</th>
+                                                <th className="px-5 py-4 text-left text-[10px] font-bold text-slate-400 uppercase tracking-widest whitespace-nowrap">Dir. Sucursal</th>
+                                                <th className="px-5 py-4 text-left text-[10px] font-bold text-slate-400 uppercase tracking-widest whitespace-nowrap">Cant. Días</th>
                                                 <th className="px-5 py-4 text-left text-[10px] font-bold text-slate-400 uppercase tracking-widest whitespace-nowrap">F. Inicio</th>
                                                 <th className="px-5 py-4 text-left text-[10px] font-bold text-slate-400 uppercase tracking-widest whitespace-nowrap">F. Término</th>
                                                 <th className="px-5 py-4 text-left text-[10px] font-bold text-slate-400 uppercase tracking-widest whitespace-nowrap">H. Inicio</th>
                                                 <th className="px-5 py-4 text-left text-[10px] font-bold text-slate-400 uppercase tracking-widest whitespace-nowrap">H. Término</th>
-                                                <th className="px-5 py-4 text-left text-[10px] font-bold text-slate-400 uppercase tracking-widest whitespace-nowrap">Rut guardia</th>
-                                                <th className="px-5 py-4 text-left text-[10px] font-bold text-slate-400 uppercase tracking-widest whitespace-nowrap">Nombre guardia</th>
-                                                <th className="px-5 py-4 text-left text-[10px] font-bold text-slate-400 uppercase tracking-widest whitespace-nowrap">Fecha nacimiento</th>
+                                                <th className="px-5 py-4 text-left text-[10px] font-bold text-slate-400 uppercase tracking-widest whitespace-nowrap">Día</th>
+                                                <th className="px-5 py-4 text-left text-[10px] font-bold text-slate-400 uppercase tracking-widest whitespace-nowrap">Noche</th>
+                                                <th className="px-5 py-4 text-left text-[10px] font-bold text-slate-400 uppercase tracking-widest whitespace-nowrap">Hs. Día</th>
+                                                <th className="px-5 py-4 text-left text-[10px] font-bold text-slate-400 uppercase tracking-widest whitespace-nowrap">Hs. Noche</th>
+                                                <th className="px-5 py-4 text-left text-[10px] font-bold text-slate-400 uppercase tracking-widest whitespace-nowrap">Cálculo Hs.</th>
+                                                <th className="px-5 py-4 text-left text-[10px] font-bold text-slate-400 uppercase tracking-widest whitespace-nowrap">Hs. Efectivas</th>
+                                                <th className="px-5 py-4 text-left text-[10px] font-bold text-slate-400 uppercase tracking-widest whitespace-nowrap">Valor Hora</th>
+                                                <th className="px-5 py-4 text-left text-[10px] font-bold text-slate-400 uppercase tracking-widest whitespace-nowrap">Costo Total</th>
+                                                <th className="px-5 py-4 text-left text-[10px] font-bold text-slate-400 uppercase tracking-widest whitespace-nowrap">Rut Guardia</th>
+                                                <th className="px-5 py-4 text-left text-[10px] font-bold text-slate-400 uppercase tracking-widest whitespace-nowrap">Nombre Guardia</th>
+                                                <th className="px-5 py-4 text-left text-[10px] font-bold text-slate-400 uppercase tracking-widest whitespace-nowrap">F. Nacimiento</th>
+                                                <th className="px-5 py-4 text-left text-[10px] font-bold text-slate-400 uppercase tracking-widest whitespace-nowrap">Sexo</th>
                                                 <th className="px-5 py-4 text-center text-[10px] font-bold text-slate-400 uppercase tracking-widest whitespace-nowrap">Acciones</th>
                                             </tr>
                                         </thead>
                                         <tbody className="divide-y divide-slate-100 bg-white">
                                             {results.map((row) => (
                                                 <tr key={row.id} className="hover:bg-blue-50/30 transition-colors group">
-                                                    <td className="px-5 py-4 whitespace-nowrap text-sm font-medium text-slate-600">{row.fHoy}</td>
-                                                    <td className="px-5 py-4 whitespace-nowrap text-sm font-medium text-slate-600">{row.fSolicitud}</td>
-                                                    <td className="px-5 py-4 whitespace-nowrap text-sm font-medium text-slate-700">{row.motivo}</td>
+                                                    <td className="px-5 py-4 whitespace-nowrap text-sm text-slate-300 italic">—</td>
+                                                    <td className="px-5 py-4 whitespace-nowrap text-sm font-medium text-slate-600">{row.fechaSolicitud}</td>
+                                                    <td className="px-5 py-4 whitespace-nowrap text-sm font-medium text-slate-700">{row.motivoSolicitud}</td>
                                                     <td className="px-5 py-4 whitespace-nowrap text-sm font-bold text-blue-600">{row.sucursal}</td>
-                                                    <td className="px-5 py-4 whitespace-nowrap text-sm text-slate-400 italic">vacío</td>
-                                                    <td className="px-5 py-4 whitespace-nowrap text-sm font-medium text-slate-600">{row.fInicio}</td>
-                                                    <td className="px-5 py-4 whitespace-nowrap text-sm font-medium text-slate-600">{row.fTermino}</td>
-                                                    <td className="px-5 py-4 whitespace-nowrap text-sm font-medium text-slate-600">{row.hInicio}</td>
-                                                    <td className="px-5 py-4 whitespace-nowrap text-sm font-medium text-slate-600">{row.hTermino}</td>
-                                                    <td className="px-5 py-4 whitespace-nowrap text-sm font-bold text-slate-600">{row.workerRut}</td>
-                                                    <td className="px-5 py-4 whitespace-nowrap text-sm font-bold text-slate-800">{row.workerName}</td>
-                                                    <td className="px-5 py-4 whitespace-nowrap text-sm text-slate-600">{row.workerBirthDate}</td>
+                                                    <td className="px-5 py-4 whitespace-nowrap text-sm text-slate-300 italic">—</td>
+                                                    <td className="px-5 py-4 whitespace-nowrap text-sm font-medium text-slate-600">{row.cantDias}</td>
+                                                    <td className="px-5 py-4 whitespace-nowrap text-sm font-medium text-slate-600">{row.fechaInicioServicio}</td>
+                                                    <td className="px-5 py-4 whitespace-nowrap text-sm font-medium text-slate-600">{row.fechaTerminoServicio}</td>
+                                                    <td className="px-5 py-4 whitespace-nowrap text-sm font-medium text-slate-600">{row.horaInicioServicio}</td>
+                                                    <td className="px-5 py-4 whitespace-nowrap text-sm font-medium text-slate-600">{row.horaTerminoServicio}</td>
+                                                    <td className="px-5 py-4 whitespace-nowrap text-sm text-slate-300 italic">—</td>
+                                                    <td className="px-5 py-4 whitespace-nowrap text-sm text-slate-300 italic">—</td>
+                                                    <td className="px-5 py-4 whitespace-nowrap text-sm text-slate-300 italic">—</td>
+                                                    <td className="px-5 py-4 whitespace-nowrap text-sm text-slate-300 italic">—</td>
+                                                    <td className="px-5 py-4 whitespace-nowrap text-sm text-slate-300 italic">—</td>
+                                                    <td className="px-5 py-4 whitespace-nowrap text-sm text-slate-300 italic">—</td>
+                                                    <td className="px-5 py-4 whitespace-nowrap text-sm text-slate-300 italic">—</td>
+                                                    <td className="px-5 py-4 whitespace-nowrap text-sm text-slate-300 italic">—</td>
+                                                    <td className="px-5 py-4 whitespace-nowrap text-sm font-bold text-slate-600">{row.rutGuardia}</td>
+                                                    <td className="px-5 py-4 whitespace-nowrap text-sm font-bold text-slate-800">{row.nombreGuardia}</td>
+                                                    <td className="px-5 py-4 whitespace-nowrap text-sm text-slate-600">{row.fechaNacimiento}</td>
+                                                    <td className="px-5 py-4 whitespace-nowrap text-sm text-slate-300 italic">—</td>
                                                     <td className="px-5 py-4 whitespace-nowrap text-center">
                                                         <button
                                                             onClick={() => handleDeleteRow(row.id)}
