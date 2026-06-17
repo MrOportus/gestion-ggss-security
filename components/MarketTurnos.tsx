@@ -9,7 +9,7 @@ import { DollarSign, MapPin, Clock, AlertCircle, CheckCircle, Zap, Calendar, Lay
 // Helper: genera lista de fechas entre dos strings YYYY-MM-DD (inclusive)
 function getDiasRango(horarioInicio: string, horarioFin: string): Date[] {
   const inicio = new Date(horarioInicio.split('T')[0] + 'T00:00:00');
-  const fin    = new Date(horarioFin.split('T')[0]   + 'T00:00:00');
+  const fin = new Date(horarioFin.split('T')[0] + 'T00:00:00');
   const dias: Date[] = [];
   const cursor = new Date(inicio);
   while (cursor <= fin) {
@@ -67,7 +67,7 @@ const MarketTurnos: React.FC = () => {
         // 2. Disponible: mostrar si el guardia está en los permitidos
         if (turno.estado === 'disponible') {
           if (!turno.guardias_permitidos || turno.guardias_permitidos.length === 0 ||
-              turno.guardias_permitidos.includes(currentUser?.uid || '')) {
+            turno.guardias_permitidos.includes(currentUser?.uid || '')) {
             data.push(turno);
           }
         }
@@ -151,9 +151,6 @@ const MarketTurnos: React.FC = () => {
             <h1 className="text-3xl font-black tracking-tight">Postulación a Turnos</h1>
             <p className="text-indigo-100 font-medium mt-2 max-w-md">Revisa las solicitudes disponibles y postúlate. El primero en confirmar se queda con el turno.</p>
           </div>
-          <div className="w-24 h-24 bg-white/10 rounded-full flex items-center justify-center backdrop-blur-sm border-4 border-white/20">
-            <DollarSign size={40} className="text-yellow-400" />
-          </div>
         </div>
       </div>
 
@@ -173,25 +170,24 @@ const MarketTurnos: React.FC = () => {
           <div className="grid gap-4">
             {visibleOfertas.slice(0, 10).map(oferta => {
               const isProcessing = processingId === oferta.id;
-              const isCanceled   = oferta.estado === 'cancelado';
-              const dias         = getDiasRango(oferta.horario_inicio, oferta.horario_fin);
-              const isMultiDay   = dias.length > 1;
-              const horaE        = oferta.hora_entrada || oferta.horario_inicio.split('T')[1]?.slice(0,5) || '';
-              const horaS        = oferta.hora_salida  || oferta.horario_fin.split('T')[1]?.slice(0,5)   || '';
-              const montoTotal   = oferta.monto * dias.length;
+              const isCanceled = oferta.estado === 'cancelado';
+              const dias = getDiasRango(oferta.horario_inicio, oferta.horario_fin);
+              const isMultiDay = dias.length > 1;
+              const horaE = oferta.hora_entrada || oferta.horario_inicio.split('T')[1]?.slice(0, 5) || '';
+              const horaS = oferta.hora_salida || oferta.horario_fin.split('T')[1]?.slice(0, 5) || '';
+              const montoTotal = oferta.monto * dias.length;
 
               return (
                 <div
                   key={oferta.id}
-                  className={`p-6 rounded-3xl shadow-lg border transition-all duration-300 ${
-                    isCanceled
-                      ? 'bg-rose-500/5 border-rose-200 shadow-none opacity-80'
-                      : oferta.estado !== 'disponible'
+                  className={`p-6 rounded-3xl shadow-lg border transition-all duration-300 ${isCanceled
+                    ? 'bg-rose-500/5 border-rose-200 shadow-none opacity-80'
+                    : oferta.estado !== 'disponible'
                       ? 'bg-slate-50/50 border-slate-100 opacity-60 grayscale-[0.3]'
                       : isMultiDay
-                      ? 'bg-white border-indigo-200 hover:border-indigo-400 hover:shadow-indigo-100'
-                      : 'bg-white border-slate-100 hover:border-blue-300 hover:shadow-blue-100'
-                  }`}
+                        ? 'bg-white border-indigo-200 hover:border-indigo-400 hover:shadow-indigo-100'
+                        : 'bg-white border-slate-100 hover:border-blue-300 hover:shadow-blue-100'
+                    }`}
                 >
                   <div className="flex flex-col md:flex-row justify-between md:items-start gap-6">
                     {/* Info izquierda */}
@@ -211,11 +207,10 @@ const MarketTurnos: React.FC = () => {
                       </div>
 
                       {/* Horario */}
-                      <div className={`flex items-center gap-2 px-3 py-2 rounded-xl border text-sm font-bold w-fit ${
-                        isCanceled ? 'bg-rose-500/5 border-rose-500/10 text-rose-800/80'
+                      <div className={`flex items-center gap-2 px-3 py-2 rounded-xl border text-sm font-bold w-fit ${isCanceled ? 'bg-rose-500/5 border-rose-500/10 text-rose-800/80'
                         : isMultiDay ? 'bg-indigo-50 border-indigo-100 text-indigo-700'
-                        : 'bg-slate-50 border-slate-200 text-slate-600'
-                      }`}>
+                          : 'bg-slate-50 border-slate-200 text-slate-600'
+                        }`}>
                         <Clock size={16} className={isCanceled ? "text-rose-400/80" : isMultiDay ? "text-indigo-400" : "text-slate-400"} />
                         {isMultiDay ? (
                           <span>
@@ -246,10 +241,9 @@ const MarketTurnos: React.FC = () => {
 
                       {/* Nota */}
                       {oferta.notas && (
-                        <div className={`mt-2 p-3 rounded-2xl border text-sm font-medium italic ${
-                          isCanceled ? 'bg-rose-500/5 border-rose-500/10 text-rose-800/80'
+                        <div className={`mt-2 p-3 rounded-2xl border text-sm font-medium italic ${isCanceled ? 'bg-rose-500/5 border-rose-500/10 text-rose-800/80'
                           : 'bg-blue-50/50 border-blue-100/50 text-blue-800'
-                        }`}>
+                          }`}>
                           <span className={`text-[10px] font-black uppercase block not-italic mb-1 ${isCanceled ? 'text-rose-400/80' : 'text-blue-400'}`}>
                             Nota del Administrador:
                           </span>
@@ -259,9 +253,8 @@ const MarketTurnos: React.FC = () => {
                     </div>
 
                     {/* Info derecha — monto y acción */}
-                    <div className={`flex flex-row md:flex-col items-center md:items-end justify-between md:justify-center gap-4 border-t md:border-t-0 md:border-l pt-4 md:pt-0 md:pl-6 ${
-                      isCanceled ? 'border-rose-500/10' : isMultiDay ? 'border-indigo-100' : 'border-slate-100'
-                    }`}>
+                    <div className={`flex flex-row md:flex-col items-center md:items-end justify-between md:justify-center gap-4 border-t md:border-t-0 md:border-l pt-4 md:pt-0 md:pl-6 ${isCanceled ? 'border-rose-500/10' : isMultiDay ? 'border-indigo-100' : 'border-slate-100'
+                      }`}>
                       <div className="text-left md:text-right">
                         <p className={`text-[10px] font-black uppercase tracking-widest mb-1 ${isCanceled ? 'text-rose-400/80' : 'text-slate-400'}`}>
                           Monto por día
@@ -280,25 +273,23 @@ const MarketTurnos: React.FC = () => {
                         <button
                           onClick={() => setShowConfirmModal(oferta)}
                           disabled={isProcessing}
-                          className={`px-6 py-3 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg active:scale-95 transition-all disabled:opacity-50 flex items-center justify-center min-w-[150px] ${
-                            isMultiDay
-                              ? 'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-200'
-                              : 'bg-blue-600 hover:bg-blue-700 shadow-blue-200'
-                          }`}
+                          className={`px-6 py-3 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg active:scale-95 transition-all disabled:opacity-50 flex items-center justify-center min-w-[150px] ${isMultiDay
+                            ? 'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-200'
+                            : 'bg-blue-600 hover:bg-blue-700 shadow-blue-200'
+                            }`}
                         >
                           {isProcessing
                             ? 'PROCESANDO...'
                             : isMultiDay
-                            ? `ACEPTAR PERÍODO (${dias.length}d)`
-                            : 'ACEPTAR TURNO'}
+                              ? `ACEPTAR PERÍODO (${dias.length}d)`
+                              : 'ACEPTAR TURNO'}
                         </button>
                       ) : (
                         <div className="flex flex-col items-stretch sm:items-end gap-2 w-full min-w-[150px]">
-                          <div className={`px-4 py-2 rounded-xl font-black text-[10px] border uppercase tracking-widest text-center ${
-                            isCanceled
-                              ? 'bg-rose-50 text-rose-500 border-rose-100'
-                              : 'bg-slate-100 text-slate-400 border-slate-200'
-                          }`}>
+                          <div className={`px-4 py-2 rounded-xl font-black text-[10px] border uppercase tracking-widest text-center ${isCanceled
+                            ? 'bg-rose-50 text-rose-500 border-rose-100'
+                            : 'bg-slate-100 text-slate-400 border-slate-200'
+                            }`}>
                             {isCanceled ? 'Solicitud cancelada' : 'No seleccionado'}
                           </div>
                           <button
@@ -321,10 +312,10 @@ const MarketTurnos: React.FC = () => {
 
       {/* Modal de Confirmación */}
       {showConfirmModal && (() => {
-        const dias  = getDiasRango(showConfirmModal.horario_inicio, showConfirmModal.horario_fin);
+        const dias = getDiasRango(showConfirmModal.horario_inicio, showConfirmModal.horario_fin);
         const multi = dias.length > 1;
-        const horaE = showConfirmModal.hora_entrada || showConfirmModal.horario_inicio.split('T')[1]?.slice(0,5) || '';
-        const horaS = showConfirmModal.hora_salida  || showConfirmModal.horario_fin.split('T')[1]?.slice(0,5)   || '';
+        const horaE = showConfirmModal.hora_entrada || showConfirmModal.horario_inicio.split('T')[1]?.slice(0, 5) || '';
+        const horaS = showConfirmModal.hora_salida || showConfirmModal.horario_fin.split('T')[1]?.slice(0, 5) || '';
         return createPortal(
           <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 sm:p-6 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
             <div className="bg-white w-full max-w-sm rounded-[2.5rem] shadow-2xl p-8 text-center animate-in zoom-in-95 duration-200 max-h-[90vh] overflow-y-auto">
@@ -363,9 +354,8 @@ const MarketTurnos: React.FC = () => {
               <div className="flex flex-col gap-3">
                 <button
                   onClick={() => handleAceptarTurno(showConfirmModal)}
-                  className={`w-full py-4 text-white rounded-2xl font-black uppercase tracking-widest shadow-lg active:scale-95 transition-all ${
-                    multi ? 'bg-indigo-500 hover:bg-indigo-600 shadow-indigo-100' : 'bg-emerald-500 hover:bg-emerald-600 shadow-emerald-100'
-                  }`}
+                  className={`w-full py-4 text-white rounded-2xl font-black uppercase tracking-widest shadow-lg active:scale-95 transition-all ${multi ? 'bg-indigo-500 hover:bg-indigo-600 shadow-indigo-100' : 'bg-emerald-500 hover:bg-emerald-600 shadow-emerald-100'
+                    }`}
                 >
                   SÍ, CONFIRMAR
                 </button>

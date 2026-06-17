@@ -536,7 +536,7 @@ const WorkerAttendance: React.FC = () => {
                       className="w-full py-6 bg-blue-600 hover:bg-blue-700 text-white rounded-[2rem] shadow-xl shadow-blue-200 flex items-center justify-center gap-3 transition-all active:scale-95 border-b-8 border-blue-800 relative"
                     >
                       <ClipboardList size={28} />
-                      <span className="text-xl font-black tracking-wider text-center uppercase">RONDAS ASIGNADAS</span>
+                      <span className="text-xl font-black tracking-wider text-center uppercase">MIS RONDAS </span>
                       {guardRounds.some(r => r.workerId === currentUser?.uid && r.status === 'IN_PROGRESS') && (
                         <div className="absolute top-4 right-4 w-3 h-3 bg-rose-500 rounded-full animate-ping"></div>
                       )}
@@ -1004,8 +1004,8 @@ const WorkerAttendance: React.FC = () => {
 
       </div>
 
-      <div className={`p-6 text-center text-[10px] font-black text-slate-300 uppercase tracking-widest opacity-50 transition-all duration-500 ${step === 'keypad' || step === 'documents' || step === 'company_docs' || step === 'market' || step === 'my_extra_shifts' || step === 'my_fixed_shifts' ? 'opacity-0 h-0 p-0 overflow-hidden' : 'opacity-50'}`}>
-        GGSS Security • Attendance Control v3.0
+      <div className={`p-6 text-center text-[10px] font-black text-slate-300 uppercase tracking-widest transition-all duration-500 ${step === 'keypad' || step === 'documents' || step === 'company_docs' || step === 'market' || step === 'my_extra_shifts' || step === 'my_fixed_shifts' ? 'opacity-0 h-0 p-0 overflow-hidden' : 'opacity-50'}`}>
+        GGSS Security · Aspro SPA · v{APP_VERSION}
       </div>
 
       {/* SIDEBAR HAMBURGER MENU */}
