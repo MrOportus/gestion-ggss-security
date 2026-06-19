@@ -387,6 +387,11 @@ const WorkerAttendance: React.FC = () => {
       await reauthenticateWithCredential(user, credential);
       await updatePassword(user, passwordData.newPassword);
 
+      // Actualizar la contraseña en la base de datos para que el administrador la vea
+      if (employee) {
+        await updateEmployee(employee.id, { tempPasswordLog: passwordData.newPassword });
+      }
+
       showNotification("Contraseña actualizada exitosamente", "success");
       setPasswordData({ currentPassword: '', newPassword: '', confirmPassword: '' });
       setIsChangingPassword(false);

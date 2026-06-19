@@ -3,6 +3,7 @@ import React, { useState } from 'react';
 import { Employee, Document } from '../types';
 import { useAppStore } from '../store/useAppStore';
 import { X, FileText, Edit2, Save, MapPin, User, Shield, Briefcase, Heart, AlertCircle, Trash2, AlertTriangle } from 'lucide-react';
+import GeneratePasswordButton from './GeneratePasswordButton';
 
 interface EmployeeModalProps {
   employee: Employee;
@@ -178,6 +179,9 @@ const EmployeeModal: React.FC<EmployeeModalProps> = ({ employee, onClose }) => {
               <p className="text-slate-500 font-medium flex items-center justify-center md:justify-start gap-2 mt-1">
                 <Shield size={14} className="text-blue-500" /> {employee.cargo} • ID: {employee.rut}
               </p>
+              <div className="mt-2">
+                <GeneratePasswordButton employee={employee} />
+              </div>
             </div>
 
             <div className="flex gap-2">
@@ -215,12 +219,7 @@ const EmployeeModal: React.FC<EmployeeModalProps> = ({ employee, onClose }) => {
                 <DataField label="Código Interno" value={editData.codigo} name="codigo" isEditing={isEditing} onChange={handleInputChange} />
                 <DataField label="Nacimiento" value={editData.fechaNacimiento?.split('T')[0]} displayValue={editData.fechaNacimiento ? new Date(editData.fechaNacimiento).toLocaleDateString() : 'N/A'} name="fechaNacimiento" type="date" isEditing={isEditing} onChange={handleInputChange} />
                 <DataField label="Nacionalidad" value={editData.nacionalidad} name="nacionalidad" isEditing={isEditing} onChange={handleInputChange} />
-                {editData.tempPasswordLog && (
-                  <div className="flex flex-col space-y-1 bg-yellow-50 p-1.5 rounded-lg border border-yellow-100">
-                    <span className="text-[10px] font-bold text-yellow-600 uppercase tracking-widest">Contraseña Temporal</span>
-                    <span className="text-slate-900 font-mono font-bold text-sm tracking-widest">{editData.tempPasswordLog}</span>
-                  </div>
-                )}
+
               </div>
             </div>
 

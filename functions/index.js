@@ -1,4 +1,4 @@
-const { onRequest } = require('firebase-functions/v2/https');
+const { onRequest, onCall, HttpsError } = require('firebase-functions/v2/https');
 const { onDocumentCreated } = require('firebase-functions/v2/firestore');
 const admin = require('firebase-admin');
 const axios = require('axios');
@@ -332,3 +332,172 @@ exports.notificarNuevaOfertaTurno = onDocumentCreated(
     }
 );
 
+// ────────────────────────────────────────────────────────────────────────────────
+// Cloud Function: Resetear contraseña de un usuario en Firebase Authentication
+// Solo puede ser invocada por un administrador autenticado.
+// Usa admin.auth().updateUser() para cambiar la contraseña real de login.
+// ────────────────────────────────────────────────────────────────────────────────
+exports.resetUserPassword = onCall(
+    {
+        region: 'us-central1',
+    },
+    async (request) => {
+        // 1. Verificar que el llamador está autenticado
+        if (!request.auth) {
+            throw new HttpsError('unauthenticated', 'Debe iniciar sesión para realizar esta acción.');
+        }
+
+        const callerUid = request.auth.uid;
+
+        // 2. Verificar que el llamador es un admin
+        try {
+            const callerDoc = await admin.firestore().collection('Colaboradores').doc(callerUid).get();
+            if (!callerDoc.exists || callerDoc.data().role !== 'admin') {
+                throw new HttpsError('permission-denied', 'Solo los administradores pueden resetear contraseñas.');
+            }
+        } catch (error) {
+            if (error instanceof HttpsError) throw error;
+            console.error('Error verificando permisos del admin:', error);
+            throw new HttpsError('internal', 'Error verificando permisos.');
+        }
+
+        const { employeeId, newPassword } = request.data;
+
+        // 3. Validar datos de entrada
+        if (!employeeId || !newPassword) {
+            throw new HttpsError('invalid-argument', 'Se requiere employeeId y newPassword.');
+        }
+
+        if (newPassword.length < 6) {
+            throw new HttpsError('invalid-argument', 'La contraseña debe tener al menos 6 caracteres.');
+        }
+
+        // 4. Verificar que el empleado existe en Firestore
+        const employeeDoc = await admin.firestore().collection('Colaboradores').doc(employeeId).get();
+        if (!employeeDoc.exists) {
+            throw new HttpsError('not-found', 'Empleado no encontrado en la base de datos.');
+        }
+
+        const employeeData = employeeDoc.data();
+        const employeeEmail = employeeData.email;
+
+        // 5. Verificar si el empleado es un usuario "bulk" (sin cuenta Auth)
+        const isBulkUser = employeeId.startsWith('bulk-');
+
+        if (isBulkUser) {
+            // Usuarios bulk no tienen cuenta Auth — necesitamos crear una
+            if (!employeeEmail) {
+                throw new HttpsError('failed-precondition', 'El empleado no tiene email registrado. No se puede crear cuenta.');
+            }
+
+            try {
+                // Intentar crear el usuario en Auth
+                const newUser = await admin.auth().createUser({
+                    email: employeeEmail,
+                    password: newPassword,
+                    displayName: `${employeeData.firstName || ''} ${employeeData.lastNamePaterno || ''}`.trim(),
+                });
+
+                // Actualizar el documento en Firestore con el nuevo UID real
+                // Crear documento con el UID real y eliminar el bulk
+                const newUid = newUser.uid;
+                const updatedData = {
+                    ...employeeData,
+                    id: newUid,
+                    tempPasswordLog: newPassword,
+                };
+
+                await admin.firestore().collection('Colaboradores').doc(newUid).set(updatedData);
+                await admin.firestore().collection('Colaboradores').doc(employeeId).delete();
+
+                console.log(`[RESET-PWD] Usuario bulk ${employeeId} migrado a Auth con UID: ${newUid}`);
+
+                return {
+                    success: true,
+                    message: `Cuenta creada exitosamente para ${employeeData.firstName}. Nueva contraseña asignada.`,
+                    newUid: newUid,
+                    migrated: true,
+                };
+            } catch (createError) {
+                if (createError.code === 'auth/email-already-exists') {
+                    // El email ya existe en Auth — buscar el usuario y actualizar su contraseña
+                    try {
+                        const existingUser = await admin.auth().getUserByEmail(employeeEmail);
+                        await admin.auth().updateUser(existingUser.uid, { password: newPassword });
+                        
+                        // Actualizar tempPasswordLog en Firestore
+                        await admin.firestore().collection('Colaboradores').doc(employeeId).update({
+                            tempPasswordLog: newPassword,
+                        });
+
+                        console.log(`[RESET-PWD] Contraseña actualizada para usuario bulk con email existente: ${employeeEmail}`);
+
+                        return {
+                            success: true,
+                            message: `Contraseña actualizada exitosamente para ${employeeData.firstName}.`,
+                            migrated: false,
+                        };
+                    } catch (updateError) {
+                        console.error('[RESET-PWD] Error actualizando usuario existente:', updateError);
+                        throw new HttpsError('internal', 'Error al actualizar la contraseña del usuario existente.');
+                    }
+                }
+                console.error('[RESET-PWD] Error creando usuario:', createError);
+                throw new HttpsError('internal', 'Error al crear la cuenta: ' + createError.message);
+            }
+        }
+
+        // 6. Usuario normal (tiene UID de Auth) — actualizar contraseña directamente
+        try {
+            await admin.auth().updateUser(employeeId, { password: newPassword });
+
+            // Actualizar tempPasswordLog en Firestore
+            await admin.firestore().collection('Colaboradores').doc(employeeId).update({
+                tempPasswordLog: newPassword,
+            });
+
+            console.log(`[RESET-PWD] Contraseña actualizada para usuario: ${employeeId} (${employeeData.firstName} ${employeeData.lastNamePaterno})`);
+
+            return {
+                success: true,
+                message: `Contraseña actualizada exitosamente para ${employeeData.firstName} ${employeeData.lastNamePaterno}.`,
+                migrated: false,
+            };
+        } catch (authError) {
+            console.error('[RESET-PWD] Error actualizando contraseña en Auth:', authError);
+            
+            if (authError.code === 'auth/user-not-found') {
+                // El UID no corresponde a un usuario Auth — crear la cuenta
+                try {
+                    if (!employeeEmail) {
+                        throw new HttpsError('failed-precondition', 'El empleado no tiene email. No se puede crear cuenta Auth.');
+                    }
+                    
+                    await admin.auth().createUser({
+                        uid: employeeId,
+                        email: employeeEmail,
+                        password: newPassword,
+                        displayName: `${employeeData.firstName || ''} ${employeeData.lastNamePaterno || ''}`.trim(),
+                    });
+
+                    await admin.firestore().collection('Colaboradores').doc(employeeId).update({
+                        tempPasswordLog: newPassword,
+                    });
+
+                    console.log(`[RESET-PWD] Cuenta Auth creada para usuario existente sin Auth: ${employeeId}`);
+
+                    return {
+                        success: true,
+                        message: `Cuenta creada y contraseña asignada para ${employeeData.firstName} ${employeeData.lastNamePaterno}.`,
+                        migrated: false,
+                    };
+                } catch (createErr) {
+                    console.error('[RESET-PWD] Error creando cuenta Auth para usuario existente:', createErr);
+                    throw new HttpsError('internal', 'Error al crear la cuenta Auth: ' + createErr.message);
+                }
+            }
+
+            throw new HttpsError('internal', 'Error al actualizar la contraseña: ' + authError.message);
+        }
+    }
+);
