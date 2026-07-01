@@ -32,10 +32,9 @@ import { PushNotifications } from '@capacitor/push-notifications';
 
 
 const App: React.FC = () => {
-  const { currentUser, logout, fetchInitialData, isLoading, initializeAuthListener, registerFCMToken, showNotification, processSyncQueue } = useAppStore();
+  const { currentUser, logout, fetchInitialData, isLoading, initializeAuthListener, registerFCMToken, showNotification, processSyncQueue, authInitialized } = useAppStore();
   const [currentView, setCurrentView] = useState<'dashboard' | 'employees' | 'tasks' | 'sites' | 'payments' | 'supervisor_mgmt' | 'mandante_mgmt' | 'notes' | 'attendance' | 'rounds' | 'shift_management' | 'loans' | 'documents' | 'solicitudes_turnos_extra'>('dashboard');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  const [authInitialized, setAuthInitialized] = useState(false);
   
   const { connected } = useNetworkStatus();
 
@@ -81,10 +80,7 @@ const App: React.FC = () => {
   // Inicializar Auth Listener una sola vez
   useEffect(() => {
     initializeAuthListener();
-    // Simulamos un pequeño delay para dar tiempo a Firebase de recuperar la sesión
-    const timer = setTimeout(() => setAuthInitialized(true), 1000);
-    return () => clearTimeout(timer);
-  }, []);
+  }, [initializeAuthListener]);
 
   // --- CONFIGURACIÓN DE NOTIFICACIONES PUSH (FCM) ---
   useEffect(() => {

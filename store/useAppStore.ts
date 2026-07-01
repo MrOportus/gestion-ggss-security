@@ -48,6 +48,7 @@ interface AppState {
   confirmation: AppConfirmation | null;
   isLoading: boolean;
   lastFetchTimestamp: number | null;
+  authInitialized: boolean;
   supervisorTasks: SupervisorTask[];
   checklistTemplates: ChecklistTemplate[];
   resignationRequests: ResignationRequest[];
@@ -202,6 +203,7 @@ export const useAppStore = create<AppState>()(
       confirmation: null,
       isLoading: false,
       lastFetchTimestamp: null,
+      authInitialized: false,
       isSyncing: false,
       unsubDigitalDocuments: () => { },
 
@@ -302,18 +304,20 @@ export const useAppStore = create<AppState>()(
                     role: empData.role || 'worker'
                   }
                 });
-                // Cargar datos iniciales para cualquier rol
-                get().fetchInitialData();
               } else {
                 // Ocurre la primera vez. Asumimos rol admin si no existe ficha pero entró.
                 // (Idealmente se crea la ficha manualmente en la consola de Firebase)
                 set({ currentUser: { uid: firebaseUser.uid, email: firebaseUser.email, role: 'worker' } });
               }
+              // Cargar datos iniciales para cualquier rol
+              await get().fetchInitialData();
             } catch (e) {
               console.error("Error fetching user profile", e);
+            } finally {
+              set({ authInitialized: true });
             }
           } else {
-            set({ currentUser: null, employees: [] });
+            set({ currentUser: null, employees: [], authInitialized: true });
           }
         });
       },
@@ -426,21 +430,22 @@ export const useAppStore = create<AppState>()(
             checklistTemplates: loadedTemplates
           });
 
-          // Llamadas "Smart" a otras colecciones
-          get().fetchAttendanceLogs();
-          get().fetchGuardRounds();
-          get().fetchLoans();
-          get().fetchDigitalDocuments();
-
-          if (currentUser.role === 'admin' || currentUser.role === 'supervisor') {
-            get().fetchResignationRequests();
-            get().fetchRecurringTasks();
-            get().fetchSubTasks();
-            get().fetchBoardNotes();
-            get().fetchDailyPayments();
-            get().fetchAdvances();
-            get().fetchContractHistory();
-          }
+          // Llamadas "Smart" a otras colecciones - Esperar a que terminen para que los datos estén listos
+          await Promise.all([
+            get().fetchAttendanceLogs(),
+            get().fetchGuardRounds(),
+            get().fetchLoans(),
+            get().fetchDigitalDocuments(),
+            ...(currentUser.role === 'admin' || currentUser.role === 'supervisor' ? [
+              get().fetchResignationRequests(),
+              get().fetchRecurringTasks(),
+              get().fetchSubTasks(),
+              get().fetchBoardNotes(),
+              get().fetchDailyPayments(),
+              get().fetchAdvances(),
+              get().fetchContractHistory()
+            ] : [])
+          ]);
           
           set({ lastFetchTimestamp: Date.now() });
 
