@@ -55,9 +55,6 @@ const RoundsControl: React.FC<RoundsControlProps> = ({ onBack }) => {
     const [loading, setLoading] = useState(false);
     const [elapsedTime, setElapsedTime] = useState(0);
     const [currentPos, setCurrentPos] = useState<GeolocationPosition | null>(null);
-    const [isCapturing, setIsCapturing] = useState(false);
-    const [capturedPhoto, setCapturedPhoto] = useState<Blob | null>(null);
-    const [photoPreview, setPhotoPreview] = useState<string | null>(null);
     const [showResultModal, setShowResultModal] = useState(false);
     const [roundNotes, setRoundNotes] = useState('');
     const [tempEndLocation, setTempEndLocation] = useState<{ lat: number; lng: number; accuracy: number } | null>(null);
@@ -437,8 +434,6 @@ const RoundsControl: React.FC<RoundsControlProps> = ({ onBack }) => {
             const verifyCode = `${activeRound?.id.slice(-4).toUpperCase() || 'RND'}${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
 
             // Comprimir imagen y aplicar marca de agua
-            // Barrera 1: maxWidth 1024px (no necesitamos 4K para auditoría)
-            // Barrera 2: quality 0.7 + JPEG
             const compressedBlob = await compressImage(file, 0.7, 1024, {
                 time: timeStr,
                 date: dateStr,
@@ -448,27 +443,7 @@ const RoundsControl: React.FC<RoundsControlProps> = ({ onBack }) => {
                 verifyCode: verifyCode
             });
 
-            setCapturedPhoto(compressedBlob);
-            setPhotoPreview(URL.createObjectURL(compressedBlob));
-            setIsCapturing(true);
-        } catch (err) {
-            console.error("Error al procesar foto con marca de agua:", err);
-            showNotification("Error al procesar foto", "error");
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    const handleUploadEvidence = async () => {
-        console.log("Iniciando handleUploadEvidence", { hasPhoto: !!capturedPhoto, hasRound: !!activeRound, hasPos: !!currentPos });
-
-        if (!capturedPhoto || !activeRound) {
-            showNotification("Datos insuficientes para subir foto", "error");
-            return;
-        }
-
-        setLoading(true);
-        try {
+            // --- PROCESAR SUBIDA Y REGISTRO AUTOMÁTICO ---
             let photoPos = currentPos;
 
             // Si no tenemos posición del watch, intentamos una rápida
@@ -491,11 +466,11 @@ const RoundsControl: React.FC<RoundsControlProps> = ({ onBack }) => {
                 const reader = new FileReader();
                 reader.onloadend = () => resolve(reader.result as string);
                 reader.onerror = reject;
-                reader.readAsDataURL(capturedPhoto);
+                reader.readAsDataURL(compressedBlob);
             });
 
             const evidencePayload = {
-                roundId: activeRound.id,
+                roundId: activeRound!.id,
                 photoBase64: base64Photo,
                 lat: photoPos?.coords.latitude || 0,
                 lng: photoPos?.coords.longitude || 0,
@@ -504,7 +479,7 @@ const RoundsControl: React.FC<RoundsControlProps> = ({ onBack }) => {
 
             await SyncQueueService.enqueue('UPLOAD_EVIDENCE', evidencePayload);
 
-            const localUrl = URL.createObjectURL(capturedPhoto);
+            const localUrl = URL.createObjectURL(compressedBlob);
             const newEvidence: RoundEvidence = {
                 photoUrl: localUrl,
                 lat: photoPos?.coords.latitude || 0,
@@ -512,24 +487,21 @@ const RoundsControl: React.FC<RoundsControlProps> = ({ onBack }) => {
                 timestamp: evidencePayload.timestamp
             };
 
-            const updatedEvidences = [...(activeRound.evidences || []), newEvidence];
+            const updatedEvidences = [...(activeRound!.evidences || []), newEvidence];
             
-            // Actualizar SOLO el estado local de React para mostrar la foto inmediatamente.
-            // NO llamar a updateGuardRound aquí ya que encola un UPDATE_ROUND con una blob URL
-            // que expira y sobreescribe la evidencia real cuando se sincroniza.
-            // El UPLOAD_EVIDENCE en la cola es el único responsable de escribir en Firestore.
+            // Actualizar el estado local
             setActiveRound(prev => prev ? { ...prev, evidences: updatedEvidences } : null);
 
-            showNotification("Evidencia guardada localmente", "success");
-            setCapturedPhoto(null);
-            setPhotoPreview(null);
-            setIsCapturing(false);
+            showNotification("Evidencia registrada con éxito", "success");
 
         } catch (err) {
-            console.error("Error al guardar evidencia:", err);
-            showNotification("Error al procesar foto", "error");
+            console.error("Error al procesar/subir foto:", err);
+            showNotification("Error al guardar foto", "error");
         } finally {
             setLoading(false);
+            if (e.target) {
+                e.target.value = '';
+            }
         }
     };
 
@@ -588,6 +560,12 @@ const RoundsControl: React.FC<RoundsControlProps> = ({ onBack }) => {
                             {formatTime(elapsedTime)}
                         </div>
 
+                        {/* Contador simple de fotos de la ronda */}
+                        <div className="bg-slate-50 rounded-2xl py-3 px-4 border border-slate-100 flex items-center justify-center gap-2">
+                            <span className="text-slate-400 text-xs font-black uppercase tracking-widest">Foto Nº:</span>
+                            <span className="text-blue-600 text-base font-black tracking-tight">{activeRound.evidences?.length || 0}</span>
+                        </div>
+
                         <div className="grid grid-cols-2 gap-4">
                             <button
                                 onClick={handlePhotoClick}
@@ -632,75 +610,7 @@ const RoundsControl: React.FC<RoundsControlProps> = ({ onBack }) => {
                 )}
             </div>
 
-            {/* Evidence Preview Modal */}
-            {isCapturing && photoPreview && createPortal(
-                <div 
-                    className="fixed inset-0 bg-[#0f172a] z-[100] flex flex-col"
-                    style={{
-                        position: 'fixed',
-                        top: 0,
-                        left: 0,
-                        right: 0,
-                        bottom: 0,
-                        width: '100%',
-                        height: '100%',
-                        overflow: 'hidden',
-                        overscrollBehavior: 'none'
-                    }}
-                >
-                    {/* Top bar */}
-                    <div 
-                        className="px-6 flex items-center justify-between shrink-0"
-                        style={{
-                            paddingTop: 'calc(16px + env(safe-area-inset-top, 0px))',
-                            paddingBottom: '16px'
-                        }}
-                    >
-                        <p className="text-white text-xs font-black uppercase tracking-widest opacity-70">Vista previa</p>
-                        <button
-                            onClick={() => { setIsCapturing(false); setCapturedPhoto(null); setPhotoPreview(null); }}
-                            className="text-white/70 hover:text-white transition-colors p-2 -mr-2"
-                        >
-                            <X size={20} />
-                        </button>
-                    </div>
 
-                    {/* Photo Container */}
-                    <div className="flex-1 px-8 min-h-0 flex flex-col justify-start pt-6 items-center">
-                        <div className="w-full max-w-sm aspect-[3/4] max-h-[55vh] rounded-[2rem] overflow-hidden relative shadow-2xl bg-slate-800/50">
-                            <img
-                                src={photoPreview}
-                                className="absolute inset-0 w-full h-full object-cover"
-                                alt="Preview"
-                            />
-                        </div>
-                    </div>
-
-                    {/* Action buttons */}
-                    <div 
-                        className="px-6 flex gap-4 shrink-0"
-                        style={{
-                            paddingTop: '8px',
-                            paddingBottom: 'calc(24px + env(safe-area-inset-bottom, 0px))'
-                        }}
-                    >
-                        <button
-                            onClick={() => { setIsCapturing(false); setCapturedPhoto(null); setPhotoPreview(null); }}
-                            className="flex-[1] py-4 bg-slate-800 text-slate-300 rounded-2xl font-black uppercase text-xs flex items-center justify-center gap-2 active:scale-95 transition-all"
-                        >
-                            <Trash2 size={16} /> Descartar
-                        </button>
-                        <button
-                            onClick={handleUploadEvidence}
-                            disabled={loading}
-                            className="flex-[2] py-4 bg-blue-600 text-white rounded-2xl font-black uppercase text-xs flex items-center justify-center gap-2 shadow-lg shadow-blue-900/50 active:scale-95 transition-all disabled:opacity-50"
-                        >
-                            {loading ? <Loader2 className="animate-spin" size={16} /> : <UploadCloud size={16} />} Subir Evidencia
-                        </button>
-                    </div>
-                </div>,
-                document.body
-            )}
 
             {/* History Area */}
             <div className="space-y-4">

@@ -96,7 +96,11 @@ try {
   });
 
   const bucket = admin.storage().bucket();
-  const destination = `apks/ggss-security-${newVersion}.apk`;
+  const versionUnderscores = newVersion.replace(/\./g, '_');
+  const now = new Date();
+  const buildTag = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}`;
+  const filename = `ggs_security_v_${versionUnderscores}_build_${buildTag}.apk`;
+  const destination = `apks/${filename}`;
 
   console.log(`   Subiendo a bucket: ${bucket.name}`);
   console.log(`   Ruta destino: ${destination}`);
