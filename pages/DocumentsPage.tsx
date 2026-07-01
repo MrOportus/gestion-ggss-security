@@ -1,10 +1,9 @@
-import React, { useState, useRef, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useAppStore } from '../store/useAppStore';
 import {
     FileText,
     Upload,
     CheckCircle,
-    Clock,
     Eye,
     PenTool,
     Search,
@@ -15,7 +14,13 @@ import {
     ChevronLeft,
     ChevronRight,
     FileCheck,
-    Info
+    Info,
+    AlertTriangle,
+    Building,
+    Users,
+    Layers,
+    Clock,
+    Plus
 } from 'lucide-react';
 import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
 import { Document, Page, pdfjs } from 'react-pdf';
@@ -36,6 +41,7 @@ const DocumentsPage: React.FC = () => {
     const {
         currentUser,
         employees,
+        sites,
         digitalDocuments,
         addDigitalDocument,
         signDigitalDocument,
@@ -50,16 +56,17 @@ const DocumentsPage: React.FC = () => {
     const [showUploadModal, setShowUploadModal] = useState(false);
     const [selectedDocToSign, setSelectedDocToSign] = useState<DigitalDocument | null>(null);
     const [isSigning, setIsSigning] = useState(false);
-    const [assigneeSearch, setAssigneeSearch] = useState('');
-    const [showAssigneeDropdown, setShowAssigneeDropdown] = useState(false);
 
     // Visualizador de PDF
     const [viewingDoc, setViewingDoc] = useState<DigitalDocument | null>(null);
     const [numPages, setNumPages] = useState<number | null>(null);
 
-    // Firma masiva
+    // Firma masiva (Worker)
     const [isBulkSigning, setIsBulkSigning] = useState(false);
     const [bulkSignProgress, setBulkSignProgress] = useState({ current: 0, total: 0 });
+
+    // Filtros rápidos
+    const [quickFilter, setQuickFilter] = useState<'all' | 'pending' | 'signed' | 'recent'>('all');
 
     // Diálogo de alerta/confirmación personalizado
     const [alertDialog, setAlertDialog] = useState<{
@@ -74,12 +81,99 @@ const DocumentsPage: React.FC = () => {
     const [currentPage, setCurrentPage] = useState(1);
     const itemsPerPage = 8;
 
-    // Resetear página al buscar o cambiar tab
+    // Resetear página al cambiar filtros
     useEffect(() => {
         setCurrentPage(1);
-    }, [searchTerm, activeTab]);
+    }, [searchTerm, activeTab, quickFilter]);
 
-    // Filtros
+    // Opciones del Asistente Masivo (Wizard)
+    const [wizardStep, setWizardStep] = useState<'docs' | 'destinatarios' | 'confirmacion' | 'resultado'>('docs');
+    const [wizardMode, setWizardMode] = useState<'upload' | 'templates'>('upload');
+    
+    // Archivos Nuevos
+    const [wizardFiles, setWizardFiles] = useState<File[]>([]);
+    const [wizardDocTitle, setWizardDocTitle] = useState('');
+    const [wizardDocType, setWizardDocType] = useState('Contrato');
+    
+    // Configuración de firmas
+    const [sigPageType, setSigPageType] = useState<'last' | 'specific'>('last');
+    const [sigPageNumber, setSigPageNumber] = useState(1);
+    const [sigPosition, setSigPosition] = useState<'left' | 'center' | 'right'>('center');
+
+    // Selección de plantillas existentes
+    const [selectedTemplates, setSelectedTemplates] = useState<{ title: string; type: string; originalUrl: string }[]>([]);
+
+    // Selección de Destinatarios
+    const [assigneeType, setAssigneeType] = useState<'all' | 'sucursal' | 'colaboradores'>('colaboradores');
+    const [selectedEmployees, setSelectedEmployees] = useState<string[]>([]);
+    const [selectedSites, setSelectedSites] = useState<number[]>([]);
+    const [conflictBehavior, setConflictBehavior] = useState<'omit' | 'overwrite'>('omit');
+    const [employeeSearchText, setEmployeeSearchText] = useState('');
+
+    // Resultado de Asignación Masiva
+    const [bulkResult, setBulkResult] = useState<{
+        docsCount: number;
+        workersCount: number;
+        generatedCount: number;
+        skippedCount: number;
+    } | null>(null);
+
+    // Obtener plantillas únicas ya subidas
+    const uniqueTemplates = useMemo(() => {
+        const seen = new Set<string>();
+        const list: { title: string; type: string; originalUrl: string }[] = [];
+        digitalDocuments.forEach(d => {
+            const key = `${d.title}::${d.originalUrl}`;
+            if (!seen.has(key)) {
+                seen.add(key);
+                list.push({ title: d.title, type: d.type, originalUrl: d.originalUrl });
+            }
+        });
+        return list.sort((a, b) => a.title.localeCompare(b.title));
+    }, [digitalDocuments]);
+
+    // METRICAS DEL DASHBOARD (ADMIN)
+    const stats = useMemo(() => {
+        const total = digitalDocuments.length;
+        const pending = digitalDocuments.filter(d => d.status === 'pending').length;
+        const signed = digitalDocuments.filter(d => d.status === 'signed').length;
+        const compliance = total > 0 ? Math.round((signed / total) * 100) : 0;
+        return { total, pending, signed, compliance };
+    }, [digitalDocuments]);
+
+    // Top Documentos con más Incumplimiento
+    const topIncumplidos = useMemo(() => {
+        const counts: Record<string, number> = {};
+        digitalDocuments.forEach(d => {
+            if (d.status === 'pending') {
+                counts[d.title] = (counts[d.title] || 0) + 1;
+            }
+        });
+        return Object.entries(counts)
+            .map(([title, count]) => ({ title, count }))
+            .sort((a, b) => b.count - a.count)
+            .slice(0, 3);
+    }, [digitalDocuments]);
+
+    // Cumplimiento por Sucursal (Site)
+    const siteCompliance = useMemo(() => {
+        return sites.map(site => {
+            const siteEmployees = employees.filter(e => e.currentSiteId === site.id);
+            const employeeIds = siteEmployees.map(e => e.id);
+            const siteDocs = digitalDocuments.filter(d => employeeIds.includes(d.assignedTo));
+            const total = siteDocs.length;
+            const signed = siteDocs.filter(d => d.status === 'signed').length;
+            const rate = total > 0 ? Math.round((signed / total) * 100) : 100;
+            return {
+                id: site.id,
+                name: site.name,
+                total,
+                rate
+            };
+        }).sort((a, b) => a.rate - b.rate); // Ordenar de menor cumplimiento a mayor cumplimiento
+    }, [sites, employees, digitalDocuments]);
+
+    // Filtro principal de documentos según pestañas y búsqueda
     const filteredDocs = useMemo(() => {
         let docs = digitalDocuments;
 
@@ -88,8 +182,21 @@ const DocumentsPage: React.FC = () => {
             docs = docs.filter(d => d.assignedTo === currentUser?.uid);
         }
 
-        // Filtro por Tab
+        // Filtro por Tab de firma
         docs = docs.filter(d => d.status === (activeTab === 'pending' ? 'pending' : 'signed'));
+
+        // Filtro Rápido
+        if (currentUser?.role === 'admin' && quickFilter !== 'all') {
+            if (quickFilter === 'pending') {
+                docs = docs.filter(d => d.status === 'pending');
+            } else if (quickFilter === 'signed') {
+                docs = docs.filter(d => d.status === 'signed');
+            } else if (quickFilter === 'recent') {
+                const sevenDaysAgo = new Date();
+                sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+                docs = docs.filter(d => new Date(d.createdAt) >= sevenDaysAgo);
+            }
+        }
 
         // Filtro por búsqueda (Título, Tipo o Nombre del Colaborador)
         if (searchTerm) {
@@ -104,14 +211,14 @@ const DocumentsPage: React.FC = () => {
         }
 
         return docs;
-    }, [digitalDocuments, currentUser, activeTab, searchTerm, employees]);
+    }, [digitalDocuments, currentUser, activeTab, quickFilter, searchTerm, employees]);
 
-    // Cantidad de pendientes para la vista worker
+    // Cantidad de pendientes para la vista de guardia
     const pendingDocsCount = useMemo(() => {
         return digitalDocuments.filter(d => d.assignedTo === currentUser?.uid && d.status === 'pending').length;
     }, [digitalDocuments, currentUser]);
 
-    // Agrupación y Paginación para Admin
+    // Agrupación y Paginación para Administradores
     const groupedDocs = useMemo(() => {
         const groups: Record<string, DigitalDocument[]> = {};
 
@@ -137,113 +244,178 @@ const DocumentsPage: React.FC = () => {
 
     const { paginatedGroups, totalPages } = groupedDocs;
 
-    // FORMULARIO DE CARGA (ADMIN)
-    const [uploadForm, setUploadForm] = useState({
-        title: '',
-        type: 'Contrato',
-        assignedTo: '',
-        file: null as File | null,
-        signaturePageType: 'last' as 'last' | 'specific',
-        signaturePageNumber: 1,
-        signaturePosition: 'center' as 'left' | 'center' | 'right'
-    });
-
-    const filteredAssignees = useMemo(() => {
-        const term = normalizeText(assigneeSearch);
+    // Colaboradores activos filtrados para el asistente masivo
+    const wizardFilteredEmployees = useMemo(() => {
+        const term = normalizeText(employeeSearchText);
         return employees.filter(e => {
             if (!e.isActive) return false;
             const fullName = normalizeText(`${e.firstName} ${e.lastNamePaterno} ${e.lastNameMaterno || ''}`);
             const rut = normalizeText(e.rut || '');
             return fullName.includes(term) || rut.includes(term);
         });
-    }, [employees, assigneeSearch]);
+    }, [employees, employeeSearchText]);
 
-    const handleUploadSubmit = async (e: React.FormEvent) => {
-        e.preventDefault();
-        if (!uploadForm.file || !uploadForm.assignedTo || !uploadForm.title) {
-            showNotification("Por favor completa todos los campos", "warning");
-            return;
-        }
-
+    // EJECUTAR ASIGNACIÓN MASIVA
+    const handleExecuteBulkAssignment = async () => {
         try {
-            // Subir archivo original
-            const fileName = `${Date.now()}_${uploadForm.file.name}`;
-            const originalUrl = await uploadFile(uploadForm.file, `original_docs/${fileName}`);
+            // 1. Obtener los documentos a asignar
+            let docsToAssign: { title: string; type: string; originalUrl: string }[] = [];
 
-            const signatureConfig: any = {
-                page: uploadForm.signaturePageType,
-                position: uploadForm.signaturePosition
-            };
-            if (uploadForm.signaturePageType === 'specific') {
-                signatureConfig.pageNumber = Number(uploadForm.signaturePageNumber);
+            if (wizardMode === 'upload') {
+                if (wizardFiles.length === 0) {
+                    showNotification("Sube al menos un archivo PDF", "warning");
+                    return;
+                }
+                setIsSigning(true);
+                // Subir cada archivo nuevo a Firebase Storage
+                const uploadPromises = wizardFiles.map(async (file) => {
+                    const fileName = `${Date.now()}_${file.name}`;
+                    const originalUrl = await uploadFile(file, `original_docs/${fileName}`);
+                    return {
+                        title: wizardFiles.length === 1 ? wizardDocTitle || file.name.replace('.pdf', '') : file.name.replace('.pdf', ''),
+                        type: wizardDocType,
+                        originalUrl
+                    };
+                });
+                docsToAssign = await Promise.all(uploadPromises);
+            } else {
+                if (selectedTemplates.length === 0) {
+                    showNotification("Selecciona al menos un documento", "warning");
+                    return;
+                }
+                docsToAssign = [...selectedTemplates];
             }
 
-            await addDigitalDocument({
-                title: uploadForm.title,
-                type: uploadForm.type,
-                assignedTo: uploadForm.assignedTo,
-                originalUrl,
-                signatureConfig
-            });
+            // 2. Obtener los trabajadores destinatarios
+            let targetWorkers: typeof employees = [];
+            if (assigneeType === 'all') {
+                targetWorkers = employees.filter(e => e.isActive);
+            } else if (assigneeType === 'sucursal') {
+                targetWorkers = employees.filter(e => e.isActive && e.currentSiteId && selectedSites.includes(e.currentSiteId));
+            } else {
+                targetWorkers = employees.filter(e => e.isActive && selectedEmployees.includes(e.id));
+            }
 
-            showNotification("Documento cargado y asignado correctamente", "success");
-            setShowUploadModal(false);
-            setUploadForm({
-                title: '',
-                type: 'Contrato',
-                assignedTo: '',
-                file: null,
-                signaturePageType: 'last',
-                signaturePageNumber: 1,
-                signaturePosition: 'center'
+            if (targetWorkers.length === 0) {
+                showNotification("No hay destinatarios seleccionados", "warning");
+                setIsSigning(false);
+                return;
+            }
+
+            // 3. Procesar asignaciones aplicando reglas
+            let generatedCount = 0;
+            let skippedCount = 0;
+
+            const signatureConfig: any = {
+                page: sigPageType,
+                position: sigPosition
+            };
+            if (sigPageType === 'specific') {
+                signatureConfig.pageNumber = Number(sigPageNumber);
+            }
+
+            const creationPromises: Promise<any>[] = [];
+
+            for (const doc of docsToAssign) {
+                for (const worker of targetWorkers) {
+                    // Verificar si ya tiene el mismo documento pendiente
+                    const hasPending = digitalDocuments.some(
+                        d => d.assignedTo === worker.id && d.title === doc.title && d.status === 'pending'
+                    );
+
+                    if (hasPending) {
+                        skippedCount++;
+                        continue;
+                    }
+
+                    // Verificar si ya tiene el mismo documento firmado
+                    const hasSigned = digitalDocuments.some(
+                        d => d.assignedTo === worker.id && d.title === doc.title && d.status === 'signed'
+                    );
+
+                    if (hasSigned && conflictBehavior === 'omit') {
+                        skippedCount++;
+                        continue;
+                    }
+
+                    // Crear la asignación
+                    creationPromises.push(
+                        addDigitalDocument({
+                            title: doc.title,
+                            type: doc.type,
+                            assignedTo: worker.id,
+                            originalUrl: doc.originalUrl,
+                            signatureConfig
+                        })
+                    );
+                    generatedCount++;
+                }
+            }
+
+            if (creationPromises.length > 0) {
+                await Promise.all(creationPromises);
+            }
+
+            setBulkResult({
+                docsCount: docsToAssign.length,
+                workersCount: targetWorkers.length,
+                generatedCount,
+                skippedCount
             });
-            setAssigneeSearch('');
-            setShowAssigneeDropdown(false);
+            setWizardStep('resultado');
 
         } catch (error) {
-            console.error(error);
-            showNotification("Error al cargar el documento", "error");
+            console.error("Error in bulk assignment:", error);
+            showNotification("Error al procesar la asignación masiva", "error");
+        } finally {
+            setIsSigning(false);
         }
     };
 
-    // LOGICA PARA INCRUSTAR FIRMA PRE-REGISTRADA EN EL PDF
+    // Cerrar y resetear el asistente
+    const resetWizard = () => {
+        setShowUploadModal(false);
+        setWizardStep('docs');
+        setWizardFiles([]);
+        setWizardDocTitle('');
+        setWizardDocType('Contrato');
+        setSelectedTemplates([]);
+        setSelectedEmployees([]);
+        setSelectedSites([]);
+        setEmployeeSearchText('');
+        setBulkResult(null);
+    };
+
+    // LOGICA DE AUTO-FIRMA EN EL PDF (WORKER)
     const performSign = async (docToSign: DigitalDocument, worker: any) => {
-        // 1. Obtener IP pública
         let ip = 'Unknown';
         try {
             const ipRes = await axios.get('https://api.ipify.org?format=json');
             ip = ipRes.data.ip;
         } catch (e) { console.error("Could not get IP", e); }
 
-        // 2. Cargar PDF original
         const existingPdfBytes = await fetch(docToSign.originalUrl).then(res => res.arrayBuffer());
         const pdfDoc = await PDFDocument.load(existingPdfBytes);
         const pages = pdfDoc.getPages();
 
-        // 3. Determinar página de destino
-        let pageIndex = pages.length - 1; // Por defecto: última hoja
+        let pageIndex = pages.length - 1;
         if (docToSign.signatureConfig?.page === 'specific') {
             const specPage = (docToSign.signatureConfig.pageNumber || 1) - 1;
             pageIndex = Math.max(0, Math.min(specPage, pages.length - 1));
         }
 
         const selectedPage = pages[pageIndex];
-        const { width: pdfWidth, height: pdfHeight } = selectedPage.getSize();
+        const { width: pdfWidth } = selectedPage.getSize();
 
-        // 4. Determinar posición horizontal (x)
-        const sigWidth = 150;
-        const sigHeight = 75;
-        let x = (pdfWidth - sigWidth) / 2; // Por defecto: Centro
+        let x = (pdfWidth - 120) / 2;
         if (docToSign.signatureConfig?.position === 'left') {
             x = 50;
         } else if (docToSign.signatureConfig?.position === 'right') {
-            x = pdfWidth - sigWidth - 50;
+            x = pdfWidth - 120 - 50;
         }
 
-        // Altura automática predefinida por el sistema (y) para la firma
         const y = 40;
 
-        // 5. Incrustar imagen de firma registrada
         const signatureImage = await pdfDoc.embedPng(worker.signatureUrl);
         selectedPage.drawImage(signatureImage, {
             x,
@@ -252,7 +424,6 @@ const DocumentsPage: React.FC = () => {
             height: 50,
         });
 
-        // 6. Texto de auditoría y sello al pie de la página (máximo 2 líneas al final)
         const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
         const timestamp = new Date().toLocaleString();
         const userName = `${worker.firstName} ${worker.lastNamePaterno}`;
@@ -265,7 +436,6 @@ const DocumentsPage: React.FC = () => {
         const line1 = `Firmado digitalmente por: ${userName} (${rut}) | Email: ${email} | Fecha: ${timestamp}`;
         const line2 = `ID Firma: ${uniqueSigId} | IP: ${ip} | App: v${appVersion} | Dispositivo: ${deviceId}`;
 
-        // Dibujar Línea 1 (a y = 25)
         selectedPage.drawText(line1, {
             x: 40,
             y: 25,
@@ -274,7 +444,6 @@ const DocumentsPage: React.FC = () => {
             color: rgb(0.2, 0.2, 0.2),
         });
 
-        // Dibujar Línea 2 (a y = 15)
         selectedPage.drawText(line2, {
             x: 40,
             y: 15,
@@ -283,13 +452,11 @@ const DocumentsPage: React.FC = () => {
             color: rgb(0.3, 0.3, 0.3),
         });
 
-        // 7. Guardar y subir a Firebase
         const pdfBytes = await pdfDoc.save();
         const signedFileName = `signed_${docToSign.id}.pdf`;
         const signedBlob = new Blob([pdfBytes], { type: 'application/pdf' });
         const signedUrl = await uploadFile(signedBlob, `signed_docs/${signedFileName}`);
 
-        // 8. Actualizar Firestore
         await signDigitalDocument(docToSign.id, signedUrl, {
             ip,
             rut,
@@ -304,7 +471,7 @@ const DocumentsPage: React.FC = () => {
                 title: "Firma no registrada",
                 message: "No tienes una firma registrada. Por favor, ve a 'Mi Perfil' para registrar tu firma antes de continuar.",
                 type: 'warning',
-                onConfirm: () => { }
+                onConfirm: () => {}
             });
             return;
         }
@@ -337,7 +504,7 @@ const DocumentsPage: React.FC = () => {
                 title: "Firma no registrada",
                 message: "No tienes una firma registrada. Por favor, ve a 'Mi Perfil' para registrar tu firma antes de continuar.",
                 type: 'warning',
-                onConfirm: () => { }
+                onConfirm: () => {}
             });
             return;
         }
@@ -375,6 +542,7 @@ const DocumentsPage: React.FC = () => {
 
     return (
         <div className="p-4 md:p-6 max-w-7xl mx-auto space-y-6">
+            
             {/* HEADER */}
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
@@ -384,13 +552,120 @@ const DocumentsPage: React.FC = () => {
 
                 {currentUser?.role === 'admin' && (
                     <button
-                        onClick={() => setShowUploadModal(true)}
+                        onClick={() => {
+                            setWizardStep('docs');
+                            setShowUploadModal(true);
+                        }}
                         className="py-3 px-6 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl text-xs font-black uppercase tracking-widest shadow-xl shadow-blue-200 transition-all active:scale-95 flex items-center justify-center gap-2 self-start md:self-auto"
                     >
-                        <Upload size={16} /> Cargar Documento
+                        <Plus size={16} /> Asignación Masiva / Cargar
                     </button>
                 )}
             </div>
+
+            {/* MINI DASHBOARD DOCUMENTAL (Solo Administradores) */}
+            {currentUser?.role === 'admin' && (
+                <div className="space-y-6">
+                    {/* Contadores / Métricas */}
+                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                        <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm flex flex-col justify-between">
+                            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Documentos Activos</span>
+                            <span className="text-3xl font-black text-slate-800 mt-2">{stats.total}</span>
+                        </div>
+                        <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm flex flex-col justify-between">
+                            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Pendientes de Firma</span>
+                            <div className="flex items-baseline gap-2 mt-2">
+                                <span className="text-3xl font-black text-amber-500">{stats.pending}</span>
+                                <span className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-pulse"></span>
+                            </div>
+                        </div>
+                        <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm flex flex-col justify-between">
+                            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Firmados</span>
+                            <div className="flex items-baseline gap-2 mt-2">
+                                <span className="text-3xl font-black text-emerald-500">{stats.signed}</span>
+                                <span className="w-2.5 h-2.5 rounded-full bg-emerald-400"></span>
+                            </div>
+                        </div>
+                        <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm flex flex-col justify-between">
+                            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Cumplimiento</span>
+                            <span className="text-3xl font-black text-blue-600 mt-2">{stats.compliance}%</span>
+                        </div>
+                    </div>
+
+                    {/* Banner de alerta si hay pendientes */}
+                    {stats.pending > 0 && (
+                        <div className="bg-amber-50 border border-amber-200 p-4 rounded-2xl flex items-center justify-between gap-4 animate-in fade-in duration-300">
+                            <div className="flex items-center gap-3">
+                                <div className="p-2 bg-amber-100 text-amber-800 rounded-xl">
+                                    <AlertTriangle size={20} />
+                                </div>
+                                <span className="text-sm font-bold text-amber-900">
+                                    Hay {stats.pending} documentos pendientes de firma.
+                                </span>
+                            </div>
+                            <button
+                                onClick={() => {
+                                    setActiveTab('pending');
+                                    setQuickFilter('pending');
+                                }}
+                                className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-[11px] font-black uppercase tracking-wider transition-all"
+                            >
+                                Ver Pendientes
+                            </button>
+                        </div>
+                    )}
+
+                    {/* Columnas del Dashboard */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        {/* Top Documentos con más Incumplimiento */}
+                        <div className="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm space-y-4">
+                            <h3 className="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center gap-2">
+                                <Clock size={16} className="text-red-500" />
+                                Mayor Incumplimiento
+                            </h3>
+                            {topIncumplidos.length === 0 ? (
+                                <p className="text-slate-400 text-xs font-bold py-4 text-center">¡Todos los documentos al día!</p>
+                            ) : (
+                                <div className="space-y-3">
+                                    {topIncumplidos.map((doc, idx) => (
+                                        <div key={idx} className="flex justify-between items-center bg-slate-50 p-3 rounded-2xl">
+                                            <span className="text-xs font-bold text-slate-700 truncate max-w-xs">{doc.title}</span>
+                                            <span className="text-xs font-black text-rose-500 bg-rose-50 px-2 py-0.5 rounded-lg">
+                                                {doc.count} pendientes
+                                            </span>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Cumplimiento por Sucursal */}
+                        <div className="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm space-y-4">
+                            <h3 className="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center gap-2">
+                                <Building size={16} className="text-blue-500" />
+                                Cumplimiento por Sucursal
+                            </h3>
+                            {siteCompliance.length === 0 ? (
+                                <p className="text-slate-400 text-xs font-bold py-4 text-center">No hay sucursales registradas</p>
+                            ) : (
+                                <div className="grid grid-cols-2 gap-3 max-h-[140px] overflow-y-auto pr-1">
+                                    {siteCompliance.map((site) => (
+                                        <div key={site.id} className="flex justify-between items-center p-3 bg-slate-50 rounded-2xl">
+                                            <span className="text-[11px] font-bold text-slate-700 truncate max-w-[100px]">{site.name}</span>
+                                            <span className={`text-[10px] font-black px-2 py-0.5 rounded-lg ${
+                                                site.rate >= 90 ? 'bg-emerald-50 text-emerald-600' :
+                                                site.rate >= 70 ? 'bg-amber-50 text-amber-600' : 'bg-rose-50 text-rose-600'
+                                            }`}>
+                                                {site.rate}%
+                                            </span>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* AVISO PENDIENTES DE TRABAJADOR */}
             {currentUser?.role !== 'admin' && activeTab === 'pending' && (
@@ -398,8 +673,8 @@ const DocumentsPage: React.FC = () => {
                     <div>
                         <h2 className="text-base font-black text-amber-900 tracking-tight">Firma Digital</h2>
                         <p className="text-xs font-bold text-amber-700 mt-1">
-                            {pendingDocsCount === 0
-                                ? 'No tienes documentos pendientes de firma.'
+                            {pendingDocsCount === 0 
+                                ? 'No tienes documentos pendientes de firma.' 
                                 : `Tienes ${pendingDocsCount} ${pendingDocsCount === 1 ? 'documento pendiente' : 'documentos pendientes'} de firma.`}
                         </p>
                     </div>
@@ -415,29 +690,76 @@ const DocumentsPage: React.FC = () => {
                 </div>
             )}
 
-            {/* TAB Y BARRA BUSQUEDA */}
-            <div className="bg-white p-2 rounded-2xl shadow-sm border border-slate-100 flex flex-col sm:flex-row items-center gap-4">
-                <div className="flex p-1 bg-slate-100 rounded-xl w-full sm:w-auto">
-                    <button
-                        onClick={() => setActiveTab('pending')}
-                        className={`flex-1 sm:px-6 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === 'pending' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-                    >
-                        Pendientes
-                    </button>
-                    <button
-                        onClick={() => setActiveTab('signed')}
-                        className={`flex-1 sm:px-6 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === 'signed' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-                    >
-                        Firmados
-                    </button>
+            {/* BARRA BUSQUEDA Y FILTROS */}
+            <div className="bg-white p-3 rounded-3xl shadow-sm border border-slate-100 flex flex-col gap-4">
+                <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+                    {/* Pestañas de estado (Pendiente / Firmados) */}
+                    <div className="flex p-1 bg-slate-100 rounded-2xl w-full sm:w-auto">
+                        <button
+                            onClick={() => {
+                                setActiveTab('pending');
+                                setQuickFilter('all');
+                            }}
+                            className={`flex-1 sm:px-6 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all ${activeTab === 'pending' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                        >
+                            Pendientes
+                        </button>
+                        <button
+                            onClick={() => {
+                                setActiveTab('signed');
+                                setQuickFilter('all');
+                            }}
+                            className={`flex-1 sm:px-6 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all ${activeTab === 'signed' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                        >
+                            Firmados
+                        </button>
+                    </div>
+
+                    {/* Filtros rápidos (Solo Admin) */}
+                    {currentUser?.role === 'admin' && (
+                        <div className="flex flex-wrap gap-2 w-full sm:w-auto justify-end">
+                            <button
+                                onClick={() => setQuickFilter('all')}
+                                className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all ${
+                                    quickFilter === 'all' ? 'bg-slate-800 text-white shadow-md' : 'bg-slate-100 hover:bg-slate-200 text-slate-600'
+                                }`}
+                            >
+                                Todos
+                            </button>
+                            <button
+                                onClick={() => setQuickFilter('pending')}
+                                className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all ${
+                                    quickFilter === 'pending' ? 'bg-amber-500 text-white shadow-md' : 'bg-slate-100 hover:bg-slate-200 text-slate-600'
+                                }`}
+                            >
+                                Pendientes
+                            </button>
+                            <button
+                                onClick={() => setQuickFilter('signed')}
+                                className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all ${
+                                    quickFilter === 'signed' ? 'bg-emerald-600 text-white shadow-md' : 'bg-slate-100 hover:bg-slate-200 text-slate-600'
+                                }`}
+                            >
+                                Firmados
+                            </button>
+                            <button
+                                onClick={() => setQuickFilter('recent')}
+                                className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all ${
+                                    quickFilter === 'recent' ? 'bg-blue-600 text-white shadow-md' : 'bg-slate-100 hover:bg-slate-200 text-slate-600'
+                                }`}
+                            >
+                                Recientes
+                            </button>
+                        </div>
+                    )}
                 </div>
 
-                <div className="relative flex-1 w-full">
+                <div className="relative w-full">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
                     <input
                         type="text"
-                        placeholder="Buscar por título o tipo..."
-                        className="w-full pl-10 pr-4 py-2 bg-slate-50 border-none rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none font-bold"
+                        placeholder="Buscar por título, tipo o colaborador..."
+                        className="w-full pl-10 pr-4 py-3 bg-slate-50 border-none rounded-2xl text-xs font-bold focus:ring-2 focus:ring-blue-500 outline-none"
                         value={searchTerm}
                         onChange={(e) => setSearchTerm(e.target.value)}
                     />
@@ -648,185 +970,535 @@ const DocumentsPage: React.FC = () => {
                 </div>
             )}
 
-            {/* MODAL DE CARGA (ADMIN) */}
+            {/* MODAL / ASISTENTE DE ASIGNACIÓN MASIVA (WIZARD) */}
             {showUploadModal && (
                 <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-                    <div className="bg-white rounded-[2rem] w-full max-w-lg shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
-                        <div className="p-8 border-b border-slate-100 flex justify-between items-center bg-gradient-to-r from-blue-50/50 to-transparent">
+                    <div className="bg-white rounded-[2rem] w-full max-w-2xl shadow-2xl overflow-hidden flex flex-col h-[90vh] md:h-auto max-h-[850px] animate-in zoom-in-95 duration-200">
+                        {/* Header del Wizard */}
+                        <div className="p-6 md:p-8 border-b border-slate-100 flex justify-between items-center bg-gradient-to-r from-blue-50/30 to-transparent shrink-0">
                             <div>
-                                <h2 className="text-xl font-black text-slate-900">Cargar Documento</h2>
-                                <p className="text-slate-500 text-sm font-medium">Sube un PDF y asígnalo a un colaborador</p>
+                                <h2 className="text-xl font-black text-slate-900 uppercase">Asignador Documental Masivo</h2>
+                                <p className="text-slate-400 text-xs font-black uppercase tracking-widest leading-none mt-1.5">
+                                    {wizardStep === 'docs' ? 'Paso 1: Documentos' :
+                                     wizardStep === 'destinatarios' ? 'Paso 2: Destinatarios' :
+                                     wizardStep === 'confirmacion' ? 'Paso 3: Confirmación' : 'Paso 4: Resultado'}
+                                </p>
                             </div>
-                            <button onClick={() => {
-                                setShowUploadModal(false);
-                                setAssigneeSearch('');
-                                setShowAssigneeDropdown(false);
-                            }} className="p-2 hover:bg-slate-100 rounded-full transition-colors text-slate-400">
+                            <button onClick={resetWizard} className="p-2 hover:bg-slate-100 rounded-full transition-colors text-slate-400">
                                 <X size={24} />
                             </button>
                         </div>
 
-                        <form onSubmit={handleUploadSubmit} className="p-8 space-y-5">
-                            <div className="space-y-2">
-                                <label className="text-xs font-black text-slate-400 uppercase tracking-widest">Título del Documento</label>
-                                <input
-                                    type="text"
-                                    required
-                                    placeholder="Ej: Contrato de Trabajo - Juan Pérez"
-                                    className="w-full px-4 py-3 bg-slate-50 border-2 border-transparent focus:border-blue-500/20 focus:bg-white rounded-2xl outline-none transition-all text-sm font-bold"
-                                    value={uploadForm.title}
-                                    onChange={(e) => setUploadForm({ ...uploadForm, title: e.target.value })}
-                                />
-                            </div>
+                        {/* Contenido según el paso del Wizard (Scrollable) */}
+                        <div className="flex-1 overflow-y-auto p-6 md:p-8 space-y-6">
 
-                            <div className="grid grid-cols-2 gap-4">
-                                <div className="space-y-2">
-                                    <label className="text-xs font-black text-slate-400 uppercase tracking-widest">Tipo</label>
-                                    <select
-                                        className="w-full px-4 py-3 bg-slate-50 border-2 border-transparent focus:border-blue-500/20 focus:bg-white rounded-2xl outline-none transition-all text-sm font-bold appearance-none cursor-pointer"
-                                        value={uploadForm.type}
-                                        onChange={(e) => setUploadForm({ ...uploadForm, type: e.target.value })}
-                                    >
-                                        <option value="Contrato">Contrato</option>
-                                        <option value="EPP">EPP</option>
-                                        <option value="ODI">ODI</option>
-                                        <option value="Anexo">Anexo</option>
-                                        <option value="Otro">Otro</option>
-                                    </select>
-                                </div>
-                                <div className="space-y-2 relative">
-                                    <label className="text-xs font-black text-slate-400 uppercase tracking-widest">Asignar a</label>
-                                    <div className="relative">
-                                        <input
-                                            type="text"
-                                            placeholder="Buscar..."
-                                            className="w-full px-4 py-3 bg-slate-50 border-2 border-transparent focus:border-blue-500/20 focus:bg-white rounded-2xl outline-none transition-all text-sm font-bold"
-                                            value={assigneeSearch}
-                                            onChange={(e) => {
-                                                setAssigneeSearch(e.target.value);
-                                                setShowAssigneeDropdown(true);
-                                                if (uploadForm.assignedTo) setUploadForm({ ...uploadForm, assignedTo: '' });
-                                            }}
-                                            onFocus={() => setShowAssigneeDropdown(true)}
-                                            required={!uploadForm.assignedTo}
-                                        />
-                                        {uploadForm.assignedTo && (
-                                            <div className="absolute right-3 top-1/2 -translate-y-1/2 text-emerald-500">
-                                                <CheckCircle size={18} />
-                                            </div>
-                                        )}
+                            {/* PASO 1: SELECCIONAR DOCUMENTOS */}
+                            {wizardStep === 'docs' && (
+                                <div className="space-y-6 animate-in fade-in duration-200">
+                                    {/* Selector de Modo */}
+                                    <div className="flex p-1 bg-slate-100 rounded-2xl w-fit">
+                                        <button
+                                            type="button"
+                                            onClick={() => setWizardMode('upload')}
+                                            className={`px-6 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all ${
+                                                wizardMode === 'upload' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500'
+                                            }`}
+                                        >
+                                            Subir Archivos Nuevos
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => setWizardMode('templates')}
+                                            className={`px-6 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all ${
+                                                wizardMode === 'templates' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500'
+                                            }`}
+                                        >
+                                            Seleccionar Existentes
+                                        </button>
                                     </div>
 
-                                    {showAssigneeDropdown && (
-                                        <div className="absolute z-[60] left-0 right-0 mt-2 bg-white rounded-2xl shadow-2xl border border-slate-100 max-h-48 overflow-y-auto animate-in fade-in slide-in-from-top-2 duration-200">
-                                            {filteredAssignees.length === 0 ? (
-                                                <div className="p-4 text-center text-slate-400 text-xs font-bold">No se encontraron colaboradores</div>
-                                            ) : (
-                                                filteredAssignees.map(e => (
-                                                    <button
-                                                        key={e.id}
-                                                        type="button"
-                                                        className="w-full px-4 py-3 text-left hover:bg-blue-50 transition-colors border-b border-slate-50 last:border-none flex flex-col"
-                                                        onClick={() => {
-                                                            setUploadForm({ ...uploadForm, assignedTo: e.id });
-                                                            setAssigneeSearch(`${e.firstName} ${e.lastNamePaterno}`);
-                                                            setShowAssigneeDropdown(false);
-                                                        }}
+                                    {/* Modo: Cargar Nuevos Archivos */}
+                                    {wizardMode === 'upload' ? (
+                                        <div className="space-y-4">
+                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                <div className="space-y-2">
+                                                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Título base (Para un solo archivo)</label>
+                                                    <input
+                                                        type="text"
+                                                        placeholder="Ej: Reglamento Interno 2026"
+                                                        className="w-full px-4 py-3 bg-slate-50 border-2 border-transparent focus:border-blue-500/20 focus:bg-white rounded-2xl outline-none transition-all text-xs font-bold"
+                                                        value={wizardDocTitle}
+                                                        onChange={(e) => setWizardDocTitle(e.target.value)}
+                                                    />
+                                                </div>
+                                                <div className="space-y-2">
+                                                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Tipo de Documento</label>
+                                                    <select
+                                                        className="w-full px-4 py-3 bg-slate-50 border-2 border-transparent focus:border-blue-500/20 focus:bg-white rounded-2xl outline-none transition-all text-xs font-bold appearance-none cursor-pointer"
+                                                        value={wizardDocType}
+                                                        onChange={(e) => setWizardDocType(e.target.value)}
                                                     >
-                                                        <span className="text-sm font-bold text-slate-800">{e.firstName} {e.lastNamePaterno}</span>
-                                                        <span className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">{e.rut} • {e.cargo}</span>
-                                                    </button>
-                                                ))
+                                                        <option value="Contrato">Contrato</option>
+                                                        <option value="EPP">EPP</option>
+                                                        <option value="ODI">ODI</option>
+                                                        <option value="Anexo">Anexo</option>
+                                                        <option value="Otro">Otro</option>
+                                                    </select>
+                                                </div>
+                                            </div>
+
+                                            <div className="space-y-2">
+                                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Subir archivos PDF (Uno o varios)</label>
+                                                <div className="relative group">
+                                                    <input
+                                                        type="file"
+                                                        accept="application/pdf"
+                                                        multiple
+                                                        onChange={(e) => {
+                                                            const files = Array.from(e.target.files || []);
+                                                            setWizardFiles(prev => [...prev, ...files]);
+                                                        }}
+                                                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                                                    />
+                                                    <div className="w-full px-4 py-8 border-2 border-dashed border-slate-200 group-hover:border-blue-400 rounded-3xl flex flex-col items-center justify-center gap-2 bg-slate-50 group-hover:bg-blue-50/30 transition-all">
+                                                        <div className="w-12 h-12 bg-white rounded-2xl shadow-sm flex items-center justify-center text-slate-400 group-hover:text-blue-500 transition-colors">
+                                                            <Upload size={24} />
+                                                        </div>
+                                                        <p className="text-xs font-bold text-slate-500 text-center">
+                                                            Haz clic o arrastra uno o más archivos PDF aquí
+                                                        </p>
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            {/* Listado de archivos agregados para lote */}
+                                            {wizardFiles.length > 0 && (
+                                                <div className="space-y-2 max-h-36 overflow-y-auto pr-1">
+                                                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Archivos en cola ({wizardFiles.length})</p>
+                                                    {wizardFiles.map((file, idx) => (
+                                                        <div key={idx} className="flex items-center justify-between p-2 bg-blue-50/40 rounded-xl border border-blue-100 text-xs font-bold text-slate-700">
+                                                            <span className="truncate max-w-md">{file.name}</span>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => setWizardFiles(prev => prev.filter((_, i) => i !== idx))}
+                                                                className="text-slate-400 hover:text-red-500 transition-colors p-1"
+                                                            >
+                                                                <X size={14} />
+                                                            </button>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            )}
+                                        </div>
+                                    ) : (
+                                        /* Modo: Seleccionar de Plantillas/Existentes */
+                                        <div className="space-y-4">
+                                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Selecciona uno o más documentos de la biblioteca ({uniqueTemplates.length})</p>
+                                            {uniqueTemplates.length === 0 ? (
+                                                <p className="text-slate-400 text-xs font-bold py-6 text-center">No hay documentos cargados previamente en el sistema.</p>
+                                            ) : (
+                                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-60 overflow-y-auto pr-1">
+                                                    {uniqueTemplates.map((tpl, idx) => {
+                                                        const isSelected = selectedTemplates.some(t => t.originalUrl === tpl.originalUrl && t.title === tpl.title);
+                                                        return (
+                                                            <button
+                                                                key={idx}
+                                                                type="button"
+                                                                onClick={() => {
+                                                                    if (isSelected) {
+                                                                        setSelectedTemplates(prev => prev.filter(t => t.originalUrl !== tpl.originalUrl || t.title !== tpl.title));
+                                                                    } else {
+                                                                        setSelectedTemplates(prev => [...prev, tpl]);
+                                                                    }
+                                                                }}
+                                                                className={`p-4 border rounded-3xl text-left flex items-start gap-3 transition-all ${
+                                                                    isSelected ? 'border-blue-500 bg-blue-50/30' : 'border-slate-100 hover:border-slate-300 bg-slate-50/50'
+                                                                }`}
+                                                            >
+                                                                <input
+                                                                    type="checkbox"
+                                                                    checked={isSelected}
+                                                                    readOnly
+                                                                    className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 mt-1 pointer-events-none"
+                                                                />
+                                                                <div className="min-w-0">
+                                                                    <p className="text-xs font-bold text-slate-800 truncate">{tpl.title}</p>
+                                                                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-wider mt-0.5 bg-slate-100 px-1.5 py-0.5 rounded w-fit">{tpl.type}</p>
+                                                                </div>
+                                                            </button>
+                                                        );
+                                                    })}
+                                                </div>
                                             )}
                                         </div>
                                     )}
-                                </div>
-                            </div>
 
-                            {/* CONFIGURACIÓN DE FIRMA */}
-                            <div className="bg-slate-50 p-6 rounded-3xl border border-slate-100 space-y-4">
-                                <h3 className="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
-                                    <PenTool size={14} className="text-blue-600" />
-                                    Configuración de Firma
-                                </h3>
+                                    {/* Configuración de Firma Compartida para el lote */}
+                                    <div className="bg-slate-50 p-6 rounded-[2rem] border border-slate-100 space-y-4">
+                                        <h3 className="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                                            <PenTool size={14} className="text-blue-600" />
+                                            Configuración de Firma (Común para el lote)
+                                        </h3>
+                                        
+                                        <div className="grid grid-cols-2 gap-4">
+                                            <div className="space-y-2">
+                                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Página de Firma</label>
+                                                <select
+                                                    className="w-full px-4 py-3 bg-white border border-slate-200 focus:border-blue-500 rounded-xl outline-none transition-all text-xs font-bold appearance-none cursor-pointer"
+                                                    value={sigPageType}
+                                                    onChange={(e) => setSigPageType(e.target.value as any)}
+                                                >
+                                                    <option value="last">Última hoja</option>
+                                                    <option value="specific">Página específica</option>
+                                                </select>
+                                            </div>
 
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div className="space-y-2">
-                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Página de Firma</label>
-                                        <select
-                                            className="w-full px-4 py-3 bg-white border border-slate-200 focus:border-blue-500 rounded-xl outline-none transition-all text-xs font-bold appearance-none cursor-pointer"
-                                            value={uploadForm.signaturePageType}
-                                            onChange={(e) => setUploadForm({ ...uploadForm, signaturePageType: e.target.value as any })}
-                                        >
-                                            <option value="last">Última hoja</option>
-                                            <option value="specific">Página específica</option>
-                                        </select>
-                                    </div>
-
-                                    <div className="space-y-2">
-                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Posición Horizontal</label>
-                                        <select
-                                            className="w-full px-4 py-3 bg-white border border-slate-200 focus:border-blue-500 rounded-xl outline-none transition-all text-xs font-bold appearance-none cursor-pointer"
-                                            value={uploadForm.signaturePosition}
-                                            onChange={(e) => setUploadForm({ ...uploadForm, signaturePosition: e.target.value as any })}
-                                        >
-                                            <option value="left">Izquierda</option>
-                                            <option value="center">Centro</option>
-                                            <option value="right">Derecha</option>
-                                        </select>
-                                    </div>
-                                </div>
-
-                                {uploadForm.signaturePageType === 'specific' && (
-                                    <div className="space-y-2 animate-in fade-in slide-in-from-top-2 duration-200">
-                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Número de Página</label>
-                                        <input
-                                            type="number"
-                                            min="1"
-                                            required
-                                            className="w-full px-4 py-3 bg-white border border-slate-200 focus:border-blue-500 rounded-xl outline-none transition-all text-xs font-bold"
-                                            value={uploadForm.signaturePageNumber}
-                                            onChange={(e) => setUploadForm({ ...uploadForm, signaturePageNumber: Math.max(1, parseInt(e.target.value) || 1) })}
-                                        />
-                                    </div>
-                                )}
-                            </div>
-
-                            <div className="space-y-2">
-                                <label className="text-xs font-black text-slate-400 uppercase tracking-widest">Archivo PDF</label>
-                                <div className="relative group">
-                                    <input
-                                        type="file"
-                                        accept="application/pdf"
-                                        required
-                                        onChange={(e) => setUploadForm({ ...uploadForm, file: e.target.files?.[0] || null })}
-                                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
-                                    />
-                                    <div className="w-full px-4 py-8 border-2 border-dashed border-slate-200 group-hover:border-blue-400 rounded-3xl flex flex-col items-center justify-center gap-2 bg-slate-50 group-hover:bg-blue-50/30 transition-all">
-                                        <div className="w-12 h-12 bg-white rounded-2xl shadow-sm flex items-center justify-center text-slate-400 group-hover:text-blue-500 transition-colors">
-                                            <Upload size={24} />
+                                            <div className="space-y-2">
+                                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Posición Horizontal</label>
+                                                <select
+                                                    className="w-full px-4 py-3 bg-white border border-slate-200 focus:border-blue-500 rounded-xl outline-none transition-all text-xs font-bold appearance-none cursor-pointer"
+                                                    value={sigPosition}
+                                                    onChange={(e) => setSigPosition(e.target.value as any)}
+                                                >
+                                                    <option value="left">Izquierda</option>
+                                                    <option value="center">Centro</option>
+                                                    <option value="right">Derecha</option>
+                                                </select>
+                                            </div>
                                         </div>
-                                        <p className="text-xs font-bold text-slate-500">
-                                            {uploadForm.file ? uploadForm.file.name : 'Haz clic o arrastra el archivo aquí'}
-                                        </p>
-                                        <p className="text-[10px] text-slate-400 uppercase tracking-widest font-black">Máximo 10MB</p>
+
+                                        {sigPageType === 'specific' && (
+                                            <div className="space-y-2 animate-in fade-in slide-in-from-top-2 duration-200">
+                                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Número de Página</label>
+                                                <input
+                                                    type="number"
+                                                    min="1"
+                                                    required
+                                                    className="w-full px-4 py-3 bg-white border border-slate-200 focus:border-blue-500 rounded-xl outline-none transition-all text-xs font-bold"
+                                                    value={sigPageNumber}
+                                                    onChange={(e) => setSigPageNumber(Math.max(1, parseInt(e.target.value) || 1))}
+                                                />
+                                            </div>
+                                        )}
                                     </div>
                                 </div>
-                            </div>
+                            )}
 
-                            <button
-                                type="submit"
-                                disabled={isLoading}
-                                className="w-full py-4 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 text-white rounded-2xl font-black text-sm uppercase tracking-widest shadow-xl shadow-blue-200 transition-all active:scale-95 flex items-center justify-center gap-2"
-                            >
-                                {isLoading ? <Loader2 size={20} className="animate-spin" /> : <><Upload size={20} /> Subir y Asignar</>}
-                            </button>
-                        </form>
+                            {/* PASO 2: DESTINATARIOS */}
+                            {wizardStep === 'destinatarios' && (
+                                <div className="space-y-6 animate-in fade-in duration-200">
+                                    <div className="space-y-3">
+                                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Define el grupo de alcance de la asignación</p>
+                                        <div className="flex flex-wrap gap-2">
+                                            <button
+                                                type="button"
+                                                onClick={() => setAssigneeType('all')}
+                                                className={`px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center gap-1.5 ${
+                                                    assigneeType === 'all' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                                                }`}
+                                            >
+                                                <Users size={14} /> Todos los Colaboradores
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => setAssigneeType('sucursal')}
+                                                className={`px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center gap-1.5 ${
+                                                    assigneeType === 'sucursal' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                                                }`}
+                                            >
+                                                <Building size={14} /> Por Sucursal (Instalación)
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => setAssigneeType('colaboradores')}
+                                                className={`px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center gap-1.5 ${
+                                                    assigneeType === 'colaboradores' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                                                }`}
+                                            >
+                                                <Users size={14} /> Colaboradores Específicos
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    {/* Sub-Paneles según Destinatarios */}
+                                    {assigneeType === 'all' && (
+                                        <div className="p-6 bg-blue-50/50 border border-blue-100 rounded-3xl text-blue-900 flex gap-3 items-start">
+                                            <Info size={20} className="shrink-0 text-blue-600 mt-0.5" />
+                                            <div>
+                                                <p className="text-xs font-bold">Asignación Universal</p>
+                                                <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">
+                                                    El documento se asignará automáticamente a todos los guardias y colaboradores activos registrados en la plataforma.
+                                                </p>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {assigneeType === 'sucursal' && (
+                                        <div className="space-y-3">
+                                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Selecciona una o más sucursales ({sites.length})</label>
+                                            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                                                {sites.map((site) => {
+                                                    const isSelected = selectedSites.includes(site.id);
+                                                    const workersInSite = employees.filter(e => e.isActive && e.currentSiteId === site.id).length;
+                                                    return (
+                                                        <button
+                                                            key={site.id}
+                                                            type="button"
+                                                            onClick={() => {
+                                                                if (isSelected) {
+                                                                    setSelectedSites(prev => prev.filter(id => id !== site.id));
+                                                                } else {
+                                                                    setSelectedSites(prev => [...prev, site.id]);
+                                                                }
+                                                            }}
+                                                            className={`p-4 border rounded-3xl text-left flex flex-col justify-between h-24 transition-all ${
+                                                                isSelected ? 'border-blue-500 bg-blue-50/30' : 'border-slate-100 hover:border-slate-300 bg-slate-50/50'
+                                                            }`}
+                                                        >
+                                                            <span className="text-xs font-black text-slate-700 truncate w-full">{site.name}</span>
+                                                            <span className="text-[9px] font-bold text-slate-400 mt-2 bg-slate-100 px-2 py-0.5 rounded-lg w-fit">
+                                                                {workersInSite} {workersInSite === 1 ? 'guardia' : 'guardias'}
+                                                            </span>
+                                                        </button>
+                                                    );
+                                                })}
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {assigneeType === 'colaboradores' && (
+                                        <div className="space-y-4">
+                                            <div className="relative">
+                                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                                                <input
+                                                    type="text"
+                                                    placeholder="Buscar colaborador por nombre o RUT..."
+                                                    className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border-none rounded-xl text-xs font-bold focus:ring-2 focus:ring-blue-500 outline-none"
+                                                    value={employeeSearchText}
+                                                    onChange={(e) => setEmployeeSearchText(e.target.value)}
+                                                />
+                                            </div>
+
+                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-56 overflow-y-auto pr-1">
+                                                {wizardFilteredEmployees.map((emp) => {
+                                                    const isSelected = selectedEmployees.includes(emp.id);
+                                                    return (
+                                                        <button
+                                                            key={emp.id}
+                                                            type="button"
+                                                            onClick={() => {
+                                                                if (isSelected) {
+                                                                    setSelectedEmployees(prev => prev.filter(id => id !== emp.id));
+                                                                } else {
+                                                                    setSelectedEmployees(prev => [...prev, emp.id]);
+                                                                }
+                                                            }}
+                                                            className={`p-3 border rounded-2xl text-left flex items-center gap-3 transition-all ${
+                                                                isSelected ? 'border-blue-500 bg-blue-50/30' : 'border-slate-100 hover:border-slate-300 bg-slate-50/50'
+                                                            }`}
+                                                        >
+                                                            <input
+                                                                type="checkbox"
+                                                                checked={isSelected}
+                                                                readOnly
+                                                                className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 pointer-events-none"
+                                                            />
+                                                            <div className="min-w-0">
+                                                                <p className="text-xs font-bold text-slate-800 truncate">{emp.firstName} {emp.lastNamePaterno}</p>
+                                                                <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mt-0.5">{emp.rut} • {emp.cargo || 'Guardia'}</p>
+                                                            </div>
+                                                        </button>
+                                                    );
+                                                })}
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* Reglas de Conflictos / Duplicados */}
+                                    <div className="bg-slate-50 p-6 rounded-[2rem] border border-slate-100 space-y-4">
+                                        <h3 className="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                                            <Layers size={14} className="text-blue-600" />
+                                            Reglas de Coincidencia de Asignación
+                                        </h3>
+                                        <div className="space-y-3">
+                                            <p className="text-[10px] text-slate-400 font-bold leading-normal">
+                                                * Si el colaborador ya tiene el documento en estado **Pendiente**, no se duplicará en ningún caso.
+                                            </p>
+                                            <div className="space-y-2">
+                                                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Si el colaborador ya tiene el documento **Firmado**:</label>
+                                                <select
+                                                    className="w-full px-4 py-3 bg-white border border-slate-200 focus:border-blue-500 rounded-xl outline-none transition-all text-xs font-bold appearance-none cursor-pointer"
+                                                    value={conflictBehavior}
+                                                    onChange={(e) => setConflictBehavior(e.target.value as any)}
+                                                >
+                                                    <option value="omit">Omitir asignación (Mantener versión firmada actual)</option>
+                                                    <option value="overwrite">Nueva Asignación (Exigir nueva firma de este lote)</option>
+                                                </select>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* PASO 3: CONFIRMACION */}
+                            {wizardStep === 'confirmacion' && (
+                                <div className="h-full flex flex-col justify-center items-center p-4 animate-in fade-in duration-200">
+                                    <div className="w-full max-w-md flex flex-col items-center text-center space-y-6">
+                                        <div className="w-16 h-16 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center shadow-inner shrink-0">
+                                            <Info size={32} />
+                                        </div>
+                                        <div className="w-full space-y-4">
+                                            <h3 className="text-lg font-black text-slate-800 uppercase tracking-tight">Resumen de Asignación</h3>
+                                            <div className="space-y-3 text-left bg-slate-50 p-6 rounded-3xl border border-slate-100 shadow-sm">
+                                                <div className="flex justify-between items-center py-2 border-b border-slate-200/50">
+                                                    <span className="text-xs font-bold text-slate-500">Documentos seleccionados:</span>
+                                                    <span className="text-xs font-black text-slate-800">
+                                                        {wizardMode === 'upload' ? wizardFiles.length : selectedTemplates.length}
+                                                    </span>
+                                                </div>
+                                                <div className="flex justify-between items-center py-2 border-b border-slate-200/50">
+                                                    <span className="text-xs font-bold text-slate-500">Tipo de destinatarios:</span>
+                                                    <span className="text-xs font-black text-slate-800 uppercase tracking-wide">
+                                                        {assigneeType === 'all' ? 'Todos los colaboradores' :
+                                                         assigneeType === 'sucursal' ? `${selectedSites.length} sucursales` :
+                                                         `${selectedEmployees.length} colaboradores`}
+                                                    </span>
+                                                </div>
+                                                <div className="flex justify-between items-center py-2">
+                                                    <span className="text-xs font-bold text-slate-500">Acción al existir firmas:</span>
+                                                    <span className="text-xs font-black text-slate-800">
+                                                        {conflictBehavior === 'omit' ? 'Omitir asignación' : 'Forzar nueva firma'}
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <p className="text-xs font-medium text-slate-400 max-w-sm">
+                                            Al confirmar, el sistema resolverá de forma inteligente la lista de colaboradores y cargará los documentos correspondientes en segundo plano.
+                                        </p>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* PASO 4: RESULTADO */}
+                            {wizardStep === 'resultado' && bulkResult && (
+                                <div className="h-full flex flex-col justify-center items-center p-4 animate-in zoom-in-95 duration-300">
+                                    <div className="w-full max-w-md flex flex-col items-center text-center space-y-6">
+                                        <div className="w-16 h-16 bg-emerald-50 text-emerald-600 rounded-2xl flex items-center justify-center shadow-inner shrink-0 animate-bounce">
+                                            <CheckCircle size={32} />
+                                        </div>
+                                        <div className="w-full space-y-4">
+                                            <h3 className="text-lg font-black text-slate-800 uppercase tracking-tight">¡Asignación Completada!</h3>
+                                            <div className="space-y-3 text-left bg-slate-50 p-6 rounded-3xl border border-slate-100 shadow-sm">
+                                                <div className="flex justify-between items-center py-2 border-b border-slate-200/50">
+                                                    <span className="text-xs font-bold text-slate-500">Documentos procesados:</span>
+                                                    <span className="text-xs font-black text-slate-800">{bulkResult.docsCount}</span>
+                                                </div>
+                                                <div className="flex justify-between items-center py-2 border-b border-slate-200/50">
+                                                    <span className="text-xs font-bold text-slate-500">Trabajadores seleccionados:</span>
+                                                    <span className="text-xs font-black text-slate-800">{bulkResult.workersCount}</span>
+                                                </div>
+                                                <div className="flex justify-between items-center py-2 border-b border-slate-200/50">
+                                                    <span className="text-xs font-bold text-slate-500">Asignaciones creadas:</span>
+                                                    <span className="text-xs font-black text-emerald-600">{bulkResult.generatedCount}</span>
+                                                </div>
+                                                <div className="flex justify-between items-center py-2">
+                                                    <span className="text-xs font-bold text-slate-500">Omitidos por duplicados:</span>
+                                                    <span className="text-xs font-black text-amber-500">{bulkResult.skippedCount}</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Footer con controles de Wizard */}
+                        <div className="p-6 border-t border-slate-100 bg-white flex justify-between shrink-0">
+                            {wizardStep !== 'resultado' ? (
+                                <>
+                                    <button
+                                        type="button"
+                                        onClick={resetWizard}
+                                        className="px-6 py-3 border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-2xl text-xs font-black uppercase tracking-widest active:scale-95 transition-all"
+                                    >
+                                        Cancelar
+                                    </button>
+
+                                    <div className="flex gap-2">
+                                        {wizardStep === 'destinatarios' && (
+                                            <button
+                                                type="button"
+                                                onClick={() => setWizardStep('docs')}
+                                                className="px-5 py-3 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-2xl text-xs font-black uppercase tracking-widest active:scale-95 transition-all"
+                                            >
+                                                Atrás
+                                            </button>
+                                        )}
+                                        {wizardStep === 'confirmacion' && (
+                                            <button
+                                                type="button"
+                                                onClick={() => setWizardStep('destinatarios')}
+                                                className="px-5 py-3 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-2xl text-xs font-black uppercase tracking-widest active:scale-95 transition-all"
+                                            >
+                                                Atrás
+                                            </button>
+                                        )}
+
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                if (wizardStep === 'docs') {
+                                                    // Validaciones Paso 1
+                                                    if (wizardMode === 'upload' && wizardFiles.length === 0) {
+                                                        showNotification("Sube al menos un archivo PDF", "warning");
+                                                        return;
+                                                    }
+                                                    if (wizardMode === 'templates' && selectedTemplates.length === 0) {
+                                                        showNotification("Selecciona al menos un documento", "warning");
+                                                        return;
+                                                    }
+                                                    setWizardStep('destinatarios');
+                                                } else if (wizardStep === 'destinatarios') {
+                                                    // Validaciones Paso 2
+                                                    if (assigneeType === 'sucursal' && selectedSites.length === 0) {
+                                                        showNotification("Selecciona al menos una sucursal", "warning");
+                                                        return;
+                                                    }
+                                                    if (assigneeType === 'colaboradores' && selectedEmployees.length === 0) {
+                                                        showNotification("Selecciona al menos un colaborador", "warning");
+                                                        return;
+                                                    }
+                                                    setWizardStep('confirmacion');
+                                                } else if (wizardStep === 'confirmacion') {
+                                                    handleExecuteBulkAssignment();
+                                                }
+                                            }}
+                                            disabled={isLoading || isSigning}
+                                            className="px-6 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 text-white rounded-2xl text-xs font-black uppercase tracking-widest shadow-xl shadow-blue-200 active:scale-95 transition-all flex items-center gap-2"
+                                        >
+                                            {isSigning ? (
+                                                <Loader2 size={16} className="animate-spin" />
+                                            ) : (
+                                                wizardStep === 'confirmacion' ? 'Confirmar Asignación' : 'Siguiente'
+                                            )}
+                                        </button>
+                                    </div>
+                                </>
+                            ) : (
+                                <button
+                                    type="button"
+                                    onClick={resetWizard}
+                                    className="w-full py-4 bg-slate-800 hover:bg-slate-900 text-white rounded-2xl text-xs font-black uppercase tracking-widest transition-all text-center"
+                                >
+                                    Cerrar Asistente
+                                </button>
+                            )}
+                        </div>
                     </div>
                 </div>
             )}
 
-            {/* DOCUMENT VIEWER MODAL (TRABAJADOR) */}
+            {/* VISOR DE DOCUMENTO (TRABAJADOR) */}
             {viewingDoc && (
                 <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-md z-[100] flex items-center justify-center p-0 md:p-4 animate-in fade-in duration-300">
                     <div className="bg-white rounded-none md:rounded-[2.5rem] w-full max-w-4xl h-full md:h-[90vh] shadow-2xl overflow-hidden flex flex-col animate-in zoom-in-95 duration-300">
@@ -896,33 +1568,13 @@ const DocumentsPage: React.FC = () => {
                 </div>
             )}
 
-            {/* BULK SIGNING LOADING OVERLAY */}
-            {isBulkSigning && (
-                <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-[150] flex items-center justify-center p-4">
-                    <div className="bg-white rounded-[2rem] p-8 max-w-sm w-full text-center space-y-6 shadow-2xl animate-in zoom-in-95 duration-200">
-                        <div className="w-16 h-16 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center mx-auto animate-pulse">
-                            <Loader2 className="animate-spin text-blue-600" size={32} />
-                        </div>
-                        <div className="space-y-2">
-                            <h3 className="text-lg font-black text-slate-800">Firmando Documentos</h3>
-                            <p className="text-sm font-bold text-slate-500">Procesando {bulkSignProgress.current} de {bulkSignProgress.total}...</p>
-                        </div>
-                        <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
-                            <div
-                                className="bg-blue-600 h-full transition-all duration-300"
-                                style={{ width: `${(bulkSignProgress.current / bulkSignProgress.total) * 100}%` }}
-                            ></div>
-                        </div>
-                        <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Por favor, no cierres la aplicación</p>
-                    </div>
-                </div>
-            )}
             {/* DIALOGO DE ALERTA/CONFIRMACION PERSONALIZADO */}
             {alertDialog && (
                 <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[200] flex items-center justify-center p-4">
                     <div className="bg-white rounded-[2rem] p-6 max-w-sm w-full text-center space-y-6 shadow-2xl animate-in zoom-in-95 duration-200 border border-slate-100">
-                        <div className={`w-14 h-14 rounded-2xl flex items-center justify-center mx-auto ${alertDialog.type === 'confirm' ? 'bg-blue-50 text-blue-600' : 'bg-amber-50 text-amber-600'
-                            }`}>
+                        <div className={`w-14 h-14 rounded-2xl flex items-center justify-center mx-auto ${
+                            alertDialog.type === 'confirm' ? 'bg-blue-50 text-blue-600' : 'bg-amber-50 text-amber-600'
+                        }`}>
                             {alertDialog.type === 'confirm' ? <PenTool size={28} /> : <Info size={28} />}
                         </div>
                         <div className="space-y-2">
@@ -946,14 +1598,37 @@ const DocumentsPage: React.FC = () => {
                                     alertDialog.onConfirm();
                                     setAlertDialog(null);
                                 }}
-                                className={`px-6 py-3 text-white rounded-2xl text-xs font-black uppercase tracking-widest shadow-lg transition-all flex-1 ${alertDialog.type === 'confirm'
-                                        ? 'bg-blue-600 hover:bg-blue-700 shadow-blue-100'
+                                className={`px-6 py-3 text-white rounded-2xl text-xs font-black uppercase tracking-widest shadow-lg transition-all flex-1 ${
+                                    alertDialog.type === 'confirm' 
+                                        ? 'bg-blue-600 hover:bg-blue-700 shadow-blue-100' 
                                         : 'bg-amber-500 hover:bg-amber-600 shadow-amber-100'
-                                    }`}
+                                }`}
                             >
                                 Aceptar
                             </button>
                         </div>
+                    </div>
+                </div>
+            )}
+
+            {/* CARGA DE FIRMA MASIVA (TRABAJADOR) */}
+            {isBulkSigning && (
+                <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-[150] flex items-center justify-center p-4">
+                    <div className="bg-white rounded-[2rem] p-8 max-w-sm w-full text-center space-y-6 shadow-2xl animate-in zoom-in-95 duration-200">
+                        <div className="w-16 h-16 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center mx-auto animate-pulse">
+                            <Loader2 className="animate-spin text-blue-600" size={32} />
+                        </div>
+                        <div className="space-y-2">
+                            <h3 className="text-lg font-black text-slate-800">Firmando Documentos</h3>
+                            <p className="text-sm font-bold text-slate-500">Procesando {bulkSignProgress.current} de {bulkSignProgress.total}...</p>
+                        </div>
+                        <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
+                            <div 
+                                className="bg-blue-600 h-full transition-all duration-300"
+                                style={{ width: `${(bulkSignProgress.current / bulkSignProgress.total) * 100}%` }}
+                            ></div>
+                        </div>
+                        <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Por favor, no cierres la aplicación</p>
                     </div>
                 </div>
             )}
