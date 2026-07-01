@@ -63,6 +63,8 @@ export interface Employee {
   forceLogout?: boolean; // Para cerrar sesión remota
   lastForceLogout?: string; // ISO timestamp
   assignedSites?: number[]; // IDs of sites assigned to a supervisor
+  signatureUrl?: string; // Base64 data URL representing the signature
+  signatureUpdatedAt?: string; // ISO timestamp of when signature was registered/updated
 }
 
 export interface AttendanceLog {
@@ -112,6 +114,11 @@ export interface DigitalDocument {
   signedUrl?: string;
   createdAt: string;
   signedAt?: string;
+  signatureConfig?: {
+    page: 'last' | 'specific';
+    pageNumber?: number;
+    position: 'left' | 'center' | 'right';
+  };
   metadata?: {
     ip?: string;
     rut?: string;

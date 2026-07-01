@@ -1,5 +1,4 @@
 import React, { useState, useRef, useMemo, useEffect } from 'react';
-import { createPortal } from 'react-dom';
 import { useAppStore } from '../store/useAppStore';
 import {
     FileText,
@@ -13,23 +12,16 @@ import {
     X,
     Download,
     Loader2,
-    Calendar,
-    ShieldCheck,
-    Info,
-    MapPin,
-    RotateCw,
-    Smartphone,
     ChevronLeft,
     ChevronRight,
-    FileCheck
+    FileCheck,
+    Info
 } from 'lucide-react';
-import SignatureCanvas from 'react-signature-canvas';
 import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
 import { Document, Page, pdfjs } from 'react-pdf';
 import axios from 'axios';
 import { DigitalDocument } from '../types';
 import { normalizeText } from '../lib/textUtils';
-
 
 // Configurar worker de react-pdf (Usando el patrón recomendado para Vite)
 pdfjs.GlobalWorkerOptions.workerSrc = new URL(
@@ -39,11 +31,6 @@ pdfjs.GlobalWorkerOptions.workerSrc = new URL(
 
 import 'react-pdf/dist/Page/AnnotationLayer.css';
 import 'react-pdf/dist/Page/TextLayer.css';
-
-const SIGNATURE_SIZE = 200;
-const AUDIT_FONT_SIZE = 8;
-
-
 
 const DocumentsPage: React.FC = () => {
     const {
@@ -58,36 +45,39 @@ const DocumentsPage: React.FC = () => {
         showNotification
     } = useAppStore();
 
-    const [activeTab, setActiveTab] = useState<'pending' | 'signed'>(currentUser?.role === 'admin' ? 'pending' : 'pending');
+    const [activeTab, setActiveTab] = useState<'pending' | 'signed'>('pending');
     const [searchTerm, setSearchTerm] = useState('');
     const [showUploadModal, setShowUploadModal] = useState(false);
     const [selectedDocToSign, setSelectedDocToSign] = useState<DigitalDocument | null>(null);
     const [isSigning, setIsSigning] = useState(false);
     const [assigneeSearch, setAssigneeSearch] = useState('');
     const [showAssigneeDropdown, setShowAssigneeDropdown] = useState(false);
-    const [signingStep, setSigningStep] = useState<'instructions' | 'position' | 'canvas'>('instructions');
-    const [isCanvasEmpty, setIsCanvasEmpty] = useState(true);
-    const [showRotationOverlay, setShowRotationOverlay] = useState(false);
 
-    // Paginación
+    // Visualizador de PDF
+    const [viewingDoc, setViewingDoc] = useState<DigitalDocument | null>(null);
+    const [numPages, setNumPages] = useState<number | null>(null);
+
+    // Firma masiva
+    const [isBulkSigning, setIsBulkSigning] = useState(false);
+    const [bulkSignProgress, setBulkSignProgress] = useState({ current: 0, total: 0 });
+
+    // Diálogo de alerta/confirmación personalizado
+    const [alertDialog, setAlertDialog] = useState<{
+        title: string;
+        message: string;
+        type: 'info' | 'confirm' | 'warning';
+        onConfirm: () => void;
+        onCancel?: () => void;
+    } | null>(null);
+
+    // Paginación (Admin)
     const [currentPage, setCurrentPage] = useState(1);
-    const itemsPerPage = 8; // Trabajadores por página
+    const itemsPerPage = 8;
 
     // Resetear página al buscar o cambiar tab
     useEffect(() => {
         setCurrentPage(1);
     }, [searchTerm, activeTab]);
-
-    // Estado para posicionamiento de firma
-    const [numPages, setNumPages] = useState<number | null>(null);
-    const [signaturePosition, setSignaturePosition] = useState<{
-        pageIndex: number,
-        x: number, // Píxeles en pantalla
-        y: number, // Píxeles en pantalla
-        screenWidth: number,
-        screenHeight: number
-    } | null>(null);
-
 
     // Filtros
     const filteredDocs = useMemo(() => {
@@ -116,7 +106,12 @@ const DocumentsPage: React.FC = () => {
         return docs;
     }, [digitalDocuments, currentUser, activeTab, searchTerm, employees]);
 
-    // Agrupación y Paginación
+    // Cantidad de pendientes para la vista worker
+    const pendingDocsCount = useMemo(() => {
+        return digitalDocuments.filter(d => d.assignedTo === currentUser?.uid && d.status === 'pending').length;
+    }, [digitalDocuments, currentUser]);
+
+    // Agrupación y Paginación para Admin
     const groupedDocs = useMemo(() => {
         const groups: Record<string, DigitalDocument[]> = {};
 
@@ -126,7 +121,6 @@ const DocumentsPage: React.FC = () => {
             groups[key].push(doc);
         });
 
-        // Ordenar trabajadores por nombre
         const allGroups = Object.entries(groups).sort((a, b) => {
             const empA = employees.find(e => e.id === a[0]);
             const empB = employees.find(e => e.id === b[0]);
@@ -141,14 +135,17 @@ const DocumentsPage: React.FC = () => {
         return { paginatedGroups, totalPages, totalCount: allGroups.length };
     }, [filteredDocs, employees, currentPage, itemsPerPage]);
 
-    const { paginatedGroups, totalPages, totalCount } = groupedDocs;
+    const { paginatedGroups, totalPages } = groupedDocs;
 
     // FORMULARIO DE CARGA (ADMIN)
     const [uploadForm, setUploadForm] = useState({
         title: '',
         type: 'Contrato',
         assignedTo: '',
-        file: null as File | null
+        file: null as File | null,
+        signaturePageType: 'last' as 'last' | 'specific',
+        signaturePageNumber: 1,
+        signaturePosition: 'center' as 'left' | 'center' | 'right'
     });
 
     const filteredAssignees = useMemo(() => {
@@ -160,7 +157,6 @@ const DocumentsPage: React.FC = () => {
             return fullName.includes(term) || rut.includes(term);
         });
     }, [employees, assigneeSearch]);
-
 
     const handleUploadSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -174,16 +170,33 @@ const DocumentsPage: React.FC = () => {
             const fileName = `${Date.now()}_${uploadForm.file.name}`;
             const originalUrl = await uploadFile(uploadForm.file, `original_docs/${fileName}`);
 
+            const signatureConfig: any = {
+                page: uploadForm.signaturePageType,
+                position: uploadForm.signaturePosition
+            };
+            if (uploadForm.signaturePageType === 'specific') {
+                signatureConfig.pageNumber = Number(uploadForm.signaturePageNumber);
+            }
+
             await addDigitalDocument({
                 title: uploadForm.title,
                 type: uploadForm.type,
                 assignedTo: uploadForm.assignedTo,
-                originalUrl
+                originalUrl,
+                signatureConfig
             });
 
             showNotification("Documento cargado y asignado correctamente", "success");
             setShowUploadModal(false);
-            setUploadForm({ title: '', type: 'Contrato', assignedTo: '', file: null });
+            setUploadForm({
+                title: '',
+                type: 'Contrato',
+                assignedTo: '',
+                file: null,
+                signaturePageType: 'last',
+                signaturePageNumber: 1,
+                signaturePosition: 'center'
+            });
             setAssigneeSearch('');
             setShowAssigneeDropdown(false);
 
@@ -193,204 +206,171 @@ const DocumentsPage: React.FC = () => {
         }
     };
 
-    // LOGICA DE FIRMA
-    const sigPad = useRef<SignatureCanvas>(null);
+    // LOGICA PARA INCRUSTAR FIRMA PRE-REGISTRADA EN EL PDF
+    const performSign = async (docToSign: DigitalDocument, worker: any) => {
+        // 1. Obtener IP pública
+        let ip = 'Unknown';
+        try {
+            const ipRes = await axios.get('https://api.ipify.org?format=json');
+            ip = ipRes.data.ip;
+        } catch (e) { console.error("Could not get IP", e); }
 
-    // Bloqueo de orientación landscape al entrar al canvas de firma
-    useEffect(() => {
-        if (selectedDocToSign && signingStep === 'canvas') {
-            const isPortrait = window.innerHeight > window.innerWidth;
-            if (isPortrait) {
-                setShowRotationOverlay(true);
-            }
+        // 2. Cargar PDF original
+        const existingPdfBytes = await fetch(docToSign.originalUrl).then(res => res.arrayBuffer());
+        const pdfDoc = await PDFDocument.load(existingPdfBytes);
+        const pages = pdfDoc.getPages();
 
-            // Intentar bloquear orientación landscape (Screen Orientation API)
-            const lockLandscape = async () => {
-                try {
-                    if (screen.orientation && typeof (screen.orientation as any).lock === 'function') {
-                        await (screen.orientation as any).lock('landscape');
-                    }
-                } catch (_) { /* No disponible en todos los navegadores */ }
-            };
-            lockLandscape();
-
-            const handleOrientationChange = () => {
-                const nowLandscape = window.innerWidth > window.innerHeight;
-                if (nowLandscape) setShowRotationOverlay(false);
-            };
-            window.addEventListener('resize', handleOrientationChange);
-
-            return () => {
-                window.removeEventListener('resize', handleOrientationChange);
-                // Restaurar a portrait al salir
-                try {
-                    if (screen.orientation && typeof (screen.orientation as any).unlock === 'function') {
-                        (screen.orientation as any).unlock();
-                    }
-                } catch (_) { }
-            };
-        } else {
-            setShowRotationOverlay(false);
+        // 3. Determinar página de destino
+        let pageIndex = pages.length - 1; // Por defecto: última hoja
+        if (docToSign.signatureConfig?.page === 'specific') {
+            const specPage = (docToSign.signatureConfig.pageNumber || 1) - 1;
+            pageIndex = Math.max(0, Math.min(specPage, pages.length - 1));
         }
-    }, [selectedDocToSign, signingStep]);
 
-    // Sincronizar resolución del canvas con su tamaño visual real (fix coordenadas en móvil)
-    useEffect(() => {
-        let resizeObserver: ResizeObserver | null = null;
+        const selectedPage = pages[pageIndex];
+        const { width: pdfWidth, height: pdfHeight } = selectedPage.getSize();
 
-        const syncCanvasSize = () => {
-            if (selectedDocToSign && signingStep === 'canvas' && sigPad.current) {
-                const canvas = sigPad.current.getCanvas();
-                if (canvas && canvas.parentElement) {
-                    const rect = canvas.parentElement.getBoundingClientRect();
-                    const w = Math.floor(rect.width);
-                    const h = Math.floor(rect.height);
-                    if (canvas.width !== w || canvas.height !== h) {
-                        canvas.width = w;
-                        canvas.height = h;
-                        sigPad.current.clear();
-                        setIsCanvasEmpty(true);
-                    }
-                }
-            }
-        };
-
-        if (selectedDocToSign && signingStep === 'canvas') {
-            // Doble RAF para asegurar que el layout está completo antes de medir
-            const timer = setTimeout(() => requestAnimationFrame(() => requestAnimationFrame(syncCanvasSize)), 50);
-            const parent = sigPad.current?.getCanvas()?.parentElement;
-            if (parent) {
-                resizeObserver = new ResizeObserver(() => requestAnimationFrame(syncCanvasSize));
-                resizeObserver.observe(parent);
-            }
-            window.addEventListener('resize', syncCanvasSize);
-            window.addEventListener('orientationchange', syncCanvasSize);
-            return () => {
-                clearTimeout(timer);
-                window.removeEventListener('resize', syncCanvasSize);
-                window.removeEventListener('orientationchange', syncCanvasSize);
-                if (resizeObserver) resizeObserver.disconnect();
-            };
+        // 4. Determinar posición horizontal (x)
+        const sigWidth = 150;
+        const sigHeight = 75;
+        let x = (pdfWidth - sigWidth) / 2; // Por defecto: Centro
+        if (docToSign.signatureConfig?.position === 'left') {
+            x = 50;
+        } else if (docToSign.signatureConfig?.position === 'right') {
+            x = pdfWidth - sigWidth - 50;
         }
-    }, [selectedDocToSign, signingStep]);
 
-    // Bloquear scroll del body al firmar — evita el bounce de iOS al tocar bordes
-    useEffect(() => {
-        if (signingStep === 'canvas' && selectedDocToSign) {
-            const htmlElement = document.documentElement;
-            const originalHtmlOverflow = htmlElement.style.overflow;
-            const originalBodyOverflow = document.body.style.overflow;
+        // Altura automática predefinida por el sistema (y) para la firma
+        const y = 40;
 
-            htmlElement.style.overflow = 'hidden';
-            document.body.style.overflow = 'hidden';
-
-            return () => {
-                htmlElement.style.overflow = originalHtmlOverflow;
-                document.body.style.overflow = originalBodyOverflow;
-            };
-        }
-    }, [signingStep, selectedDocToSign]);
-
-    const handlePageClick = (pageIndex: number, e: React.MouseEvent) => {
-        const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-        const x = e.clientX - rect.left;
-        const y = e.clientY - rect.top;
-
-        setSignaturePosition({
-            pageIndex,
+        // 5. Incrustar imagen de firma registrada
+        const signatureImage = await pdfDoc.embedPng(worker.signatureUrl);
+        selectedPage.drawImage(signatureImage, {
             x,
             y,
-            screenWidth: rect.width,
-            screenHeight: rect.height
+            width: 120,
+            height: 50,
+        });
+
+        // 6. Texto de auditoría y sello al pie de la página (máximo 2 líneas al final)
+        const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+        const timestamp = new Date().toLocaleString();
+        const userName = `${worker.firstName} ${worker.lastNamePaterno}`;
+        const rut = worker.rut;
+        const email = worker.email || 'N/A';
+        const uniqueSigId = `SIG-${Math.random().toString(36).substring(2, 11).toUpperCase()}`;
+        const appVersion = '3.0.6';
+        const deviceId = navigator.userAgent.substring(0, 60);
+
+        const line1 = `Firmado digitalmente por: ${userName} (${rut}) | Email: ${email} | Fecha: ${timestamp}`;
+        const line2 = `ID Firma: ${uniqueSigId} | IP: ${ip} | App: v${appVersion} | Dispositivo: ${deviceId}`;
+
+        // Dibujar Línea 1 (a y = 25)
+        selectedPage.drawText(line1, {
+            x: 40,
+            y: 25,
+            size: 6,
+            font,
+            color: rgb(0.2, 0.2, 0.2),
+        });
+
+        // Dibujar Línea 2 (a y = 15)
+        selectedPage.drawText(line2, {
+            x: 40,
+            y: 15,
+            size: 6,
+            font,
+            color: rgb(0.3, 0.3, 0.3),
+        });
+
+        // 7. Guardar y subir a Firebase
+        const pdfBytes = await pdfDoc.save();
+        const signedFileName = `signed_${docToSign.id}.pdf`;
+        const signedBlob = new Blob([pdfBytes], { type: 'application/pdf' });
+        const signedUrl = await uploadFile(signedBlob, `signed_docs/${signedFileName}`);
+
+        // 8. Actualizar Firestore
+        await signDigitalDocument(docToSign.id, signedUrl, {
+            ip,
+            rut,
+            browserInfo: navigator.userAgent
         });
     };
 
-    const handleSignDocument = async () => {
-        if (!selectedDocToSign || !sigPad.current || sigPad.current.isEmpty() || !signaturePosition) {
-            showNotification("Por favor firma y selecciona la ubicación en el documento", "warning");
+    const handleSignIndividual = async (docToSign: DigitalDocument) => {
+        const workerEmployee = employees.find(e => e.id === currentUser?.uid);
+        if (!workerEmployee?.signatureUrl) {
+            setAlertDialog({
+                title: "Firma no registrada",
+                message: "No tienes una firma registrada. Por favor, ve a 'Mi Perfil' para registrar tu firma antes de continuar.",
+                type: 'warning',
+                onConfirm: () => { }
+            });
             return;
         }
 
-        setIsSigning(true);
-        try {
-            // 1. Obtener IP pública
-            let ip = 'Unknown';
-            try {
-                const ipRes = await axios.get('https://api.ipify.org?format=json');
-                ip = ipRes.data.ip;
-            } catch (e) { console.error("Could not get IP", e); }
+        setAlertDialog({
+            title: "Confirmar Firma",
+            message: "¿Deseas firmar este documento utilizando tu firma registrada?",
+            type: 'confirm',
+            onConfirm: async () => {
+                setSelectedDocToSign(docToSign);
+                setIsSigning(true);
+                try {
+                    await performSign(docToSign, workerEmployee);
+                    showNotification("Documento firmado correctamente", "success");
+                } catch (error) {
+                    console.error("Error al firmar documento:", error);
+                    showNotification("Error al firmar el documento", "error");
+                } finally {
+                    setIsSigning(false);
+                    setSelectedDocToSign(null);
+                }
+            }
+        });
+    };
 
-            // 2. Obtener datos de la firma
-            const signatureDataUrl = sigPad.current.getCanvas().toDataURL('image/png');
-
-
-            // 3. Obtener el RUT del usuario actual si es un empleado
-            const userEmployee = employees.find(e => e.id === currentUser?.uid);
-            const rut = userEmployee?.rut || 'N/A';
-            const userName = userEmployee ? `${userEmployee.firstName} ${userEmployee.lastNamePaterno}` : currentUser?.email || 'Usuario';
-
-            // 4. Manipular PDF con pdf-lib
-            const existingPdfBytes = await fetch(selectedDocToSign.originalUrl).then(res => res.arrayBuffer());
-            const pdfDoc = await PDFDocument.load(existingPdfBytes);
-            const pages = pdfDoc.getPages();
-
-            // Obtener página seleccionada
-            const selectedPage = pages[signaturePosition.pageIndex];
-            const { width: pdfWidth, height: pdfHeight } = selectedPage.getSize();
-
-            // Normalización de Coordenadas (Screen Pixels -> PDF Points 72 DPI)
-            const pdfX = (signaturePosition.x / signaturePosition.screenWidth) * pdfWidth;
-            // Inversión de eje Y: PDF (0,0) es abajo-izquierda
-            const pdfY = pdfHeight - ((signaturePosition.y / signaturePosition.screenHeight) * pdfHeight);
-
-            // Incrustar firma
-            const signatureImage = await pdfDoc.embedPng(signatureDataUrl);
-            const sigDims = signatureImage.scale(SIGNATURE_SIZE / signatureImage.width);
-
-            // Colocar la firma desde la esquina superior izquierda del punto de toque
-            // En PDF el eje Y está invertido: pdfY es la esquina superior → restamos la altura para obtener el origen inferior
-            selectedPage.drawImage(signatureImage, {
-                x: pdfX,
-                y: pdfY - sigDims.height,
-                width: sigDims.width,
-                height: sigDims.height,
+    const handleBulkSign = async () => {
+        const workerEmployee = employees.find(e => e.id === currentUser?.uid);
+        if (!workerEmployee?.signatureUrl) {
+            setAlertDialog({
+                title: "Firma no registrada",
+                message: "No tienes una firma registrada. Por favor, ve a 'Mi Perfil' para registrar tu firma antes de continuar.",
+                type: 'warning',
+                onConfirm: () => { }
             });
-
-            // Incrustar texto de auditoría al pie de la página
-            const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
-            const timestamp = new Date().toLocaleString();
-            const auditText = `Documento firmado electrónicamente por ${userName} (${rut}) - IP: ${ip} - Fecha: ${timestamp}`;
-
-            selectedPage.drawText(auditText, {
-                x: 50, // Alineado a la izquierda con un margen de 50pt
-                y: 20, // Al pie de la hoja (20pt desde el borde inferior)
-                size: AUDIT_FONT_SIZE,
-                font,
-                color: rgb(0.4, 0.4, 0.4),
-            });
-
-            const pdfBytes = await pdfDoc.save();
-
-            // 5. Subir PDF firmado
-            const signedFileName = `signed_${selectedDocToSign.id}.pdf`;
-            const signedBlob = new Blob([pdfBytes as any], { type: 'application/pdf' });
-            const signedUrl = await uploadFile(signedBlob, `signed_docs/${signedFileName}`);
-
-            // 6. Actualizar Firestore
-            await signDigitalDocument(selectedDocToSign.id, signedUrl, {
-                ip,
-                rut,
-                browserInfo: navigator.userAgent
-            });
-
-            showNotification("Documento firmado correctamente. Gracias", "success");
-            setSelectedDocToSign(null);
-        } catch (error) {
-            console.error(error);
-            showNotification("Error al procesar la firma", "error");
-        } finally {
-            setIsSigning(false);
+            return;
         }
+
+        const pendingDocs = filteredDocs.filter(d => d.status === 'pending');
+        if (pendingDocs.length === 0) {
+            showNotification("No tienes documentos pendientes de firma", "warning");
+            return;
+        }
+
+        setAlertDialog({
+            title: "Firma Masiva",
+            message: `Firmarás ${pendingDocs.length} documentos utilizando tu firma registrada. ¿Deseas continuar?`,
+            type: 'confirm',
+            onConfirm: async () => {
+                setIsBulkSigning(true);
+                setBulkSignProgress({ current: 0, total: pendingDocs.length });
+
+                try {
+                    for (let i = 0; i < pendingDocs.length; i++) {
+                        const docToSign = pendingDocs[i];
+                        setBulkSignProgress({ current: i + 1, total: pendingDocs.length });
+                        await performSign(docToSign, workerEmployee);
+                    }
+                    showNotification(`Se firmaron los ${pendingDocs.length} documentos correctamente.`, "success");
+                } catch (error) {
+                    console.error("Error en firma masiva:", error);
+                    showNotification("Hubo un error al firmar algunos documentos", "error");
+                } finally {
+                    setIsBulkSigning(false);
+                }
+            }
+        });
     };
 
     return (
@@ -398,25 +378,44 @@ const DocumentsPage: React.FC = () => {
             {/* HEADER */}
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
-                    <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
-                        <ShieldCheck className="text-blue-600" />
-                        Gestión de Documentos
-                    </h1>
-                    <p className="text-slate-500">Contratos, EPP, ODI y Anexos con firma digital</p>
+                    <h1 className="text-2xl font-black text-slate-800 tracking-tight uppercase">Firma de Documentos</h1>
+                    <p className="text-slate-500 text-sm font-medium">Contratos, EPP, ODI y Anexos con firma digital</p>
                 </div>
 
                 {currentUser?.role === 'admin' && (
                     <button
                         onClick={() => setShowUploadModal(true)}
-                        className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg shadow-blue-200 transition-all active:scale-95"
+                        className="py-3 px-6 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl text-xs font-black uppercase tracking-widest shadow-xl shadow-blue-200 transition-all active:scale-95 flex items-center justify-center gap-2 self-start md:self-auto"
                     >
-                        <Upload size={18} />
-                        Cargar Nuevo
+                        <Upload size={16} /> Cargar Documento
                     </button>
                 )}
             </div>
 
-            {/* TABS & SEARCH */}
+            {/* AVISO PENDIENTES DE TRABAJADOR */}
+            {currentUser?.role !== 'admin' && activeTab === 'pending' && (
+                <div className="bg-amber-50 border border-amber-200 p-5 rounded-3xl flex flex-col sm:flex-row items-center justify-between gap-4 animate-in fade-in slide-in-from-top-4 duration-300">
+                    <div>
+                        <h2 className="text-base font-black text-amber-900 tracking-tight">Firma Digital</h2>
+                        <p className="text-xs font-bold text-amber-700 mt-1">
+                            {pendingDocsCount === 0
+                                ? 'No tienes documentos pendientes de firma.'
+                                : `Tienes ${pendingDocsCount} ${pendingDocsCount === 1 ? 'documento pendiente' : 'documentos pendientes'} de firma.`}
+                        </p>
+                    </div>
+                    {pendingDocsCount > 1 && (
+                        <button
+                            onClick={handleBulkSign}
+                            disabled={isSigning || isBulkSigning}
+                            className="w-full sm:w-auto px-6 py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl text-xs font-black uppercase tracking-widest shadow-lg shadow-emerald-100 active:scale-95 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                        >
+                            <PenTool size={14} /> Firmar Todos ({pendingDocsCount})
+                        </button>
+                    )}
+                </div>
+            )}
+
+            {/* TAB Y BARRA BUSQUEDA */}
             <div className="bg-white p-2 rounded-2xl shadow-sm border border-slate-100 flex flex-col sm:flex-row items-center gap-4">
                 <div className="flex p-1 bg-slate-100 rounded-xl w-full sm:w-auto">
                     <button
@@ -438,123 +437,186 @@ const DocumentsPage: React.FC = () => {
                     <input
                         type="text"
                         placeholder="Buscar por título o tipo..."
-                        className="w-full pl-10 pr-4 py-2 bg-slate-50 border-none rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                        className="w-full pl-10 pr-4 py-2 bg-slate-50 border-none rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none font-bold"
                         value={searchTerm}
                         onChange={(e) => setSearchTerm(e.target.value)}
                     />
                 </div>
             </div>
 
-            {/* LISTA DE DOCUMENTOS AGRUPADOS (LISTADO COMPLETO) */}
-            <div className="space-y-6">
-                {paginatedGroups.length === 0 ? (
-                    <div className="py-20 flex flex-col items-center justify-center bg-white rounded-3xl border-2 border-dashed border-slate-200">
-                        <div className="w-16 h-16 bg-slate-50 rounded-full flex items-center justify-center mb-4 text-slate-300">
-                            <FileText size={32} />
+            {/* VISTA DE DOCUMENTOS */}
+            {currentUser?.role !== 'admin' ? (
+                /* VISTA FLAT DIRECTA PARA TRABAJADORES */
+                <div className="bg-white rounded-[2rem] border border-slate-100 shadow-sm overflow-hidden p-6 space-y-4">
+                    {filteredDocs.length === 0 ? (
+                        <div className="py-20 flex flex-col items-center justify-center">
+                            <div className="w-16 h-16 bg-slate-50 rounded-full flex items-center justify-center mb-4 text-slate-300">
+                                <FileCheck size={32} />
+                            </div>
+                            <p className="text-slate-400 font-black text-lg">Sin documentos</p>
+                            <p className="text-slate-400 text-sm">No tienes documentos en esta sección.</p>
                         </div>
-                        <p className="text-slate-400 font-medium text-lg">No hay registros</p>
-                        <p className="text-slate-400 text-sm">Prueba con otra búsqueda o sección</p>
-                    </div>
-                ) : (
-                    paginatedGroups.map(([employeeId, docs]) => {
-                        const assignee = employees.find(e => e.id === employeeId);
-                        const initials = assignee ? `${assignee.firstName[0]}${assignee.lastNamePaterno[0]}` : 'U';
-
-                        return (
-                            <div key={employeeId} className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-300">
-                                {/* Header del Grupo (Trabajador) - Más compacto */}
-                                <div className="p-4 bg-slate-50/50 flex items-center justify-between border-b border-slate-100">
-                                    <div className="flex items-center gap-3">
-                                        <div className="w-10 h-10 rounded-xl bg-blue-600 flex items-center justify-center text-white font-black text-sm shadow-md shadow-blue-100">
-                                            {initials}
+                    ) : (
+                        <div className="divide-y divide-slate-100">
+                            {filteredDocs.map((doc) => (
+                                <div key={doc.id} className="py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 first:pt-0 last:pb-0">
+                                    <div className="flex items-center gap-4">
+                                        <div className={`p-2.5 rounded-2xl ${doc.status === 'signed' ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'}`}>
+                                            <FileText size={20} />
                                         </div>
-                                        <div>
-                                            <h2 className="text-sm font-black text-slate-800 leading-tight">
-                                                {assignee ? `${assignee.firstName} ${assignee.lastNamePaterno}` : 'Usuario Desconocido'}
-                                            </h2>
-                                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{assignee?.rut || 'RUT N/R'}</p>
+                                        <div className="min-w-0">
+                                            <h3 className="font-bold text-slate-700 text-sm truncate">{doc.title}</h3>
+                                            <div className="flex items-center gap-2 text-[10px] font-bold text-slate-400 mt-1">
+                                                <span className="bg-slate-100 px-2 py-0.5 rounded-lg uppercase tracking-wider">{doc.type}</span>
+                                                <span>•</span>
+                                                <span>{new Date(doc.createdAt).toLocaleDateString()}</span>
+                                            </div>
                                         </div>
                                     </div>
-                                    <span className="text-[10px] font-black uppercase tracking-widest text-blue-600 bg-blue-100/50 px-2 py-1 rounded-lg">
-                                        {docs.length} {docs.length === 1 ? 'Doc' : 'Docs'}
-                                    </span>
-                                </div>
 
-                                {/* Listado de Documentos (Filas Simples) */}
-                                <div className="divide-y divide-slate-50">
-                                    {docs.map((doc) => (
-                                        <div key={doc.id} className="p-3 sm:px-6 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-slate-50 transition-colors">
-                                            <div className="flex items-center gap-4">
-                                                <div className={`p-2 rounded-lg ${doc.status === 'signed' ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'}`}>
-                                                    <FileText size={18} />
-                                                </div>
-                                                <div className="min-w-0">
-                                                    <h3 className="font-bold text-slate-700 text-sm truncate">{doc.title}</h3>
-                                                    <div className="flex items-center gap-2 text-[10px] font-medium text-slate-400">
-                                                        <span className="bg-slate-100 px-1.5 py-0.5 rounded uppercase tracking-tighter">{doc.type}</span>
-                                                        <span>•</span>
-                                                        <span>{new Date(doc.createdAt).toLocaleDateString()}</span>
-                                                    </div>
-                                                </div>
+                                    <div className="flex items-center gap-2 sm:justify-end">
+                                        {doc.status === 'pending' ? (
+                                            <div className="flex gap-2 w-full sm:w-auto">
+                                                <button
+                                                    onClick={() => setViewingDoc(doc)}
+                                                    className="flex-1 sm:flex-none px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl transition-all flex items-center justify-center gap-1.5 text-[11px] font-black uppercase tracking-wider"
+                                                >
+                                                    <Eye size={14} /> Revisar
+                                                </button>
+                                                <button
+                                                    onClick={() => handleSignIndividual(doc)}
+                                                    disabled={isSigning}
+                                                    className="flex-1 sm:flex-none px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-[11px] font-black uppercase tracking-widest transition-all shadow-lg shadow-blue-100 flex items-center justify-center gap-1.5 disabled:opacity-50"
+                                                >
+                                                    {isSigning && selectedDocToSign?.id === doc.id ? (
+                                                        <Loader2 size={12} className="animate-spin" />
+                                                    ) : (
+                                                        <PenTool size={12} />
+                                                    )}
+                                                    Firmar
+                                                </button>
                                             </div>
+                                        ) : (
+                                            <div className="flex gap-2 w-full sm:w-auto">
+                                                <a
+                                                    href={doc.signedUrl}
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    className="flex-1 sm:flex-none px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-[11px] font-black uppercase tracking-widest transition-all shadow-lg shadow-emerald-100 flex items-center justify-center gap-1.5"
+                                                >
+                                                    <Download size={12} /> Descargar
+                                                </a>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            ) : (
+                /* VISTA AGRUPADA POR TRABAJADOR PARA ADMINISTRADOR */
+                <div className="space-y-6">
+                    {paginatedGroups.length === 0 ? (
+                        <div className="py-20 flex flex-col items-center justify-center bg-white rounded-3xl border-2 border-dashed border-slate-200">
+                            <div className="w-16 h-16 bg-slate-50 rounded-full flex items-center justify-center mb-4 text-slate-300">
+                                <FileText size={32} />
+                            </div>
+                            <p className="text-slate-400 font-black text-lg">No hay registros</p>
+                            <p className="text-slate-400 text-sm">Prueba con otra búsqueda o sección</p>
+                        </div>
+                    ) : (
+                        paginatedGroups.map(([employeeId, docs]) => {
+                            const assignee = employees.find(e => e.id === employeeId);
+                            const initials = assignee ? `${assignee.firstName[0]}${assignee.lastNamePaterno[0]}` : 'U';
 
-                                            <div className="flex items-center gap-2 sm:justify-end">
-                                                {doc.status === 'pending' ? (
-                                                    <div className="flex gap-2 w-full sm:w-auto">
-                                                        <a
-                                                            href={doc.originalUrl}
-                                                            target="_blank"
-                                                            rel="noopener noreferrer"
-                                                            className="flex-1 sm:flex-none p-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg transition-all"
-                                                            title="Ver Original"
-                                                        >
-                                                            <Eye size={16} />
-                                                        </a>
-                                                        <button
-                                                            onClick={() => {
-                                                                setSelectedDocToSign(doc);
-                                                                setSigningStep('instructions');
-                                                                setSignaturePosition(null);
-                                                            }}
-                                                            className="flex-1 sm:flex-none px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-[11px] font-black uppercase tracking-widest transition-all shadow-lg shadow-blue-100 flex items-center justify-center gap-2"
-                                                        >
-                                                            <PenTool size={14} /> Firmar
-                                                        </button>
+                            return (
+                                <div key={employeeId} className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-300">
+                                    <div className="p-4 bg-slate-50/50 flex items-center justify-between border-b border-slate-100">
+                                        <div className="flex items-center gap-3">
+                                            <div className="w-10 h-10 rounded-xl bg-blue-600 flex items-center justify-center text-white font-black text-sm shadow-md shadow-blue-100">
+                                                {initials}
+                                            </div>
+                                            <div>
+                                                <h2 className="text-sm font-black text-slate-800 leading-tight">
+                                                    {assignee ? `${assignee.firstName} ${assignee.lastNamePaterno}` : 'Usuario Desconocido'}
+                                                </h2>
+                                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{assignee?.rut || 'RUT N/R'}</p>
+                                            </div>
+                                        </div>
+                                        <span className="text-[10px] font-black uppercase tracking-widest text-blue-600 bg-blue-100/50 px-2 py-1 rounded-lg">
+                                            {docs.length} {docs.length === 1 ? 'Doc' : 'Docs'}
+                                        </span>
+                                    </div>
+
+                                    <div className="divide-y divide-slate-50">
+                                        {docs.map((doc) => (
+                                            <div key={doc.id} className="p-3 sm:px-6 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-slate-50 transition-colors">
+                                                <div className="flex items-center gap-4">
+                                                    <div className={`p-2 rounded-lg ${doc.status === 'signed' ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'}`}>
+                                                        <FileText size={18} />
                                                     </div>
-                                                ) : (
-                                                    <div className="flex gap-2 w-full sm:w-auto">
-                                                        <a
-                                                            href={doc.signedUrl}
-                                                            target="_blank"
-                                                            rel="noopener noreferrer"
-                                                            className="flex-1 sm:flex-none px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[11px] font-black uppercase tracking-widest transition-all shadow-lg shadow-emerald-100 flex items-center justify-center gap-2"
-                                                        >
-                                                            <Download size={14} /> Descargar
-                                                        </a>
-                                                        {currentUser?.role === 'admin' && (
+                                                    <div className="min-w-0">
+                                                        <h3 className="font-bold text-slate-700 text-sm truncate">{doc.title}</h3>
+                                                        <div className="flex items-center gap-2 text-[10px] font-bold text-slate-400 mt-1">
+                                                            <span className="bg-slate-100 px-1.5 py-0.5 rounded uppercase tracking-tighter">{doc.type}</span>
+                                                            <span>•</span>
+                                                            <span>{new Date(doc.createdAt).toLocaleDateString()}</span>
+                                                        </div>
+                                                    </div>
+                                                </div>
+
+                                                <div className="flex items-center gap-2 sm:justify-end">
+                                                    {doc.status === 'pending' ? (
+                                                        <div className="flex gap-2 w-full sm:w-auto">
+                                                            <a
+                                                                href={doc.originalUrl}
+                                                                target="_blank"
+                                                                rel="noopener noreferrer"
+                                                                className="flex-1 sm:flex-none p-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg transition-all"
+                                                                title="Ver Original"
+                                                            >
+                                                                <Eye size={16} />
+                                                            </a>
+                                                        </div>
+                                                    ) : (
+                                                        <div className="flex gap-2 w-full sm:w-auto">
+                                                            <a
+                                                                href={doc.signedUrl}
+                                                                target="_blank"
+                                                                rel="noopener noreferrer"
+                                                                className="flex-1 sm:flex-none px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[11px] font-black uppercase tracking-widest transition-all shadow-lg shadow-emerald-100 flex items-center justify-center gap-2"
+                                                            >
+                                                                <Download size={14} /> Descargar
+                                                            </a>
                                                             <button
                                                                 onClick={() => {
-                                                                    if (window.confirm("¿Seguro que deseas eliminar este registro?")) deleteDigitalDocument(doc.id);
+                                                                    setAlertDialog({
+                                                                        title: "Eliminar Registro",
+                                                                        message: "¿Seguro que deseas eliminar este registro?",
+                                                                        type: 'confirm',
+                                                                        onConfirm: () => deleteDigitalDocument(doc.id)
+                                                                    });
                                                                 }}
                                                                 className="p-2 bg-rose-50 hover:bg-rose-100 text-rose-500 rounded-lg transition-all"
                                                             >
                                                                 <Trash2 size={16} />
                                                             </button>
-                                                        )}
-                                                    </div>
-                                                )}
+                                                        </div>
+                                                    )}
+                                                </div>
                                             </div>
-                                        </div>
-                                    ))}
+                                        ))}
+                                    </div>
                                 </div>
-                            </div>
-                        );
-                    })
-                )}
-            </div>
+                            );
+                        })
+                    )}
+                </div>
+            )}
 
-            {/* PAGINACIÓN */}
-            {totalPages > 1 && (
+            {/* PAGINACIÓN (ADMIN) */}
+            {currentUser?.role === 'admin' && totalPages > 1 && (
                 <div className="flex items-center justify-center gap-4 mt-8 bg-white p-4 rounded-2xl border border-slate-100 shadow-sm w-fit mx-auto">
                     <button
                         onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
@@ -599,10 +661,9 @@ const DocumentsPage: React.FC = () => {
                                 setShowUploadModal(false);
                                 setAssigneeSearch('');
                                 setShowAssigneeDropdown(false);
-                            }} className="p-2 hover:bg-slate-100 rounded-full transition-colors">
+                            }} className="p-2 hover:bg-slate-100 rounded-full transition-colors text-slate-400">
                                 <X size={24} />
                             </button>
-
                         </div>
 
                         <form onSubmit={handleUploadSubmit} className="p-8 space-y-5">
@@ -638,7 +699,7 @@ const DocumentsPage: React.FC = () => {
                                     <div className="relative">
                                         <input
                                             type="text"
-                                            placeholder="Buscar por Nombre o RUT..."
+                                            placeholder="Buscar..."
                                             className="w-full px-4 py-3 bg-slate-50 border-2 border-transparent focus:border-blue-500/20 focus:bg-white rounded-2xl outline-none transition-all text-sm font-bold"
                                             value={assigneeSearch}
                                             onChange={(e) => {
@@ -682,6 +743,55 @@ const DocumentsPage: React.FC = () => {
                                 </div>
                             </div>
 
+                            {/* CONFIGURACIÓN DE FIRMA */}
+                            <div className="bg-slate-50 p-6 rounded-3xl border border-slate-100 space-y-4">
+                                <h3 className="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                                    <PenTool size={14} className="text-blue-600" />
+                                    Configuración de Firma
+                                </h3>
+
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div className="space-y-2">
+                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Página de Firma</label>
+                                        <select
+                                            className="w-full px-4 py-3 bg-white border border-slate-200 focus:border-blue-500 rounded-xl outline-none transition-all text-xs font-bold appearance-none cursor-pointer"
+                                            value={uploadForm.signaturePageType}
+                                            onChange={(e) => setUploadForm({ ...uploadForm, signaturePageType: e.target.value as any })}
+                                        >
+                                            <option value="last">Última hoja</option>
+                                            <option value="specific">Página específica</option>
+                                        </select>
+                                    </div>
+
+                                    <div className="space-y-2">
+                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Posición Horizontal</label>
+                                        <select
+                                            className="w-full px-4 py-3 bg-white border border-slate-200 focus:border-blue-500 rounded-xl outline-none transition-all text-xs font-bold appearance-none cursor-pointer"
+                                            value={uploadForm.signaturePosition}
+                                            onChange={(e) => setUploadForm({ ...uploadForm, signaturePosition: e.target.value as any })}
+                                        >
+                                            <option value="left">Izquierda</option>
+                                            <option value="center">Centro</option>
+                                            <option value="right">Derecha</option>
+                                        </select>
+                                    </div>
+                                </div>
+
+                                {uploadForm.signaturePageType === 'specific' && (
+                                    <div className="space-y-2 animate-in fade-in slide-in-from-top-2 duration-200">
+                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Número de Página</label>
+                                        <input
+                                            type="number"
+                                            min="1"
+                                            required
+                                            className="w-full px-4 py-3 bg-white border border-slate-200 focus:border-blue-500 rounded-xl outline-none transition-all text-xs font-bold"
+                                            value={uploadForm.signaturePageNumber}
+                                            onChange={(e) => setUploadForm({ ...uploadForm, signaturePageNumber: Math.max(1, parseInt(e.target.value) || 1) })}
+                                        />
+                                    </div>
+                                )}
+                            </div>
+
                             <div className="space-y-2">
                                 <label className="text-xs font-black text-slate-400 uppercase tracking-widest">Archivo PDF</label>
                                 <div className="relative group">
@@ -702,15 +812,6 @@ const DocumentsPage: React.FC = () => {
                                         <p className="text-[10px] text-slate-400 uppercase tracking-widest font-black">Máximo 10MB</p>
                                     </div>
                                 </div>
-                                {/* Ayuda iPhone */}
-                                {/iPhone|iPad|iPod/i.test(navigator.userAgent) && (
-                                    <div className="p-3 bg-blue-50/50 border border-blue-100 rounded-2xl flex gap-2 items-center">
-                                        <Info size={14} className="text-blue-500 shrink-0" />
-                                        <p className="text-[9px] font-bold text-blue-700 leading-tight italic">
-                                            iPhone: Para recibir notificaciones, usa "Añadir a pantalla de inicio" desde Compartir.
-                                        </p>
-                                    </div>
-                                )}
                             </div>
 
                             <button
@@ -725,263 +826,136 @@ const DocumentsPage: React.FC = () => {
                 </div>
             )}
 
-            {/* MODAL DE FIRMA (FLUJO REFORMULADO) */}
-            {selectedDocToSign && (
-                <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-md z-[100] flex items-center justify-center p-0 md:p-4">
-                    <div className="bg-white rounded-none md:rounded-[2.5rem] w-full max-w-5xl h-full md:h-[90vh] shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-300 flex flex-col">
+            {/* DOCUMENT VIEWER MODAL (TRABAJADOR) */}
+            {viewingDoc && (
+                <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-md z-[100] flex items-center justify-center p-0 md:p-4 animate-in fade-in duration-300">
+                    <div className="bg-white rounded-none md:rounded-[2.5rem] w-full max-w-4xl h-full md:h-[90vh] shadow-2xl overflow-hidden flex flex-col animate-in zoom-in-95 duration-300">
+                        {/* Header */}
+                        <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-white shrink-0">
+                            <div>
+                                <h2 className="text-base font-black text-slate-800 tracking-tight truncate max-w-md">{viewingDoc.title}</h2>
+                                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest leading-none mt-1">Revisión de Documento</p>
+                            </div>
+                            <button
+                                onClick={() => { setViewingDoc(null); setNumPages(null); }}
+                                className="p-2 hover:bg-slate-100 rounded-full transition-colors text-slate-400"
+                            >
+                                <X size={24} />
+                            </button>
+                        </div>
 
-                        {/* HEADER DEL MODAL (Oculto en paso canvas para maximizar espacio) */}
-                        {signingStep !== 'canvas' && (
-                            <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-white shrink-0">
-                                <div className="flex items-center gap-3">
-                                    <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center text-white shadow-lg">
-                                        <PenTool size={20} />
-                                    </div>
-                                    <div>
-                                        <h2 className="text-lg font-black text-slate-900 leading-tight">Proceso de Firma</h2>
-                                        <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest leading-none mt-1">
-                                            {signingStep === 'instructions' ? '1. Instrucciones' :
-                                                signingStep === 'position' ? '2. Ubicación de Firma' : '3. Dibujar Firma'}
-                                        </p>
-                                    </div>
-                                </div>
+                        {/* PDF Viewer Scrollable */}
+                        <div className="flex-1 overflow-y-auto bg-slate-100 p-4 flex justify-center">
+                            <div className="w-full max-w-2xl">
+                                <Document
+                                    file={viewingDoc.originalUrl}
+                                    onLoadSuccess={({ numPages }) => setNumPages(numPages)}
+                                    loading={
+                                        <div className="flex flex-col items-center gap-4 mt-20">
+                                            <Loader2 className="animate-spin text-blue-600" size={40} />
+                                            <p className="text-slate-400 font-bold uppercase tracking-widest text-xs">Cargando PDF...</p>
+                                        </div>
+                                    }
+                                >
+                                    {Array.from(new Array(numPages), (_, index) => (
+                                        <div key={`viewpage_${index}`} className="relative mb-6 shadow-lg rounded-lg overflow-hidden flex flex-col items-center bg-white">
+                                            <Page
+                                                pageNumber={index + 1}
+                                                width={window.innerWidth < 768 ? window.innerWidth - 32 : 700}
+                                                renderAnnotationLayer={false}
+                                                renderTextLayer={false}
+                                            />
+                                        </div>
+                                    ))}
+                                </Document>
+                            </div>
+                        </div>
+
+                        {/* Footer */}
+                        <div className="p-6 border-t border-slate-100 bg-white flex flex-col sm:flex-row justify-end gap-3 shrink-0">
+                            <button
+                                onClick={() => { setViewingDoc(null); setNumPages(null); }}
+                                className="px-6 py-3 border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-2xl font-black text-xs uppercase tracking-widest active:scale-95 transition-all"
+                            >
+                                Cerrar
+                            </button>
+                            {viewingDoc.status === 'pending' && (
                                 <button
                                     onClick={() => {
-                                        setSelectedDocToSign(null);
-                                        setSigningStep('instructions');
-                                        setSignaturePosition(null);
+                                        setViewingDoc(null);
+                                        setNumPages(null);
+                                        handleSignIndividual(viewingDoc);
                                     }}
-                                    disabled={isSigning}
-                                    className="p-2 hover:bg-slate-100 rounded-full transition-colors text-slate-400"
+                                    className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl shadow-blue-200 active:scale-95 transition-all flex items-center justify-center gap-2"
                                 >
-                                    <X size={24} />
+                                    <PenTool size={14} /> Firmar Documento
                                 </button>
-                            </div>
-                        )}
-
-                        {/* CONTENIDO SEGÚN EL PASO */}
-                        <div className="flex-1 overflow-hidden relative">
-
-                            {/* PASO 1: INSTRUCCIONES */}
-                            {signingStep === 'instructions' && (
-                                <div className="h-full flex flex-col justify-center items-center p-5 animate-in fade-in slide-in-from-bottom-4 duration-500">
-                                    <div className="w-full max-w-md flex flex-col items-center text-center space-y-6 -mt-20">
-                                        <div className="w-14 h-14 bg-blue-50 text-blue-600 rounded-[1.25rem] flex items-center justify-center shadow-inner shrink-0">
-                                            <Info size={28} />
-                                        </div>
-                                        <div className="w-full space-y-4">
-                                            <h3 className="text-lg font-black text-slate-800 uppercase tracking-tight">Instrucciones de Firma</h3>
-                                            <div className="space-y-3 text-left bg-white p-5 rounded-2xl border border-slate-100 shadow-sm">
-                                                <div className="flex gap-3 items-start">
-                                                    <div className="w-6 h-6 bg-blue-600 text-white rounded-full flex items-center justify-center text-[10px] font-black shrink-0 mt-0.5">1</div>
-                                                    <p className="text-sm font-bold text-slate-600 leading-snug">Toca sobre el documento para ubicar tu firma.</p>
-                                                </div>
-                                                <div className="flex gap-3 items-start">
-                                                    <div className="w-6 h-6 bg-blue-600 text-white rounded-full flex items-center justify-center text-[10px] font-black shrink-0 mt-0.5">2</div>
-                                                    <p className="text-sm font-bold text-slate-600 leading-snug">Gira el celular de forma horizontal si te lo pide.</p>
-                                                </div>
-                                                <div className="flex gap-3 items-start">
-                                                    <div className="w-6 h-6 bg-blue-600 text-white rounded-full flex items-center justify-center text-[10px] font-black shrink-0 mt-0.5">3</div>
-                                                    <p className="text-sm font-bold text-slate-600 leading-snug">Dibuja tu firma y presiona en Confirmar.</p>
-                                                </div>
-                                            </div>
-                                        </div>
-                                        
-                                        <button
-                                            onClick={() => setSigningStep('position')}
-                                            className="w-full mt-4 py-4 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl font-black uppercase tracking-widest shadow-xl shadow-blue-200 active:scale-95 transition-all text-sm"
-                                        >
-                                            Entendido, Comenzar
-                                        </button>
-                                    </div>
-                                </div>
                             )}
-
-
-                            {/* PASO 2: SELECCIÓN DE POSICIÓN */}
-                            {signingStep === 'position' && (
-                                <div className="h-full flex flex-col animate-in fade-in slide-in-from-right-4 duration-500 relative">
-                                    <div className="bg-amber-50 p-4 border-b border-amber-100 flex flex-col items-center gap-2 shrink-0 z-10">
-                                        <div className="flex items-center gap-3">
-                                            <div className="w-8 h-8 bg-amber-500 rounded-lg flex items-center justify-center text-white shrink-0">
-                                                <MapPin size={18} />
-                                            </div>
-                                            <p className="text-xs font-bold text-amber-800">Toca el lugar exacto en el documento para firmar.</p>
-                                        </div>
-                                    </div>
-
-                                    <div className="flex-1 overflow-y-auto bg-slate-100 p-2 md:p-4 pb-24 flex justify-center">
-                                        <div className="w-full max-w-3xl">
-                                            <Document
-                                                file={selectedDocToSign.originalUrl}
-                                                onLoadSuccess={({ numPages }) => setNumPages(numPages)}
-                                                loading={<div className="flex flex-col items-center gap-4 mt-20"><Loader2 className="animate-spin text-blue-600" size={40} /><p className="text-slate-400 font-bold uppercase tracking-widest text-xs">Cargando PDF...</p></div>}
-                                            >
-                                                {Array.from(new Array(numPages), (_, index) => (
-                                                    <div key={`page_${index}`} className="relative mb-6 shadow-2xl cursor-crosshair transition-all hover:ring-4 ring-blue-500/10 rounded-lg overflow-hidden flex flex-col items-center bg-white" onClick={(e) => handlePageClick(index, e)}>
-                                                        <Page
-                                                            pageNumber={index + 1}
-                                                            width={window.innerWidth < 768 ? window.innerWidth - 20 : 800}
-                                                            renderAnnotationLayer={false}
-                                                            renderTextLayer={false}
-                                                        />
-                                                        {signaturePosition?.pageIndex === index && (
-                                                            <div
-                                                                className="absolute border-2 border-blue-600 bg-blue-100/60 rounded-xl pointer-events-none flex flex-col items-center justify-center shadow-2xl animate-in zoom-in duration-200 backdrop-blur-[2px]"
-                                                                style={{
-                                                                    left: signaturePosition.x,
-                                                                    top: signaturePosition.y,
-                                                                    width: '120px',
-                                                                    height: '70px',
-                                                                    zIndex: 10
-                                                                }}
-                                                            >
-                                                                <PenTool size={18} className="text-blue-700 mb-1" />
-                                                                <span className="text-[10px] font-black text-blue-800 uppercase text-center leading-tight">Tu firma irá<br />Aquí</span>
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                ))}
-                                            </Document>
-                                        </div>
-                                    </div>
-
-                                    {/* Botón Flotante para Continuar */}
-                                    <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-white via-white/80 to-transparent pointer-events-none z-20 flex justify-center">
-                                        <button
-                                            onClick={() => setSigningStep('canvas')}
-                                            disabled={!signaturePosition}
-                                            className="w-full max-w-md py-4 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 disabled:shadow-none text-white rounded-2xl font-black text-sm uppercase tracking-widest shadow-xl shadow-blue-200 active:scale-95 transition-all flex items-center justify-center gap-2 pointer-events-auto"
-                                        >
-                                            {signaturePosition ? 'Continuar' : 'Primero toca el documento'}
-                                            {signaturePosition && <ChevronRight size={20} />}
-                                        </button>
-                                    </div>
-                                </div>
-                            )}
-
-                            {/* Canvas: renderizado fuera del modal (ver bloque debajo del modal) */}
-
                         </div>
                     </div>
                 </div>
             )}
 
-            {/* ================================================================
-                PASO 3: LIENZO DE FIRMA (PORTAL)
-                Renderizamos directamente en el <body> para que nada bloquee
-                el z-index ni empuje la pantalla (safe-area/transform bugs).
-                ================================================================ */}
-            {selectedDocToSign && signingStep === 'canvas' && createPortal(
-                <div
-                    className="fixed inset-0 bg-white z-[9999] flex flex-col"
-                    style={{
-                        position: 'fixed',
-                        top: 0,
-                        left: 0,
-                        right: 0,
-                        bottom: 0,
-                        width: '100%',
-                        height: '100%',
-                        overflow: 'hidden',
-                        overscrollBehavior: 'none'
-                    }}
-                    onTouchMove={(e) => e.preventDefault()}
-                >
-                    {/* ═══ BARRA SUPERIOR ═══ */}
-                    <div
-                        className="bg-white border-b border-slate-100 shrink-0 flex items-center justify-between"
-                        style={{
-                            paddingTop: 'calc(8px + env(safe-area-inset-top, 0px))',
-                            paddingBottom: '8px',
-                            paddingLeft: 'calc(12px + env(safe-area-inset-left, 0px))',
-                            paddingRight: 'calc(12px + env(safe-area-inset-right, 0px))',
-                        }}
-                    >
-                        <button
-                            onClick={() => { setSigningStep('position'); setIsCanvasEmpty(true); }}
-                            className="w-12 h-12 bg-slate-100 text-slate-500 hover:text-slate-700 rounded-full flex items-center justify-center active:scale-90 transition-all shrink-0 shadow-sm"
-                            style={{ touchAction: 'manipulation' }}
-                            aria-label="Volver"
-                        >
-                            <X size={26} />
-                        </button>
-                        <span className="flex-1 text-xs md:text-sm font-black text-slate-400 uppercase tracking-widest text-center px-2 truncate">
-                            Dibuja tu firma
-                        </span>
-                        <div className="flex items-center gap-2 shrink-0">
+            {/* BULK SIGNING LOADING OVERLAY */}
+            {isBulkSigning && (
+                <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-[150] flex items-center justify-center p-4">
+                    <div className="bg-white rounded-[2rem] p-8 max-w-sm w-full text-center space-y-6 shadow-2xl animate-in zoom-in-95 duration-200">
+                        <div className="w-16 h-16 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center mx-auto animate-pulse">
+                            <Loader2 className="animate-spin text-blue-600" size={32} />
+                        </div>
+                        <div className="space-y-2">
+                            <h3 className="text-lg font-black text-slate-800">Firmando Documentos</h3>
+                            <p className="text-sm font-bold text-slate-500">Procesando {bulkSignProgress.current} de {bulkSignProgress.total}...</p>
+                        </div>
+                        <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
+                            <div
+                                className="bg-blue-600 h-full transition-all duration-300"
+                                style={{ width: `${(bulkSignProgress.current / bulkSignProgress.total) * 100}%` }}
+                            ></div>
+                        </div>
+                        <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Por favor, no cierres la aplicación</p>
+                    </div>
+                </div>
+            )}
+            {/* DIALOGO DE ALERTA/CONFIRMACION PERSONALIZADO */}
+            {alertDialog && (
+                <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[200] flex items-center justify-center p-4">
+                    <div className="bg-white rounded-[2rem] p-6 max-w-sm w-full text-center space-y-6 shadow-2xl animate-in zoom-in-95 duration-200 border border-slate-100">
+                        <div className={`w-14 h-14 rounded-2xl flex items-center justify-center mx-auto ${alertDialog.type === 'confirm' ? 'bg-blue-50 text-blue-600' : 'bg-amber-50 text-amber-600'
+                            }`}>
+                            {alertDialog.type === 'confirm' ? <PenTool size={28} /> : <Info size={28} />}
+                        </div>
+                        <div className="space-y-2">
+                            <h3 className="text-lg font-black text-slate-800 tracking-tight">{alertDialog.title}</h3>
+                            <p className="text-sm font-bold text-slate-500 leading-snug">{alertDialog.message}</p>
+                        </div>
+                        <div className="flex gap-3 justify-center">
+                            {alertDialog.type === 'confirm' && (
+                                <button
+                                    onClick={() => {
+                                        if (alertDialog.onCancel) alertDialog.onCancel();
+                                        setAlertDialog(null);
+                                    }}
+                                    className="flex-1 px-4 py-3 border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-2xl text-xs font-black uppercase tracking-widest transition-all"
+                                >
+                                    Cancelar
+                                </button>
+                            )}
                             <button
-                                onClick={() => { sigPad.current?.clear(); setIsCanvasEmpty(true); }}
-                                style={{ touchAction: 'manipulation' }}
-                                className="h-12 px-4 md:px-6 flex items-center justify-center gap-2 bg-white border-2 border-blue-500 text-blue-600 font-black text-sm uppercase tracking-wider active:scale-95 transition-all rounded-xl hover:bg-blue-50"
-                            >
-                                <span className="text-lg">🗑</span><span className="hidden sm:inline">Limpiar</span>
-                            </button>
-                            <button
-                                onClick={handleSignDocument}
-                                disabled={isSigning || isCanvasEmpty}
-                                style={{
-                                    touchAction: 'manipulation',
-                                    boxShadow: isCanvasEmpty ? 'none' : '0 4px 14px rgba(37,99,235,0.40)'
+                                onClick={() => {
+                                    alertDialog.onConfirm();
+                                    setAlertDialog(null);
                                 }}
-                                className="h-12 px-5 md:px-8 flex items-center justify-center gap-2 bg-blue-600 disabled:bg-slate-300 disabled:opacity-60 text-white font-black text-sm uppercase tracking-wider active:scale-95 transition-all rounded-xl"
+                                className={`px-6 py-3 text-white rounded-2xl text-xs font-black uppercase tracking-widest shadow-lg transition-all flex-1 ${alertDialog.type === 'confirm'
+                                        ? 'bg-blue-600 hover:bg-blue-700 shadow-blue-100'
+                                        : 'bg-amber-500 hover:bg-amber-600 shadow-amber-100'
+                                    }`}
                             >
-                                {isSigning ? <Loader2 size={24} className="animate-spin" /> : <><CheckCircle size={22} /><span className="hidden sm:inline">Confirmar</span></>}
+                                Aceptar
                             </button>
                         </div>
                     </div>
-
-                    {/* ═══ LIENZO ═══ */}
-                    <div
-                        className="relative bg-white overflow-hidden"
-                        style={{
-                            flex: '1 1 0', minHeight: 0,
-                            margin: '8px calc(12px + env(safe-area-inset-left, 0px)) calc(12px + env(safe-area-inset-bottom, 0px)) calc(12px + env(safe-area-inset-left, 0px))',
-                            borderRadius: '16px',
-                            border: '2px solid #e2e8f0',
-                            touchAction: 'none'
-                        }}
-                    >
-                        <SignatureCanvas
-                            ref={sigPad}
-                            penColor="#0055A4"
-                            minWidth={1.5}
-                            maxWidth={5}
-                            velocityFilterWeight={0.7}
-                            dotSize={2.0}
-                            canvasProps={{
-                                style: { position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', touchAction: 'none', cursor: 'crosshair' }
-                            }}
-                            onBegin={() => setIsCanvasEmpty(false)}
-                        />
-                        {isCanvasEmpty && (
-                            <>
-                                <div className="absolute left-8 right-8 border-b-2 border-dashed border-slate-300 pointer-events-none" style={{ top: '60%' }} />
-                                <div className="absolute inset-0 flex items-center justify-center pointer-events-none select-none">
-                                    <span className="text-sm md:text-base font-black uppercase tracking-[0.5rem] text-slate-300 bg-white px-4 py-2 rounded-full shadow-sm">Realiza tu firma aquí</span>
-                                </div>
-                            </>
-                        )}
-                    </div>
-
-                    {/* ═══ OVERLAY ROTACIÓN ═══ */}
-                    {showRotationOverlay && (
-                        <div
-                            className="absolute inset-0 z-[99999] bg-slate-900/95 flex flex-col items-center justify-center gap-6 text-white"
-                            style={{ touchAction: 'none' }}
-                            onTouchMove={(e) => e.preventDefault()}
-                        >
-                            <div className="animate-spin" style={{ animationDuration: '2s' }}>
-                                <RotateCw size={80} className="text-blue-400" />
-                            </div>
-                            <div className="text-center space-y-3 px-4">
-                                <p className="text-3xl font-black uppercase tracking-widest leading-none">Gira tu<br />dispositivo</p>
-                                <p className="text-lg text-slate-400 font-medium max-w-sm mx-auto">Para firmar necesitas modo horizontal</p>
-                            </div>
-                        </div>
-                    )}
-                </div>,
-                document.body
+                </div>
             )}
         </div>
     );

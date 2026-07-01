@@ -33,6 +33,8 @@ import {
   Square
 } from 'lucide-react';
 
+import SignatureCanvas from 'react-signature-canvas';
+import { PenTool, FileText } from 'lucide-react';
 import DocumentsPage from './DocumentsPage';
 import { GlobalOverlay } from '../components/GlobalOverlay';
 import { db, auth } from '../lib/firebase';
@@ -69,6 +71,11 @@ const WorkerAttendance: React.FC = () => {
   const fetchInitialData = useAppStore(state => state.fetchInitialData);
   const registerFCMToken = useAppStore(state => state.registerFCMToken);
   const showNotification = useAppStore(state => state.showNotification);
+  const digitalDocuments = useAppStore(state => state.digitalDocuments);
+
+  const pendingDocsCount = React.useMemo(() => {
+    return digitalDocuments.filter(d => d.assignedTo === currentUser?.uid && d.status === 'pending').length;
+  }, [digitalDocuments, currentUser]);
 
   const [step, setStep] = useState<'status' | 'success' | 'rounds' | 'settings' | 'documents' | 'company_docs' | 'market' | 'my_extra_shifts' | 'my_fixed_shifts'>('status');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -107,6 +114,75 @@ const WorkerAttendance: React.FC = () => {
     confirmPassword: ''
   });
   const [isChangingPassword, setIsChangingPassword] = useState(false);
+  const [isSigEmpty, setIsSigEmpty] = useState(true);
+  const sigCanvasRef = useRef<SignatureCanvas | null>(null);
+
+  const handleSaveSignature = async () => {
+    if (!sigCanvasRef.current || sigCanvasRef.current.isEmpty()) {
+      showNotification("Por favor, dibuja tu firma antes de guardar.", "warning");
+      return;
+    }
+
+    try {
+      const dataUrl = sigCanvasRef.current.getCanvas().toDataURL('image/png');
+      await updateEmployee(currentUser!.uid, {
+        signatureUrl: dataUrl,
+        signatureUpdatedAt: new Date().toISOString()
+      });
+      showNotification("Firma registrada con éxito.", "success");
+      setIsSigEmpty(true);
+    } catch (e) {
+      console.error("Error saving signature:", e);
+      showNotification("Error al guardar la firma.", "error");
+    }
+  };
+
+  // Sincronizar resolución del canvas de "Mi Firma" con su tamaño visual real para fijar los ejes X e Y
+  useEffect(() => {
+    let resizeObserver: ResizeObserver | null = null;
+
+    const syncCanvasSize = () => {
+      if (step === 'settings' && sigCanvasRef.current) {
+        const canvas = sigCanvasRef.current.getCanvas();
+        if (canvas && canvas.parentElement) {
+          const rect = canvas.parentElement.getBoundingClientRect();
+          const w = Math.floor(rect.width);
+          const h = Math.floor(rect.height);
+          // Solo actualizar si las dimensiones difieren y son válidas
+          if (w > 0 && h > 0 && (canvas.width !== w || canvas.height !== h)) {
+            canvas.width = w;
+            canvas.height = h;
+            sigCanvasRef.current.clear();
+            setIsSigEmpty(true);
+          }
+        }
+      }
+    };
+
+    if (step === 'settings') {
+      const timer = setTimeout(() => {
+        requestAnimationFrame(() => {
+          requestAnimationFrame(syncCanvasSize);
+        });
+      }, 100);
+
+      const parent = sigCanvasRef.current?.getCanvas()?.parentElement;
+      if (parent) {
+        resizeObserver = new ResizeObserver(() => requestAnimationFrame(syncCanvasSize));
+        resizeObserver.observe(parent);
+      }
+
+      window.addEventListener('resize', syncCanvasSize);
+      window.addEventListener('orientationchange', syncCanvasSize);
+
+      return () => {
+        clearTimeout(timer);
+        window.removeEventListener('resize', syncCanvasSize);
+        window.removeEventListener('orientationchange', syncCanvasSize);
+        if (resizeObserver) resizeObserver.disconnect();
+      };
+    }
+  }, [step]);
 
   const employee = useAppStore(state =>
     state.currentUser ? state.employees.find(e => e.id === state.currentUser?.uid) : undefined
@@ -677,9 +753,12 @@ const WorkerAttendance: React.FC = () => {
             <div className="flex items-center gap-4">
               <button
                 onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-                className="w-12 h-12 bg-white/10 hover:bg-white/20 backdrop-blur-md rounded-2xl flex items-center justify-center transition-all active:scale-95"
+                className="w-12 h-12 bg-white/10 hover:bg-white/20 backdrop-blur-md rounded-2xl flex items-center justify-center transition-all active:scale-95 relative"
               >
                 <Menu size={24} />
+                {pendingDocsCount > 0 && (
+                  <span className="absolute top-2 right-2 w-3 h-3 bg-amber-500 border-2 border-blue-800 rounded-full animate-ping"></span>
+                )}
               </button>
               <div>
                 <h1 className="text-sm font-black tracking-tighter opacity-70">GGSS SECURITY</h1>
@@ -720,7 +799,24 @@ const WorkerAttendance: React.FC = () => {
       <div className={`flex-1 transition-all duration-200 ease-out will-change-transform ${step === 'rounds' || step === 'market' ? 'mt-2' : (step === 'settings' ? 'mt-0' : '-mt-6')} px-6 relative z-20 overflow-y-auto pb-10`}>
 
         {step === 'status' && (
-          <div className="space-y-6 animate-in fade-in slide-in-from-bottom-5 duration-500 h-full flex flex-col items-center justify-center min-h-[400px]">
+          <div className="space-y-6 animate-in fade-in slide-in-from-bottom-5 duration-500 h-full flex flex-col items-center justify-center min-h-[400px] w-full">
+            {pendingDocsCount > 0 && (
+              <button
+                onClick={() => setStep('documents')}
+                className="w-full max-w-sm p-4 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-[2rem] text-left flex items-center gap-4 transition-all active:scale-95 shadow-sm animate-bounce"
+              >
+                <div className="w-12 h-12 bg-amber-100 text-amber-600 rounded-2xl flex items-center justify-center shrink-0">
+                  <FileText size={24} />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-bold text-amber-800 uppercase tracking-wider">Firma Pendiente</p>
+                  <p className="text-sm font-black text-amber-900 mt-0.5">
+                    Tiene {pendingDocsCount} {pendingDocsCount === 1 ? 'documento pendiente' : 'documentos pendientes'} de firma.
+                  </p>
+                </div>
+                <ChevronRight className="text-amber-500" size={20} />
+              </button>
+            )}
 
             {!isCheckedIn ? (
               /* ══ INICIAR TURNO VIEW ══ */
@@ -1187,6 +1283,101 @@ const WorkerAttendance: React.FC = () => {
                   </div>
                 </div>
 
+                {/* MI FIRMA SECTION */}
+                <div className="bg-white rounded-[2rem] p-8 shadow-sm border border-slate-100 space-y-6">
+                  <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] border-b pb-2 flex items-center gap-2">
+                    <PenTool size={14} className="text-slate-400" />
+                    Mi Firma
+                  </h4>
+
+                  {employee.signatureUrl ? (
+                    <div className="space-y-4">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div>
+                          <p className="text-xs font-black text-emerald-600 uppercase tracking-wider flex items-center gap-1.5">
+                            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                            Firma Registrada
+                          </p>
+                          {employee.signatureUpdatedAt && (
+                            <p className="text-[10px] text-slate-400 mt-0.5">
+                              Última actualización: {new Date(employee.signatureUpdatedAt).toLocaleDateString()} a las {new Date(employee.signatureUpdatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            </p>
+                          )}
+                        </div>
+                        <button
+                          onClick={async () => {
+                            if (window.confirm("¿Seguro que deseas actualizar tu firma?")) {
+                              await updateEmployee(currentUser!.uid, { signatureUrl: undefined, signatureUpdatedAt: undefined });
+                              showNotification("Firma limpiada. Dibuja tu nueva firma.", "info");
+                            }
+                          }}
+                          className="px-4 py-1.5 border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-full font-black text-[10px] uppercase tracking-wider transition-all"
+                        >
+                          Actualizar Firma
+                        </button>
+                      </div>
+
+                      <div className="border border-slate-100 bg-slate-50/50 rounded-2xl p-4 flex items-center justify-center">
+                        <img
+                          src={employee.signatureUrl}
+                          alt="Mi Firma"
+                          className="max-h-32 object-contain"
+                        />
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      <div className="bg-blue-50/50 border border-blue-100 text-blue-800 p-4 rounded-2xl flex gap-3 items-start">
+                        <Info size={18} className="shrink-0 text-blue-600 mt-0.5" />
+                        <p className="text-xs font-bold leading-snug">
+                          Debes registrar tu firma una sola vez. Esta firma se utilizará automáticamente para firmar digitalmente todos tus contratos, anexos y documentos asignados sin tener que volver a dibujarla.
+                        </p>
+                      </div>
+
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Dibuja tu firma en el recuadro:</label>
+                        <div className="border-2 border-dashed border-slate-200 hover:border-slate-300 bg-slate-50 rounded-2xl overflow-hidden relative aspect-[4/3] max-w-sm mx-auto">
+                          <SignatureCanvas
+                            ref={sigCanvasRef}
+                            canvasProps={{
+                              className: 'w-full h-full cursor-crosshair'
+                            }}
+                            onBegin={() => setIsSigEmpty(false)}
+                          />
+                          {isSigEmpty && (
+                            <div className="absolute inset-0 flex items-center justify-center pointer-events-none select-none opacity-40">
+                              <span className="text-xs font-black uppercase tracking-widest text-slate-400">Dibuja tu firma aquí</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="flex gap-3 justify-end">
+                        <button
+                          onClick={() => {
+                            if (sigCanvasRef.current) {
+                              sigCanvasRef.current.clear();
+                              setIsSigEmpty(true);
+                            }
+                          }}
+                          disabled={isSigEmpty}
+                          className="px-6 py-2 border border-slate-200 hover:bg-slate-50 disabled:opacity-40 text-slate-600 rounded-full font-black text-xs uppercase tracking-widest active:scale-95 transition-all"
+                        >
+                          Limpiar
+                        </button>
+                        <button
+                          onClick={handleSaveSignature}
+                          disabled={isSigEmpty || loading}
+                          className="px-6 py-2 bg-blue-600 text-white font-black text-xs uppercase tracking-widest hover:bg-blue-700 disabled:opacity-50 rounded-full shadow-lg shadow-blue-200 active:scale-95 transition-all flex items-center gap-2"
+                        >
+                          {loading && <Loader2 size={14} className="animate-spin" />}
+                          Guardar Firma
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
                 <div className="bg-white rounded-[2rem] p-8 shadow-sm border border-slate-100 space-y-6">
                   <div className="flex justify-between items-center border-b pb-2">
                     <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] flex items-center gap-2">
@@ -1466,6 +1657,11 @@ const WorkerAttendance: React.FC = () => {
               <div className="flex items-center gap-3">
                 <ShieldCheck size={22} className={step === 'documents' ? 'text-blue-600' : 'text-slate-400'} />
                 <span className="font-bold">Mis Documentos</span>
+                {pendingDocsCount > 0 && (
+                  <span className="bg-amber-500 text-white text-[10px] font-black px-2 py-0.5 rounded-full">
+                    {pendingDocsCount}
+                  </span>
+                )}
               </div>
               <ChevronRight size={16} className="opacity-30" />
             </button>

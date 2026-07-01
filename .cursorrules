@@ -1,0 +1,30 @@
+# Contexto del Proyecto: App de Gestión de Guardias de Seguridad
+
+## 1. Descripción General y Arquitectura
+- **Tipo de App:** Web App / PWA empaquetada para móvil utilizando Capacitor.
+- **Stack Tecnológico:** React, Vite, Tailwind CSS.
+- **Backend & Infraestructura:** Firebase (Auth, Firestore/Realtime DB) y Google Cloud Platform (GCP).
+
+## 2. Reglas Críticas de Desarrollo
+- **Código Existente:** Existen funciones críticas que ya están funcionando a la perfección. **PROHIBIDO** modificar lógica estructural existente a menos que se solicite explícitamente. Prioriza la compatibilidad hacia atrás.
+- **Despliegues y Compilación:** - **NO** realizar ningún tipo de deploy sin instrucción expresa.
+  - **NO** ejecutar ni proponer el script de 'publish apk' (el cual genera, actualiza y pone a disposición la APK para descarga) a menos que se pida directamente.
+
+## 3. Lógica de Negocio Obligatoria (Reglas del Dominio)
+- **Roles y Vistas:** La aplicación cuenta con una estructura de accesos dividida en 4 roles estrictos, cada uno con sus respectivas vistas e interfaces:
+  - **Admin:** Control total de la plataforma y configuraciones globales.
+  - **Mandante:** Vista de cliente/empresa contratante para visualización de reportes y estado del servicio.
+  - **Supervisor:** Gestión operativa en terreno, control de personal y asignaciones.
+  - **Guardia:** Usuario operativo final enfocado en marcajes, turnos y reportes diarios.
+- **Gestión de Turnos y Asistencias (Cruces de Día):**
+  - Existen turnos de Día y turnos de Noche.
+  - **Regla de Marcaje Nocturno:** Si un turno inicia la noche de un día y termina la mañana del día siguiente (Ej: Inicia el día 22 a las 19:30 hrs y termina el día 23 a las 09:00 AM), toda esa jornada y su registro de asistencia **pertenece y debe marcarse en la gestión de turnos bajo la fecha del día de inicio** (en el ejemplo, el día 22).
+
+## 4. generacion de publish apk
+    -cuando se genere el publish apk el comentario del update siempre debe ir en ingles.
+    -el nombre del apk siempre debe ser ggs_security_v_x_x_x_build_y_y_y.apk.
+
+## 5. Estilo de Código y Respuestas
+- Respuestas directas, concisas y enfocadas en la solución ("Vibe Coding").
+- Evitar explicaciones teóricas innecesarias sobre React o Firebase.
+- Proporcionar solo los bloques de código modificados o nuevos para evitar sobreescribir lógica funcional por error.
