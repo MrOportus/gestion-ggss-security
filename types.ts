@@ -84,6 +84,14 @@ export interface AttendanceLog {
   createdBy?: string;
   systemNote?: string;
   shiftId?: string;
+  // Campos para el flujo de inicio/cierre de turno
+  turnoProgramadoInicio?: string;   // "07:30" o "19:30"
+  turnoProgramadoTermino?: string;  // "19:30" o "07:30"
+  turnoProgramadoStatus?: 'programado' | 'noche' | 'descanso';
+  horaSalidaReal?: string;          // ISO timestamp de salida real
+  tipoCierre?: 'MANUAL' | 'AUTOMATICO' | 'AUTOMATICO_POR_NUEVA_ENTRADA';
+  estado?: 'ABIERTO' | 'CERRADO';
+  detalle?: 'APP MOVIL' | 'REGISTRO MANUAL' | 'cierre forzado' | 'cierre por Admin';
 }
 
 export interface Document {

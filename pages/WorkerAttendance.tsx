@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useAppStore } from '../store/useAppStore';
 import {
   CheckCircle,
@@ -7,7 +7,6 @@ import {
   Clock,
   RefreshCw,
   LogOut,
-  Delete,
   Loader2,
   AlertCircle,
   ClipboardList,
@@ -26,16 +25,19 @@ import {
   Info,
   Zap,
   Calendar,
-  Lock
+  Lock,
+  MapPinOff,
+  Timer,
+  AlertTriangle,
+  Play,
+  Square
 } from 'lucide-react';
 
 import DocumentsPage from './DocumentsPage';
 import { GlobalOverlay } from '../components/GlobalOverlay';
 import { db, auth } from '../lib/firebase';
-import { collection, query, where, getDocs, onSnapshot, doc as firestoreDoc } from 'firebase/firestore';
-import { getToken, onMessage } from 'firebase/messaging';
+import { collection, query, where, getDocs, onSnapshot, doc as firestoreDoc, orderBy, limit, updateDoc, setDoc, deleteDoc, Timestamp } from 'firebase/firestore';
 import { EmailAuthProvider, reauthenticateWithCredential, updatePassword } from 'firebase/auth';
-import { messaging } from '../lib/firebase';
 
 import RoundsControl from '../components/RoundsControl';
 import MarketTurnos from '../components/MarketTurnos';
@@ -45,6 +47,12 @@ import AppUpdateBanner, { APP_VERSION } from '../components/AppUpdateBanner';
 import { Capacitor } from '@capacitor/core';
 import { Geolocation } from '@capacitor/geolocation';
 
+
+// ── Constantes de horarios de turno ───────────────────────────────────────
+const SHIFT_SCHEDULES: Record<string, { inicio: string; termino: string }> = {
+  programado: { inicio: '07:30', termino: '19:30' },
+  noche:      { inicio: '19:30', termino: '07:30' },
+};
 
 
 const WorkerAttendance: React.FC = () => {
@@ -62,15 +70,26 @@ const WorkerAttendance: React.FC = () => {
   const registerFCMToken = useAppStore(state => state.registerFCMToken);
   const showNotification = useAppStore(state => state.showNotification);
 
-  const [step, setStep] = useState<'status' | 'keypad' | 'success' | 'rounds' | 'settings' | 'documents' | 'company_docs' | 'market' | 'my_extra_shifts' | 'my_fixed_shifts'>('status');
+  const [step, setStep] = useState<'status' | 'success' | 'rounds' | 'settings' | 'documents' | 'company_docs' | 'market' | 'my_extra_shifts' | 'my_fixed_shifts'>('status');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [lastAction, setLastAction] = useState<'check_in' | 'check_out' | null>(null);
 
-  const [rutInput, setRutInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [coords, setCoords] = useState<{ lat: number, lng: number } | null>(null);
+
+  // ── NUEVO: estados para modal de confirmación y validaciones ─────────
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [showCloseConfirmModal, setShowCloseConfirmModal] = useState(false);
+  const [validationStep, setValidationStep] = useState<'idle' | 'gps' | 'turno' | 'abierto' | 'done'>('idle');
+  const [validationError, setValidationError] = useState<string | null>(null);
+  const [validationErrorType, setValidationErrorType] = useState<'gps' | 'no_turno' | 'turno_abierto' | null>(null);
+  const [todayShift, setTodayShift] = useState<{ status: 'programado' | 'noche' | 'descanso'; siteId: string | number } | null>(null);
+  
+  // ── Contador de tiempo transcurrido ──────────────────────────────────
+  const [elapsedTime, setElapsedTime] = useState('00h 00m');
+  const elapsedIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   // Profile Edit State
   const [editData, setEditData] = useState({
@@ -106,7 +125,16 @@ const WorkerAttendance: React.FC = () => {
     }
   }, [employee]);
 
-  // Last log for this specific employee
+  // ── Determinar si hay turno abierto (usando el nuevo campo estado) ──
+  const activeAttendance = useAppStore(state => {
+    const empId = state.currentUser?.uid;
+    if (!empId) return undefined;
+    return state.attendanceLogs.find(
+      l => l.employeeId === empId && l.type === 'check_in' && l.estado === 'ABIERTO'
+    );
+  });
+
+  // Fallback: si no hay 'estado' (registros antiguos), usar la lógica previa
   const lastLog = useAppStore(state => {
     const empId = state.currentUser?.uid;
     if (!empId) return undefined;
@@ -115,15 +143,39 @@ const WorkerAttendance: React.FC = () => {
       .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())[0];
   });
 
-  const isCheckedIn = lastLog?.type === 'check_in';
+  const isCheckedIn = activeAttendance !== undefined || (lastLog?.type === 'check_in' && lastLog?.estado !== 'CERRADO' && lastLog?.status !== 'completed');
 
+  const activeLog = activeAttendance || (isCheckedIn ? lastLog : undefined);
+
+  // ── Contador de tiempo transcurrido en vivo ─────────────────────────
+  useEffect(() => {
+    if (isCheckedIn && activeLog) {
+      const updateElapsed = () => {
+        const start = new Date(activeLog.timestamp).getTime();
+        const now = Date.now();
+        const diffMs = now - start;
+        const hours = Math.floor(diffMs / (1000 * 60 * 60));
+        const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+        setElapsedTime(`${String(hours).padStart(2, '0')}h ${String(minutes).padStart(2, '0')}m`);
+      };
+      updateElapsed();
+      elapsedIntervalRef.current = setInterval(updateElapsed, 60000); // Actualizar cada minuto
+      return () => {
+        if (elapsedIntervalRef.current) clearInterval(elapsedIntervalRef.current);
+      };
+    } else {
+      setElapsedTime('00h 00m');
+      if (elapsedIntervalRef.current) clearInterval(elapsedIntervalRef.current);
+    }
+  }, [isCheckedIn, activeLog?.timestamp]);
+
+  // ── Ubicación ───────────────────────────────────────────────────────
   const requestLocation = async () => {
     if (Capacitor.isNativePlatform()) {
       try {
         const permStatus = await Geolocation.requestPermissions();
         if (permStatus.location !== 'granted') {
           const msg = "Debes permitir el acceso a la ubicación en tu dispositivo para registrar asistencia.";
-          setError(msg);
           throw new Error(msg);
         }
 
@@ -137,7 +189,6 @@ const WorkerAttendance: React.FC = () => {
       } catch (err: any) {
         let msg = "Error al obtener ubicación nativa del dispositivo. Activa tu GPS.";
         if (err.message) msg = err.message;
-        setError(msg);
         throw new Error(msg);
       }
     } else {
@@ -158,8 +209,6 @@ const WorkerAttendance: React.FC = () => {
             if (err.code === 1) msg = "Debes activar el GPS y permitir el acceso a la ubicación para registrar asistencia.";
             else if (err.code === 2) msg = "Ubicación no disponible. Verifica tu señal de GPS.";
             else if (err.code === 3) msg = "Tiempo de espera agotado al obtener ubicación.";
-
-            setError(msg);
             reject(new Error(msg));
           },
           { timeout: 10000, enableHighAccuracy: true }
@@ -182,10 +231,6 @@ const WorkerAttendance: React.FC = () => {
     if (currentUser?.uid) {
       let isInitialSnapshot = true;
       const unsub = onSnapshot(firestoreDoc(db, 'Colaboradores', currentUser.uid), (snapshot) => {
-        // Saltar el snapshot inicial para evitar race condition con el login
-        // El primer snapshot contiene el estado actual del documento, no un cambio real.
-        // Si forceLogout estaba true de una sesión anterior, el initializeAuthListener
-        // ya lo limpió antes de setear currentUser.
         if (isInitialSnapshot) {
           isInitialSnapshot = false;
           return;
@@ -201,9 +246,8 @@ const WorkerAttendance: React.FC = () => {
       return () => unsub();
     }
   }, [currentUser?.uid]);
+
   // ── MANEJO DE NOTIFICACIONES (Navegación unificada) ────────────────
-  // Nota: La lógica de registro de tokens y escucha de mensajes se maneja en App.tsx.
-  // Aquí escuchamos eventos de navegación interna disparados por clics en notificaciones.
   useEffect(() => {
     const handleNavigate = (event: Event) => {
       const customEvent = event as CustomEvent;
@@ -219,127 +263,309 @@ const WorkerAttendance: React.FC = () => {
     return () => window.removeEventListener('app-navigate', handleNavigate);
   }, []);
 
-
-  // Format RUT helpers
-  const formatRut = (rut: string) => {
-    const clean = rut.replace(/[^0-9kK]/g, '');
-    if (clean.length <= 1) return clean;
-
-    let result = '';
-    const body = clean.slice(0, -1);
-    const dv = clean.slice(-1).toUpperCase();
-
-    let count = 0;
-    for (let i = body.length - 1; i >= 0; i--) {
-      result = body.charAt(i) + result;
-      count++;
-      if (count === 3 && i !== 0) {
-        result = '.' + result;
-        count = 0;
-      }
-    }
-
-    return result + '-' + dv;
+  // ── Obtener fecha local como YYYY-MM-DD ─────────────────────────────
+  const getTodayDateStr = () => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   };
 
-  const handleKeyPress = React.useCallback((num: string) => {
-    setRutInput(prev => {
-      if (prev.length < 9) return prev + num;
-      return prev;
-    });
-  }, []);
+  // ══════════════════════════════════════════════════════════════════════
+  // NUEVO FLUJO: INICIAR TURNO
+  // ══════════════════════════════════════════════════════════════════════
 
-  const handleBackspace = React.useCallback(() => {
-    setRutInput(prev => prev.slice(0, -1));
-  }, []);
-
-  const validateRut = () => {
-    if (!employee) return;
-    const cleanInput = rutInput.replace(/\./g, '').replace(/-/g, '').toLowerCase();
-    const cleanEmployeeRut = employee.rut.replace(/\./g, '').replace(/-/g, '').toLowerCase();
-
-    if (cleanInput === cleanEmployeeRut) {
-      setError(null);
-      submitAttendance();
-    } else {
-      setError("RUT no coincide con el trabajador activo.");
-    }
-  };
-
-  const submitAttendance = async () => {
-    if (!employee) return;
-    setLoading(true);
+  const handleIniciarTurnoPress = () => {
     setError(null);
+    setValidationError(null);
+    setValidationErrorType(null);
+    setShowConfirmModal(true);
+  };
 
+  const handleConfirmInicio = async () => {
+    setShowConfirmModal(false);
+    setLoading(true);
+    setValidationStep('gps');
+    setValidationError(null);
+    setValidationErrorType(null);
+
+    // ── VALIDACIÓN 1: GPS ───────────────────────────────────────────
     let finalCoords = coords;
+    try {
+      finalCoords = await requestLocation();
+    } catch (err: any) {
+      setLoading(false);
+      setValidationStep('idle');
+      setValidationError("Debe activar la ubicación para iniciar turno.");
+      setValidationErrorType('gps');
+      return;
+    }
 
-    // Si no hay coordenadas, intentar obtenerlas ahora obligatoriamente
-    if (!finalCoords) {
-      try {
-        finalCoords = await requestLocation();
-      } catch (err: any) {
+    // ── VALIDACIÓN 2: TURNO PROGRAMADO ──────────────────────────────
+    setValidationStep('turno');
+    const dateStr = getTodayDateStr();
+    try {
+      const q = query(
+        collection(db, 'programacion'),
+        where('employeeId', '==', employee!.id),
+        where('date', '==', dateStr)
+      );
+      const progSnapshot = await getDocs(q);
+      
+      if (progSnapshot.empty) {
         setLoading(false);
-        // El error ya fue seteado por requestLocation
+        setValidationStep('idle');
+        setValidationError("No existe un turno programado para hoy.\nContacte a su supervisor.");
+        setValidationErrorType('no_turno');
         return;
       }
+
+      const shiftDoc = progSnapshot.docs[0].data();
+      if (shiftDoc.status === 'descanso') {
+        setLoading(false);
+        setValidationStep('idle');
+        setValidationError("Hoy tienes programado un día de descanso.\nContacte a su supervisor si necesita trabajar.");
+        setValidationErrorType('no_turno');
+        return;
+      }
+      setTodayShift({ status: shiftDoc.status, siteId: shiftDoc.siteId });
+    } catch (err) {
+      console.error("Error verificando turno programado:", err);
+      setLoading(false);
+      setValidationStep('idle');
+      setValidationError("Error al verificar turno programado. Intente nuevamente.");
+      setValidationErrorType(null);
+      return;
     }
 
-    const actionType = isCheckedIn ? 'check_out' : 'check_in';
-
+    // ── VALIDACIÓN 3: SIN TURNO ABIERTO ─────────────────────────────
+    setValidationStep('abierto');
     try {
-      const today = new Date();
-      // Usar componentes locales para la fecha (no UTC) — Chile es UTC-3
-      // toISOString() devuelve UTC, lo que puede cambiar el día después de las 21:00 local
-      const dateStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-      const actionTimestamp = today.toISOString();
-      // Pasar dateStr explícitamente como localDate para la sincronización de turnos
-      const localDate = dateStr;
+      // Buscar turnos abiertos de este empleado
+      const qOpen = query(
+        collection(db, 'Asistencia'),
+        where('employeeId', '==', employee!.id),
+        where('type', '==', 'check_in'),
+        where('estado', '==', 'ABIERTO'),
+        limit(5)
+      );
+      const openSnapshot = await getDocs(qOpen);
 
-      let shiftId = null;
-      if (actionType === 'check_in') {
-        const q = query(
-          collection(db, 'programacion'),
-          where('employeeId', '==', employee.id),
-          where('date', '==', dateStr)
-        );
-        const progSnapshot = await getDocs(q);
-        const shiftDoc = progSnapshot.docs[0];
-        shiftId = shiftDoc ? `prog_${employee.currentSiteId}_${employee.id}_${dateStr}` : null;
-      } else {
-        // En check_out preservamos el shiftId EXACTO del inicio para sincronización
-        shiftId = lastLog?.shiftId || null;
+      if (!openSnapshot.empty) {
+        // Verificar si es del mismo día o de otro día
+        const openDoc = openSnapshot.docs[0];
+        const openData = openDoc.data();
+        const openDate = new Date(openData.timestamp);
+        const openDateStr = `${openDate.getFullYear()}-${String(openDate.getMonth() + 1).padStart(2, '0')}-${String(openDate.getDate()).padStart(2, '0')}`;
+
+        if (openDateStr === dateStr) {
+          // Mismo día — no permitir
+          setLoading(false);
+          setValidationStep('idle');
+          setValidationError("Ya existe un turno abierto.");
+          setValidationErrorType('turno_abierto');
+          return;
+        } else {
+          // Otro día — cerrar automáticamente el turno anterior
+          console.log("[SEGURIDAD] Cerrando turno anterior de otro día:", openDoc.id);
+          const now = new Date().toISOString();
+          
+          // Cerrar todos los turnos abiertos de otros días
+          for (const docSnap of openSnapshot.docs) {
+            const data = docSnap.data();
+            const docRef = firestoreDoc(db, 'Asistencia', docSnap.id);
+            
+            // Usar updateDoc estático
+            
+            await updateDoc(docRef, {
+              estado: 'CERRADO',
+              tipoCierre: 'AUTOMATICO_POR_NUEVA_ENTRADA',
+              horaSalidaReal: now,
+              status: 'completed',
+              endTime: now,
+              detalle: 'cierre forzado',
+            });
+
+            // Crear check_out automático
+            const checkOutId = `att_auto_new_${Date.now()}_${docSnap.id}`;
+            await setDoc(firestoreDoc(db, 'Asistencia', checkOutId), {
+              ...data,
+              id: checkOutId,
+              type: 'check_out',
+              timestamp: now,
+              status: 'completed',
+              isManual: false,
+              systemNote: 'Cierre automático por nueva entrada en otro día',
+              tipoCierre: 'AUTOMATICO_POR_NUEVA_ENTRADA',
+              estado: 'CERRADO',
+              horaSalidaReal: now,
+              detalle: 'cierre forzado',
+            });
+
+            // Sincronizar asistencia_manual
+            let prevDateStr = data.localDate || '';
+            if (data.shiftId && typeof data.shiftId === 'string' && data.shiftId.includes('_')) {
+              const parts = data.shiftId.split('_');
+              const datePart = parts[parts.length - 1];
+              if (datePart.match(/^\d{4}-\d{2}-\d{2}$/)) {
+                prevDateStr = datePart;
+              }
+            }
+            if (!prevDateStr) {
+              const startObj = new Date(data.timestamp);
+              prevDateStr = `${startObj.getFullYear()}-${String(startObj.getMonth() + 1).padStart(2, '0')}-${String(startObj.getDate()).padStart(2, '0')}`;
+            }
+            const siteId = data.siteId || 'sin_sucursal';
+            const digId = `${siteId}_${data.employeeId}_${prevDateStr}`;
+            try { await deleteDoc(firestoreDoc(db, 'asistencia_digital', digId)); } catch (e) {}
+            
+            const manualDocId = `manual_${data.employeeId}_${prevDateStr}`;
+            await setDoc(firestoreDoc(db, 'asistencia_manual', manualDocId), {
+              employeeId: data.employeeId,
+              date: prevDateStr,
+              status: 'presente',
+              type: 'auto_checkout_new_entry',
+              updatedAt: Timestamp.fromDate(new Date()),
+            }, { merge: true });
+          }
+          
+          showNotification("Turno anterior cerrado automáticamente.", "info");
+        }
       }
+    } catch (err) {
+      console.error("Error verificando turno abierto:", err);
+      // Continuar igualmente — no bloquear por error de lectura
+    }
+
+    // ── REGISTRAR ASISTENCIA ────────────────────────────────────────
+    setValidationStep('done');
+    try {
+      const now = new Date();
+      const dateStr = getTodayDateStr();
+      const actionTimestamp = now.toISOString();
+      
+      const shiftStatus = todayShift?.status || 'programado';
+      const schedule = SHIFT_SCHEDULES[shiftStatus] || SHIFT_SCHEDULES.programado;
+      const shiftId = `prog_${employee!.currentSiteId}_${employee!.id}_${dateStr}`;
 
       await addAttendanceLog({
-        employeeId: employee.id,
-        employeeName: `${employee.firstName} ${employee.lastNamePaterno}`,
-        rut: employee.rut,
-        type: actionType,
+        employeeId: employee!.id,
+        employeeName: `${employee!.firstName} ${employee!.lastNamePaterno}`,
+        rut: employee!.rut,
+        type: 'check_in',
         timestamp: actionTimestamp,
-        locationLat: finalCoords.lat,
-        locationLng: finalCoords.lng,
-        siteId: employee.currentSiteId ?? null,
-        siteName: sites.find(s => s.id === employee.currentSiteId)?.name || 'Sin Sucursal',
+        locationLat: finalCoords!.lat,
+        locationLng: finalCoords!.lng,
+        siteId: employee!.currentSiteId ?? null,
+        siteName: sites.find(s => s.id === employee!.currentSiteId)?.name || 'Sin Sucursal',
         shiftId: shiftId,
-        localDate: localDate  // Fecha local explícita para sincronización de turnos
+        localDate: dateStr,
+        // Nuevos campos
+        turnoProgramadoInicio: schedule.inicio,
+        turnoProgramadoTermino: schedule.termino,
+        turnoProgramadoStatus: shiftStatus,
+        estado: 'ABIERTO',
+        detalle: 'APP MOVIL',
       } as any);
 
-      setLastAction(actionType);
+      setLastAction('check_in');
       setStep('success');
+      setLoading(false);
+      setValidationStep('idle');
+
+      // Refrescar logs
+      fetchAttendanceLogs();
 
       setTimeout(() => {
         setStep('status');
-        setRutInput('');
-        setLoading(false);
       }, 3000);
 
     } catch (err: any) {
       console.error("Error en submitAttendance:", err);
       setError("Error al guardar registro. " + (err.message || ''));
       setLoading(false);
+      setValidationStep('idle');
     }
   };
 
+  // ══════════════════════════════════════════════════════════════════════
+  // CIERRE MANUAL
+  // ══════════════════════════════════════════════════════════════════════
+
+  const handleCerrarTurnoPress = () => {
+    setShowCloseConfirmModal(true);
+  };
+
+  const handleConfirmCierre = async () => {
+    setShowCloseConfirmModal(false);
+    if (!employee || !activeLog) return;
+    setLoading(true);
+    setError(null);
+
+    let finalCoords = coords;
+    if (!finalCoords) {
+      try {
+        finalCoords = await requestLocation();
+      } catch (err: any) {
+        setLoading(false);
+        setError("Debe activar la ubicación para cerrar turno.");
+        return;
+      }
+    }
+
+    try {
+      const now = new Date();
+      const dateStr = getTodayDateStr();
+      const actionTimestamp = now.toISOString();
+
+      await addAttendanceLog({
+        employeeId: employee.id,
+        employeeName: `${employee.firstName} ${employee.lastNamePaterno}`,
+        rut: employee.rut,
+        type: 'check_out',
+        timestamp: actionTimestamp,
+        locationLat: finalCoords!.lat,
+        locationLng: finalCoords!.lng,
+        siteId: employee.currentSiteId ?? null,
+        siteName: sites.find(s => s.id === employee.currentSiteId)?.name || 'Sin Sucursal',
+        shiftId: activeLog.shiftId || null,
+        localDate: dateStr,
+        // Campos de cierre
+        horaSalidaReal: actionTimestamp,
+        tipoCierre: 'MANUAL',
+        estado: 'CERRADO',
+        detalle: 'APP MOVIL',
+      } as any);
+
+      // Actualizar el check_in original como CERRADO
+      try {
+        await updateDoc(firestoreDoc(db, 'Asistencia', activeLog.id), {
+          estado: 'CERRADO',
+          tipoCierre: 'MANUAL',
+          horaSalidaReal: actionTimestamp,
+          status: 'completed',
+          endTime: actionTimestamp,
+        });
+      } catch (e) {
+        console.warn("No se pudo actualizar check_in previo:", e);
+      }
+
+      setLastAction('check_out');
+      setStep('success');
+      setLoading(false);
+
+      fetchAttendanceLogs();
+
+      setTimeout(() => {
+        setStep('status');
+      }, 3000);
+
+    } catch (err: any) {
+      console.error("Error en cierre manual:", err);
+      setError("Error al cerrar turno. " + (err.message || ''));
+      setLoading(false);
+    }
+  };
+
+  // ── Profile ─────────────────────────────────────────────────────────
   const handleUpdateProfile = async () => {
     if (!employee) return;
     setLoading(true);
@@ -407,7 +633,7 @@ const WorkerAttendance: React.FC = () => {
     }
   };
 
-  // Show loading while fetching initial data or if employees list is still empty (bootstrapping)
+  // ── Loading guard ───────────────────────────────────────────────────
   if (!employee && (isLoading || employees.length === 0)) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
@@ -433,16 +659,21 @@ const WorkerAttendance: React.FC = () => {
   const currentSite = sites.find(s => s.id === employee.currentSiteId);
   const displayShortName = employee ? `${employee.firstName} ${employee.lastNamePaterno.charAt(0).toUpperCase()}.` : '';
 
+  // Horario del turno activo
+  const activeShiftSchedule = activeLog?.turnoProgramadoStatus
+    ? SHIFT_SCHEDULES[activeLog.turnoProgramadoStatus] || SHIFT_SCHEDULES.programado
+    : null;
+
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col font-sans">
 
-      {/* HEADER SECTION */}
+      {/* ══ HEADER SECTION ══════════════════════════════════════════════ */}
       {step !== 'settings' && (
-        <div className={`bg-gradient-to-br from-blue-700 to-blue-900 text-white relative overflow-hidden transition-all duration-200 ease-out will-change-transform transform-gpu shadow-2xl ${step === 'keypad' ? 'p-3 rounded-b-[1.5rem]' : 'p-6 pb-12 rounded-b-[3rem]'}`}>
+        <div className={`bg-gradient-to-br from-blue-700 to-blue-900 text-white relative overflow-hidden transition-all duration-200 ease-out will-change-transform transform-gpu shadow-2xl ${step === 'rounds' || step === 'market' ? 'p-3 rounded-b-[1.5rem]' : 'p-6 pb-12 rounded-b-[3rem]'}`}>
           <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full -mr-16 -mt-16 blur-2xl pointer-events-none"></div>
           <div className="absolute bottom-0 left-0 w-24 h-24 bg-blue-400/10 rounded-full -ml-12 -mb-12 blur-xl pointer-events-none"></div>
 
-          <div className={`flex justify-between items-start relative z-10 transition-all duration-200 ease-out will-change-[transform,opacity] ${step === 'keypad' || step === 'rounds' || step === 'market' ? 'opacity-0 scale-95 pointer-events-none absolute h-0 overflow-hidden' : 'opacity-100 scale-100'}`}>
+          <div className={`flex justify-between items-start relative z-10 transition-all duration-200 ease-out will-change-[transform,opacity] ${step === 'rounds' || step === 'market' ? 'opacity-0 scale-95 pointer-events-none absolute h-0 overflow-hidden' : 'opacity-100 scale-100'}`}>
             <div className="flex items-center gap-4">
               <button
                 onClick={() => setIsSidebarOpen(!isSidebarOpen)}
@@ -461,7 +692,7 @@ const WorkerAttendance: React.FC = () => {
             </div>
           </div>
 
-          <div className={`bg-blue-950/40 p-4 rounded-2xl flex items-center gap-4 backdrop-blur-sm border border-white/10 transition-all duration-200 ease-out will-change-[transform,opacity] ${step === 'keypad' || step === 'rounds' || step === 'market' ? 'opacity-0 scale-90 invisible pointer-events-none absolute h-0 overflow-hidden' : 'opacity-100 scale-100 visible mt-8'}`}>
+          <div className={`bg-blue-950/40 p-4 rounded-2xl flex items-center gap-4 backdrop-blur-sm border border-white/10 transition-all duration-200 ease-out will-change-[transform,opacity] ${step === 'rounds' || step === 'market' ? 'opacity-0 scale-90 invisible pointer-events-none absolute h-0 overflow-hidden' : 'opacity-100 scale-100 visible mt-8'}`}>
             <div className="w-10 h-10 bg-blue-500/20 rounded-xl flex items-center justify-center text-blue-300">
               <MapPin size={22} />
             </div>
@@ -471,28 +702,28 @@ const WorkerAttendance: React.FC = () => {
             </div>
           </div>
 
-          {/* Mini version for Identification/Rounds - Extremely compact */}
-          {(step === 'keypad' || step === 'rounds' || step === 'market') && (
+          {/* Mini version for Rounds/Market */}
+          {(step === 'rounds' || step === 'market') && (
             <div className="flex items-center justify-center py-1 mt-1 animate-in fade-in duration-200 zoom-in-95 will-change-transform">
               <div className="w-10 h-10 bg-amber-400/20 rounded-xl flex items-center justify-center text-amber-400 border border-amber-400/30">
                 {step === 'market' ? <Zap size={24} /> : <ShieldCheck size={24} />}
               </div>
               <h1 className="ml-3 text-sm font-black tracking-widest opacity-90 uppercase">
-                {step === 'keypad' ? 'Validación de Turno' : step === 'market' ? 'Solicitudes Turnos Extra' : 'Monitoreo Activo'}
+                {step === 'market' ? 'Solicitudes Turnos Extra' : 'Monitoreo Activo'}
               </h1>
             </div>
           )}
         </div>
       )}
 
-      {/* MAIN ACTION AREA */}
-      <div className={`flex-1 transition-all duration-200 ease-out will-change-transform ${step === 'keypad' || step === 'rounds' || step === 'market' ? 'mt-2' : (step === 'settings' ? 'mt-0' : '-mt-6')} px-6 relative z-20 overflow-y-auto pb-10`}>
+      {/* ══ MAIN ACTION AREA ════════════════════════════════════════════ */}
+      <div className={`flex-1 transition-all duration-200 ease-out will-change-transform ${step === 'rounds' || step === 'market' ? 'mt-2' : (step === 'settings' ? 'mt-0' : '-mt-6')} px-6 relative z-20 overflow-y-auto pb-10`}>
 
         {step === 'status' && (
           <div className="space-y-6 animate-in fade-in slide-in-from-bottom-5 duration-500 h-full flex flex-col items-center justify-center min-h-[400px]">
 
             {!isCheckedIn ? (
-              /* INICIAR TURNO VIEW */
+              /* ══ INICIAR TURNO VIEW ══ */
               <div className="w-full max-w-sm space-y-4">
                 <div className="text-center mb-6">
                   <div className="px-4 py-1.5 rounded-full inline-block text-[10px] font-black tracking-widest uppercase mb-2 bg-slate-200 text-slate-500">
@@ -501,11 +732,61 @@ const WorkerAttendance: React.FC = () => {
                   <h2 className="text-4xl font-black text-slate-800 tracking-tighter uppercase">Inicia tu Jornada</h2>
                 </div>
 
+                {/* Error de validación */}
+                {validationError && (
+                  <div className="bg-red-50 p-5 rounded-3xl border border-red-100 animate-in fade-in slide-in-from-top-4 duration-300">
+                    <div className="flex items-start gap-3">
+                      {validationErrorType === 'gps' ? (
+                        <MapPinOff size={24} className="text-red-500 shrink-0 mt-0.5" />
+                      ) : (
+                        <AlertTriangle size={24} className="text-red-500 shrink-0 mt-0.5" />
+                      )}
+                      <div className="flex-1">
+                        <p className="text-sm font-bold text-red-700 whitespace-pre-line">{validationError}</p>
+                        {validationErrorType === 'gps' && (
+                          <button
+                            onClick={async () => {
+                              setValidationError(null);
+                              setValidationErrorType(null);
+                              try {
+                                await requestLocation();
+                                showNotification("Ubicación obtenida correctamente", "success");
+                              } catch (e) {
+                                setValidationError("Debe activar la ubicación para iniciar turno.");
+                                setValidationErrorType('gps');
+                              }
+                            }}
+                            className="mt-3 px-4 py-2 bg-red-600 text-white rounded-xl font-bold text-xs uppercase tracking-widest active:scale-95 transition-all"
+                          >
+                            Activar ubicación
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Indicador de validación en progreso */}
+                {loading && validationStep !== 'idle' && (
+                  <div className="bg-blue-50 p-5 rounded-3xl border border-blue-100 animate-in fade-in duration-300">
+                    <div className="flex items-center gap-3">
+                      <Loader2 size={24} className="text-blue-600 animate-spin" />
+                      <p className="text-sm font-bold text-blue-700">
+                        {validationStep === 'gps' && 'Verificando ubicación...'}
+                        {validationStep === 'turno' && 'Verificando turno programado...'}
+                        {validationStep === 'abierto' && 'Verificando turnos activos...'}
+                        {validationStep === 'done' && 'Registrando asistencia...'}
+                      </p>
+                    </div>
+                  </div>
+                )}
+
                 <button
-                  onClick={() => setStep('keypad')}
-                  className="w-full py-8 bg-emerald-500 hover:bg-emerald-600 text-white rounded-[2rem] shadow-xl shadow-emerald-200 flex flex-col items-center justify-center gap-2 transition-all active:scale-95 group border-b-8 border-emerald-700"
+                  onClick={handleIniciarTurnoPress}
+                  disabled={loading}
+                  className="w-full py-8 bg-emerald-500 hover:bg-emerald-600 text-white rounded-[2rem] shadow-xl shadow-emerald-200 flex flex-col items-center justify-center gap-2 transition-all active:scale-95 group border-b-8 border-emerald-700 disabled:opacity-50 disabled:pointer-events-none"
                 >
-                  <Clock size={48} className="group-hover:scale-110 transition-transform" />
+                  <Play size={48} className="group-hover:scale-110 transition-transform" />
                   <span className="text-2xl font-black tracking-widest">INICIAR TURNO</span>
                 </button>
 
@@ -520,20 +801,46 @@ const WorkerAttendance: React.FC = () => {
                 </button>
               </div>
             ) : (
-              /* TURNO EN CURSO VIEW */
-              <div className="w-full max-w-sm space-y-6">
-                <div className="text-center mb-4">
-                  <div className="px-4 py-1.5 rounded-full inline-block text-[10px] font-black tracking-widest uppercase mb-2 bg-emerald-100 text-emerald-600">
-                    Turno en curso
+              /* ══ TURNO EN CURSO VIEW ══ */
+              <div className="w-full max-w-sm space-y-5">
+                {/* ── Tarjeta Informativa del Turno Activo ── */}
+                <div className="bg-white rounded-[2rem] p-6 shadow-lg border border-slate-100 space-y-4 animate-in fade-in zoom-in-95 duration-300">
+                  <div className="flex items-center justify-between">
+                    <div className="px-3 py-1.5 rounded-full text-[10px] font-black tracking-widest uppercase bg-emerald-100 text-emerald-600 flex items-center gap-1.5">
+                      <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></div>
+                      Turno en curso
+                    </div>
+                    <div className="text-right">
+                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Tiempo</p>
+                      <p className="text-lg font-black text-slate-800 tracking-tight tabular-nums">{elapsedTime}</p>
+                    </div>
                   </div>
-                  <h2 className="text-3xl font-black text-slate-800 tracking-tighter uppercase">Gestión de Turno</h2>
-                  {lastLog && (
-                    <p className="text-slate-400 font-bold mt-1">
-                      Iniciado a las {new Date(lastLog.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    </p>
-                  )}
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="bg-slate-50 rounded-xl p-3">
+                      <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Sucursal</p>
+                      <p className="text-xs font-bold text-slate-700 line-clamp-2">{currentSite?.name || 'Sin asignación'}</p>
+                    </div>
+                    <div className="bg-slate-50 rounded-xl p-3">
+                      <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Turno</p>
+                      <p className="text-xs font-bold text-slate-700">
+                        {activeShiftSchedule ? `${activeShiftSchedule.inicio} - ${activeShiftSchedule.termino}` : '--:-- - --:--'}
+                      </p>
+                    </div>
+                    <div className="bg-slate-50 rounded-xl p-3">
+                      <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Inicio</p>
+                      <p className="text-xs font-bold text-slate-700">
+                        {activeLog ? new Date(activeLog.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '--:--'}
+                      </p>
+                    </div>
+                    <div className="bg-slate-50 rounded-xl p-3">
+                      <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Estado</p>
+                      <p className="text-xs font-bold text-emerald-600">En servicio</p>
+                    </div>
+                  </div>
                 </div>
 
+                {/* ── Botones de Acción ── */}
                 <div className="grid grid-cols-1 gap-4">
                   {currentSite?.rondasEnabled && (
                     <button
@@ -548,13 +855,14 @@ const WorkerAttendance: React.FC = () => {
                     </button>
                   )}
 
-
+                  {/* Incidentes — Próximamente */}
                   <button
-                    onClick={() => setStep('documents')}
-                    className="w-full py-6 bg-slate-800 hover:bg-slate-900 text-white rounded-[2rem] shadow-xl shadow-slate-200 flex items-center justify-center gap-3 transition-all active:scale-95 border-b-8 border-slate-950"
+                    disabled
+                    className="w-full py-6 bg-amber-500/60 text-white rounded-[2rem] shadow-lg flex items-center justify-center gap-3 border-b-8 border-amber-700/40 relative opacity-60 cursor-not-allowed"
                   >
-                    <ShieldCheck size={28} />
-                    <span className="text-xl font-black tracking-wider uppercase">MIS DOCUMENTOS</span>
+                    <AlertTriangle size={28} />
+                    <span className="text-xl font-black tracking-wider uppercase">INCIDENTES</span>
+                    <div className="absolute top-3 right-3 px-2 py-0.5 bg-white/30 rounded-full text-[8px] font-black uppercase tracking-widest">Próximamente</div>
                   </button>
 
                   <button
@@ -566,10 +874,19 @@ const WorkerAttendance: React.FC = () => {
                   </button>
 
                   <button
-                    onClick={() => setStep('keypad')}
-                    className="w-full py-6 bg-red-500 hover:bg-red-600 text-white rounded-[2rem] shadow-xl shadow-red-200 flex items-center justify-center gap-3 transition-all active:scale-95 border-b-8 border-red-700"
+                    onClick={() => setStep('documents')}
+                    className="w-full py-6 bg-slate-800 hover:bg-slate-900 text-white rounded-[2rem] shadow-xl shadow-slate-200 flex items-center justify-center gap-3 transition-all active:scale-95 border-b-8 border-slate-950"
                   >
-                    <LogOut size={28} />
+                    <ShieldCheck size={28} />
+                    <span className="text-xl font-black tracking-wider uppercase">MIS DOCUMENTOS</span>
+                  </button>
+
+                  <button
+                    onClick={handleCerrarTurnoPress}
+                    disabled={loading}
+                    className="w-full py-6 bg-red-500 hover:bg-red-600 text-white rounded-[2rem] shadow-xl shadow-red-200 flex items-center justify-center gap-3 transition-all active:scale-95 border-b-8 border-red-700 disabled:opacity-50"
+                  >
+                    {loading ? <Loader2 size={28} className="animate-spin" /> : <Square size={28} />}
                     <span className="text-xl font-black tracking-wider">CERRAR TURNO</span>
                   </button>
                 </div>
@@ -682,69 +999,19 @@ const WorkerAttendance: React.FC = () => {
           </div>
         )}
 
-
-        {step === 'keypad' && (
-          <div className="bg-white rounded-[3rem] p-8 shadow-xl space-y-8 animate-in zoom-in-95 duration-300 max-w-sm mx-auto mt-4">
-            <div className="text-center">
-              <h3 className="text-2xl font-black text-slate-800 tracking-tight">Identificación</h3>
-              <p className="text-slate-400 font-medium text-xs">Ingresa tu RUT para verificar</p>
-            </div>
-
-            <div className="bg-slate-50 p-6 rounded-3xl text-center ring-2 ring-slate-100">
-              <span className="text-3xl font-black text-slate-700 tracking-tight">
-                {rutInput ? formatRut(rutInput) : 'XX.XXX.XXX-X'}
-              </span>
-            </div>
-
-            {error && (
-              <div className="bg-red-50 p-4 rounded-2xl flex items-center gap-3 text-red-600 animate-bounce">
-                <AlertCircle size={20} />
-                <span className="text-sm font-bold">{error}</span>
-              </div>
-            )}
-
-            <div className="grid grid-cols-3 gap-4">
-              {[1, 2, 3, 4, 5, 6, 7, 8, 9, 'K', 0].map((num) => (
-                <KeypadButton
-                  key={num}
-                  value={num.toString()}
-                  onClick={handleKeyPress}
-                />
-              ))}
-              <button
-                onClick={handleBackspace}
-                className="h-16 bg-slate-50 hover:bg-red-50 hover:text-red-500 rounded-2xl flex items-center justify-center shadow-sm transition-colors active:scale-95"
-              >
-                <Delete size={24} />
-              </button>
-            </div>
-
-            <div className="flex gap-4">
-              <button
-                onClick={() => setStep('status')}
-                className="flex-1 py-4 bg-slate-100 text-slate-500 rounded-3xl font-black uppercase tracking-widest active:scale-95 transition-all text-xs"
-              >
-                Cancelar
-              </button>
-              <button
-                onClick={validateRut}
-                disabled={rutInput.length < 7 || loading}
-                className="flex-[2] py-4 bg-blue-600 text-white rounded-3xl font-black uppercase tracking-widest shadow-lg shadow-blue-200 active:scale-95 transition-all disabled:opacity-50 text-xs flex items-center justify-center gap-2"
-              >
-                {loading && <Loader2 size={16} className="animate-spin" />}
-                {isCheckedIn ? 'Finalizar' : 'Confirmar'}
-              </button>
-            </div>
-          </div>
-        )}
-
         {step === 'success' && (
           <div className="h-full flex flex-col items-center justify-center space-y-6 py-20 animate-in zoom-in-95 duration-500">
             <div className="w-32 h-32 bg-emerald-100 rounded-full flex items-center justify-center shadow-inner">
               <CheckCircle size={64} className="text-emerald-500" />
             </div>
             <div className="text-center space-y-2">
-              <h2 className="text-3xl font-black text-slate-800 tracking-tighter uppercase leading-tight">¡Bienvenido <br /> <span className="text-blue-600">{displayShortName}</span>!</h2>
+              <h2 className="text-3xl font-black text-slate-800 tracking-tighter uppercase leading-tight">
+                {lastAction === 'check_in' ? (
+                  <>¡Bienvenido <br /> <span className="text-blue-600">{displayShortName}</span>!</>
+                ) : (
+                  <>¡Hasta luego <br /> <span className="text-blue-600">{displayShortName}</span>!</>
+                )}
+              </h2>
               <p className="text-slate-400 font-bold">Tu registro se ha realizado con éxito.</p>
             </div>
             <div className="p-4 bg-emerald-50 rounded-2xl border border-emerald-100 text-[10px] font-black uppercase tracking-[0.2em] text-emerald-600">
@@ -1009,11 +1276,128 @@ const WorkerAttendance: React.FC = () => {
 
       </div>
 
-      <div className={`p-6 text-center text-[10px] font-black text-slate-300 uppercase tracking-widest transition-all duration-500 ${step === 'keypad' || step === 'documents' || step === 'company_docs' || step === 'market' || step === 'my_extra_shifts' || step === 'my_fixed_shifts' ? 'opacity-0 h-0 p-0 overflow-hidden' : 'opacity-50'}`}>
+      <div className={`p-6 text-center text-[10px] font-black text-slate-300 uppercase tracking-widest transition-all duration-500 ${step === 'documents' || step === 'company_docs' || step === 'market' || step === 'my_extra_shifts' || step === 'my_fixed_shifts' ? 'opacity-0 h-0 p-0 overflow-hidden' : 'opacity-50'}`}>
         GGSS Security · Aspro SPA · v{APP_VERSION}
       </div>
 
-      {/* SIDEBAR HAMBURGER MENU */}
+      {/* ══ MODAL DE CONFIRMACIÓN — INICIAR TURNO ══════════════════════ */}
+      {showConfirmModal && (
+        <div className="fixed inset-0 z-[300] flex items-center justify-center p-6">
+          <div className="absolute inset-0 bg-slate-900/70 backdrop-blur-sm" onClick={() => setShowConfirmModal(false)}></div>
+          <div className="relative bg-white rounded-[2.5rem] p-8 shadow-2xl max-w-sm w-full animate-in zoom-in-95 fade-in duration-300 space-y-6">
+            {/* Header */}
+            <div className="text-center">
+              <div className="w-16 h-16 bg-emerald-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                <Play size={32} className="text-emerald-600" />
+              </div>
+              <h3 className="text-xl font-black text-slate-800 tracking-tight">Confirmar Inicio de Turno</h3>
+            </div>
+
+            {/* Datos del guardia */}
+            <div className="space-y-3 bg-slate-50 rounded-2xl p-5">
+              <div className="flex justify-between items-center">
+                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Nombre</span>
+                <span className="text-sm font-bold text-slate-700">{employee.firstName} {employee.lastNamePaterno}</span>
+              </div>
+              <div className="h-px bg-slate-200"></div>
+              <div className="flex justify-between items-center">
+                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">RUT</span>
+                <span className="text-sm font-bold text-slate-700">{employee.rut}</span>
+              </div>
+              <div className="h-px bg-slate-200"></div>
+              <div className="flex justify-between items-center">
+                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Instalación</span>
+                <span className="text-sm font-bold text-slate-700 text-right max-w-[60%]">{currentSite?.name || 'Sin asignación'}</span>
+              </div>
+              <div className="h-px bg-slate-200"></div>
+              <div className="flex justify-between items-center">
+                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Turno</span>
+                <span className="text-sm font-bold text-slate-700">
+                  {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </span>
+              </div>
+            </div>
+
+            {/* Mensaje */}
+            <p className="text-center text-sm text-slate-600 font-medium leading-relaxed">
+              <span className="font-bold text-slate-800">{employee.firstName}</span>, ¿estás seguro(a) que deseas iniciar el turno de hoy en <span className="font-bold text-blue-600">{currentSite?.name || 'tu sucursal'}</span>?
+            </p>
+
+            {/* Botones */}
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowConfirmModal(false)}
+                className="flex-1 py-4 bg-slate-100 text-slate-500 rounded-2xl font-black uppercase tracking-widest text-xs active:scale-95 transition-all"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleConfirmInicio}
+                className="flex-[2] py-4 bg-emerald-500 hover:bg-emerald-600 text-white rounded-2xl font-black uppercase tracking-widest text-xs shadow-lg shadow-emerald-200 active:scale-95 transition-all flex items-center justify-center gap-2"
+              >
+                <CheckCircle size={18} />
+                Confirmar Inicio
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ══ MODAL DE CONFIRMACIÓN — CERRAR TURNO ═══════════════════════ */}
+      {showCloseConfirmModal && (
+        <div className="fixed inset-0 z-[300] flex items-center justify-center p-6">
+          <div className="absolute inset-0 bg-slate-900/70 backdrop-blur-sm" onClick={() => setShowCloseConfirmModal(false)}></div>
+          <div className="relative bg-white rounded-[2.5rem] p-8 shadow-2xl max-w-sm w-full animate-in zoom-in-95 fade-in duration-300 space-y-6">
+            <div className="text-center">
+              <div className="w-16 h-16 bg-red-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                <Square size={32} className="text-red-600" />
+              </div>
+              <h3 className="text-xl font-black text-slate-800 tracking-tight">Cerrar Turno</h3>
+            </div>
+
+            {activeLog && (
+              <div className="space-y-3 bg-slate-50 rounded-2xl p-5">
+                <div className="flex justify-between items-center">
+                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Inicio</span>
+                  <span className="text-sm font-bold text-slate-700">{new Date(activeLog.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                </div>
+                <div className="h-px bg-slate-200"></div>
+                <div className="flex justify-between items-center">
+                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Tiempo</span>
+                  <span className="text-sm font-bold text-slate-700">{elapsedTime}</span>
+                </div>
+                <div className="h-px bg-slate-200"></div>
+                <div className="flex justify-between items-center">
+                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Sucursal</span>
+                  <span className="text-sm font-bold text-slate-700">{activeLog.siteName}</span>
+                </div>
+              </div>
+            )}
+
+            <p className="text-center text-sm text-slate-600 font-medium">
+              ¿Estás seguro(a) que deseas <span className="font-bold text-red-600">cerrar el turno</span>?
+            </p>
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowCloseConfirmModal(false)}
+                className="flex-1 py-4 bg-slate-100 text-slate-500 rounded-2xl font-black uppercase tracking-widest text-xs active:scale-95 transition-all"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleConfirmCierre}
+                className="flex-[2] py-4 bg-red-500 hover:bg-red-600 text-white rounded-2xl font-black uppercase tracking-widest text-xs shadow-lg shadow-red-200 active:scale-95 transition-all flex items-center justify-center gap-2"
+              >
+                <Square size={18} />
+                Cerrar Turno
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ══ SIDEBAR HAMBURGER MENU ══════════════════════════════════════ */}
       <div
         className={`fixed inset-0 z-[200] transition-all duration-500 ${isSidebarOpen ? 'opacity-100 visible' : 'opacity-0 invisible pointer-events-none'}`}
       >
@@ -1139,17 +1523,5 @@ const WorkerAttendance: React.FC = () => {
     </div>
   );
 };
-
-// Helper Components for optimization
-const KeypadButton = React.memo(({ value, onClick }: { value: string, onClick: (v: string) => void }) => {
-  return (
-    <button
-      onClick={() => onClick(value)}
-      className="h-16 bg-slate-50 hover:bg-slate-100 active:bg-blue-50 active:text-blue-600 rounded-2xl text-2xl font-black text-slate-600 shadow-sm transition-all"
-    >
-      {value}
-    </button>
-  );
-});
 
 export default WorkerAttendance;

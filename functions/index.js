@@ -1,5 +1,6 @@
 const { onRequest, onCall, HttpsError } = require('firebase-functions/v2/https');
 const { onDocumentCreated } = require('firebase-functions/v2/firestore');
+const { onSchedule } = require('firebase-functions/v2/scheduler');
 const admin = require('firebase-admin');
 const axios = require('axios');
 
@@ -500,4 +501,172 @@ exports.resetUserPassword = onCall(
             throw new HttpsError('internal', 'Error al actualizar la contraseña: ' + authError.message);
         }
     }
+);
+
+// ────────────────────────────────────────────────────────────────────────────────
+// Cloud Function: Cierre automático de turnos programados
+// Se ejecuta cada 5 minutos y cierra turnos que han superado su hora de término
+// + margen de gracia configurable.
+// ────────────────────────────────────────────────────────────────────────────────
+
+// Helper functions for Santiago, Chile Timezone
+function getChileParts(date) {
+  const formatter = new Intl.DateTimeFormat('es-CL', {
+    timeZone: 'America/Santiago',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false
+  });
+  const parts = formatter.formatToParts(date);
+  const map = new Map(parts.map(p => [p.type, p.value]));
+  return {
+    year: Number(map.get('year')),
+    month: Number(map.get('month')),
+    day: Number(map.get('day')),
+    hour: Number(map.get('hour')),
+    minute: Number(map.get('minute')),
+    second: Number(map.get('second'))
+  };
+}
+
+function chileLocalToUtc(year, month, day, hour, minute) {
+  const d = new Date(Date.UTC(year, month - 1, day, hour, minute));
+  const parts = getChileParts(d);
+  const diffMs = d.getTime() - Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute);
+  return new Date(d.getTime() + diffMs);
+}
+
+const AUTO_CLOSE_GRACE_MINUTES = 15;
+
+// Mapeo de horarios por tipo de turno
+const SHIFT_SCHEDULES = {
+  'programado': { inicio: '07:30', termino: '19:30' },
+  'noche':      { inicio: '19:30', termino: '07:30' },
+};
+
+exports.autoCloseShifts = onSchedule(
+  {
+    schedule: 'every 5 minutes',
+    region: 'us-central1',
+    timeZone: 'America/Santiago',
+  },
+  async (event) => {
+    const now = new Date();
+    console.log(`[AUTO-CLOSE] Ejecutando cierre automático: ${now.toISOString()}`);
+
+    try {
+      // Buscar todos los turnos ABIERTOS
+      const snapshot = await admin.firestore()
+        .collection('Asistencia')
+        .where('type', '==', 'check_in')
+        .where('estado', '==', 'ABIERTO')
+        .get();
+
+      if (snapshot.empty) {
+        console.log('[AUTO-CLOSE] No hay turnos abiertos.');
+        return;
+      }
+
+      console.log(`[AUTO-CLOSE] Encontrados ${snapshot.size} turnos abiertos.`);
+      let closedCount = 0;
+
+      for (const docSnap of snapshot.docs) {
+        const data = docSnap.data();
+        const startDate = new Date(data.timestamp);
+
+        if (isNaN(startDate.getTime())) {
+          console.log(`[AUTO-CLOSE] Turno ${docSnap.id} con fecha de inicio inválida, saltando.`);
+          continue;
+        }
+
+        // Cierre automático tras 12 horas + 60 minutos (13 horas en total)
+        const thirteenHoursMs = 13 * 60 * 60 * 1000;
+        const expirationTime = new Date(startDate.getTime() + thirteenHoursMs);
+
+        if (now >= expirationTime) {
+          // Cerrar automáticamente (la hora de cierre es exactamente la de expiración)
+          const horaCierre = expirationTime.toISOString();
+
+          await docSnap.ref.update({
+            estado: 'CERRADO',
+            tipoCierre: 'AUTOMATICO',
+            horaSalidaReal: horaCierre,
+            status: 'completed',
+            endTime: horaCierre,
+            detalle: 'cierre forzado',
+          });
+
+          // Crear check_out automático
+          const checkOutId = `att_auto_${Date.now()}_${docSnap.id.slice(-6)}`;
+          await admin.firestore().collection('Asistencia').doc(checkOutId).set({
+            employeeId: data.employeeId,
+            employeeName: data.employeeName || '',
+            rut: data.rut || '',
+            type: 'check_out',
+            timestamp: horaCierre,
+            locationLat: data.locationLat || null,
+            locationLng: data.locationLng || null,
+            siteId: data.siteId || null,
+            siteName: data.siteName || '',
+            shiftId: data.shiftId || null,
+            status: 'completed',
+            isManual: false,
+            systemNote: `Cierre automático: turno excedió 12 horas + 60 minutos de gracia`,
+            tipoCierre: 'AUTOMATICO',
+            estado: 'CERRADO',
+            horaSalidaReal: horaCierre,
+            turnoProgramadoInicio: data.turnoProgramadoInicio || null,
+            turnoProgramadoTermino: data.turnoProgramadoTermino || null,
+            turnoProgramadoStatus: data.turnoProgramadoStatus || null,
+            detalle: 'cierre forzado',
+          });
+
+          // Sincronizar con asistencia_manual/asistencia_digital
+          // Determinar la fecha de la jornada original de forma robusta
+          let jornadaDate = data.localDate || '';
+          if (data.shiftId && typeof data.shiftId === 'string' && data.shiftId.includes('_')) {
+            const parts = data.shiftId.split('_');
+            const datePart = parts[parts.length - 1];
+            if (datePart.match(/^\d{4}-\d{2}-\d{2}$/)) {
+              jornadaDate = datePart;
+            }
+          }
+          if (!jornadaDate) {
+            const startObj = new Date(data.timestamp);
+            jornadaDate = `${startObj.getFullYear()}-${String(startObj.getMonth() + 1).padStart(2, '0')}-${String(startObj.getDate()).padStart(2, '0')}`;
+          }
+          const siteId = data.siteId || 'sin_sucursal';
+
+          // Eliminar pulso digital
+          const digId = `${siteId}_${data.employeeId}_${jornadaDate}`;
+          try {
+            await admin.firestore().collection('asistencia_digital').doc(digId).delete();
+          } catch (e) {
+            console.log(`[AUTO-CLOSE] No se pudo eliminar asistencia_digital ${digId}:`, e.message);
+          }
+
+          // Crear asistencia manual
+          const manualDocId = `manual_${data.employeeId}_${jornadaDate}`;
+          await admin.firestore().collection('asistencia_manual').doc(manualDocId).set({
+            employeeId: data.employeeId,
+            date: jornadaDate,
+            status: 'presente',
+            type: 'auto_checkout',
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          }, { merge: true });
+
+          closedCount++;
+          console.log(`[AUTO-CLOSE] ✅ Turno cerrado para ${data.employeeName || data.employeeId}: ${docSnap.id}`);
+        }
+      }
+
+      console.log(`[AUTO-CLOSE] Proceso completado: ${closedCount} turnos cerrados de ${snapshot.size} abiertos.`);
+    } catch (error) {
+      console.error('[AUTO-CLOSE] Error en cierre automático:', error);
+    }
+  }
 );

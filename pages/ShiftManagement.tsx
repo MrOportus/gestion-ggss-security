@@ -408,7 +408,8 @@ const ShiftManagement: React.FC = () => {
                             endTime: isCompleted ? endTimestamp : null,
                             createdBy: 'admin',
                             systemNote: 'Registro manual desde Gestión de Turnos',
-                            shiftId: progDocId
+                            shiftId: progDocId,
+                            detalle: 'REGISTRO MANUAL'
                         }, { merge: true }));
                     }
                 } else if (status === 'ausente') {

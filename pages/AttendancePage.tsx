@@ -124,6 +124,7 @@ const AttendancePage: React.FC = () => {
                 'RUT': log.rut,
                 'Sucursal': log.siteName,
                 'Tipo Evento': log.type === 'check_in' ? 'Entrada' : 'Salida',
+                'Tipo Cierre': log.tipoCierre || '-',
                 'Duración Turno': duration || '-',
                 'Coordenadas': log.locationLat ? `${log.locationLat}, ${log.locationLng}` : 'N/A'
             };
@@ -258,6 +259,21 @@ const AttendancePage: React.FC = () => {
                                                                                 Manual
                                                                             </span>
                                                                         )}
+                                                                        {log.tipoCierre === 'AUTOMATICO' && (
+                                                                            <span className="px-2 py-1 bg-yellow-100 text-yellow-700 border border-yellow-200 rounded-lg text-[8px] font-black uppercase tracking-tighter">
+                                                                                Automático
+                                                                            </span>
+                                                                        )}
+                                                                        {log.tipoCierre === 'AUTOMATICO_POR_NUEVA_ENTRADA' && (
+                                                                            <span className="px-2 py-1 bg-orange-100 text-orange-700 border border-orange-200 rounded-lg text-[8px] font-black uppercase tracking-tighter">
+                                                                                Auto-Nueva Entrada
+                                                                            </span>
+                                                                        )}
+                                                                        {log.tipoCierre === 'MANUAL' && log.type === 'check_out' && !log.isManual && (
+                                                                            <span className="px-2 py-1 bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-lg text-[8px] font-black uppercase tracking-tighter">
+                                                                                Cierre Manual
+                                                                            </span>
+                                                                        )}
                                                                     </div>
                                                                     {duration && (
                                                                         <span className="text-[10px] font-bold text-slate-400 bg-slate-100 px-2 py-0.5 rounded-md">
@@ -282,22 +298,32 @@ const AttendancePage: React.FC = () => {
                                                             </td>
                                                              <td className="px-6 py-5 text-right">
                                                                 <div className="flex items-center justify-end gap-3">
-                                                                    <div className="flex flex-col items-end">
-                                                                        {log.isManual ? (
-                                                                            <span className="text-[9px] font-black text-amber-600 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-100 uppercase tracking-tighter">
-                                                                                Registro Manual
-                                                                            </span>
-                                                                        ) : (
-                                                                            <span className="text-[9px] font-black text-blue-600 bg-blue-50 px-2 py-0.5 rounded-md border border-blue-100 uppercase tracking-tighter">
-                                                                                App Móvil
-                                                                            </span>
-                                                                        )}
-                                                                        {log.systemNote && (
-                                                                            <span className="text-[8px] text-slate-400 font-bold truncate max-w-[100px]" title={log.systemNote}>
-                                                                                {log.systemNote}
-                                                                            </span>
-                                                                        )}
-                                                                    </div>
+                                                                    <div className="flex flex-col items-end gap-1">
+                                                                         {log.detalle ? (
+                                                                             <span className={`text-[9px] font-black px-2 py-0.5 rounded-md border uppercase tracking-tighter ${
+                                                                                 log.detalle === 'APP MOVIL' ? 'text-blue-600 bg-blue-50 border-blue-100' :
+                                                                                 log.detalle === 'REGISTRO MANUAL' ? 'text-amber-600 bg-amber-50 border-amber-100' :
+                                                                                 log.detalle === 'cierre forzado' ? 'text-rose-600 bg-rose-50 border-rose-100' :
+                                                                                 log.detalle === 'cierre por Admin' ? 'text-purple-600 bg-purple-50 border-purple-100' :
+                                                                                 'text-slate-600 bg-slate-50 border-slate-100'
+                                                                             }`}>
+                                                                                 {log.detalle}
+                                                                             </span>
+                                                                         ) : log.isManual ? (
+                                                                             <span className="text-[9px] font-black text-amber-600 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-100 uppercase tracking-tighter">
+                                                                                 Registro Manual
+                                                                             </span>
+                                                                         ) : (
+                                                                             <span className="text-[9px] font-black text-blue-600 bg-blue-50 px-2 py-0.5 rounded-md border border-blue-100 uppercase tracking-tighter">
+                                                                                 App Móvil
+                                                                             </span>
+                                                                         )}
+                                                                         {log.systemNote && (
+                                                                             <span className="text-[8px] text-slate-400 font-bold truncate max-w-[120px]" title={log.systemNote}>
+                                                                                 {log.systemNote}
+                                                                             </span>
+                                                                         )}
+                                                                     </div>
                                                                     {log.photoUrl && (
                                                                         <button 
                                                                             onClick={() => setSelectedPhoto(log.photoUrl)} 

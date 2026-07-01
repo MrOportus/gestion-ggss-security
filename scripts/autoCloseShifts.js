@@ -15,16 +15,16 @@ async function autoCloseShifts() {
     console.log('--- Iniciando Proceso de Cierre Automático ---');
 
     const now = new Date();
-    const twelveHoursAgo = new Date(now.getTime() - 12 * 60 * 60 * 1000);
+    const thirteenHoursAgo = new Date(now.getTime() - 13 * 60 * 60 * 1000);
 
     try {
         const snapshot = await db.collection('Asistencia')
             .where('status', '==', 'active')
-            .where('timestamp', '<', twelveHoursAgo.toISOString())
+            .where('timestamp', '<', thirteenHoursAgo.toISOString())
             .get();
 
         if (snapshot.empty) {
-            console.log('No se encontraron turnos activos con más de 12 horas.');
+            console.log('No se encontraron turnos activos con más de 13 horas (12h + 60m).');
             return;
         }
 
@@ -37,9 +37,12 @@ async function autoCloseShifts() {
 
             batch.update(doc.ref, {
                 status: 'completed',
+                estado: 'CERRADO',
+                tipoCierre: 'AUTOMATICO',
                 endTime: now.toISOString(),
-                type: 'check_out',
-                systemNote: 'Cierre automático por exceder límite de tiempo (12h)'
+                horaSalidaReal: now.toISOString(),
+                detalle: 'cierre forzado',
+                systemNote: 'Cierre automático por exceder límite de tiempo (12h + 60m de gracia)'
             });
         });
 

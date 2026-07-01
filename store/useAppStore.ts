@@ -149,7 +149,7 @@ interface AppState {
 
   fetchAttendanceLogs: () => Promise<void>;
   uploadAttendancePhoto: (file: Blob, filename: string) => Promise<string>;
-  forceCloseAttendance: (logId: string, endTimestamp: string, note?: string) => Promise<void>;
+  forceCloseAttendance: (logId: string, endTimestamp: string, note?: string, closureType?: 'cierre forzado' | 'cierre por Admin') => Promise<void>;
   checkAndCloseStaleShifts: () => Promise<void>;
 
   // Round Actions
@@ -682,7 +682,7 @@ export const useAppStore = create<AppState>()(
           );
           const snapshot = await getDocs(q);
           const now = new Date();
-          const staleThreshold = 24 * 60 * 60 * 1000; // 24 horas en ms
+          const staleThreshold = 13 * 60 * 60 * 1000; // 13 horas (12h + 60m) en ms
 
           for (const docSnap of snapshot.docs) {
             const data = docSnap.data() as AttendanceLog;
@@ -695,13 +695,14 @@ export const useAppStore = create<AppState>()(
             if (now.getTime() - startTime > staleThreshold) {
               console.log(`Auto-cerrando turno stale para: ${data.employeeName || 'Usuario'}`);
               
-              // 14 horas después del inicio como fin teórico
-              const autoEndTime = new Date(startTime + (14 * 60 * 60 * 1000)).toISOString();
+              // 13 horas después del inicio como fin teórico (12h + 60m)
+              const autoEndTime = new Date(startTime + staleThreshold).toISOString();
               
               await get().forceCloseAttendance(
                 docSnap.id, 
                 autoEndTime, 
-                "Cierre automático: sesión abierta más de 24 horas"
+                "Cierre automático: turno excedió 12 horas + 60 minutos de gracia",
+                "cierre forzado"
               );
             }
           }
@@ -720,7 +721,7 @@ export const useAppStore = create<AppState>()(
         return await getDownloadURL(storageRef);
       },
 
-      forceCloseAttendance: async (logId, endTimestamp, note) => {
+      forceCloseAttendance: async (logId, endTimestamp, note, closureType) => {
         try {
           // 1. Marcar el log de ingreso original como completado (sin cambiar su tipo)
           const checkInRef = doc(db, 'Asistencia', logId);
@@ -729,9 +730,19 @@ export const useAppStore = create<AppState>()(
           if (!checkInSnap.exists()) return;
           const checkInData = checkInSnap.data() as AttendanceLog;
 
+          // Determinar el detalle de cierre
+          let detectedClosureType: 'cierre forzado' | 'cierre por Admin' = closureType || 'cierre por Admin';
+          if (!closureType && note && note.toLowerCase().includes('automático')) {
+            detectedClosureType = 'cierre forzado';
+          }
+
           await updateDoc(checkInRef, { 
             status: 'completed',
-            endTime: endTimestamp
+            endTime: endTimestamp,
+            estado: 'CERRADO',
+            tipoCierre: detectedClosureType === 'cierre forzado' ? 'AUTOMATICO' : 'MANUAL',
+            horaSalidaReal: endTimestamp,
+            detalle: detectedClosureType,
           });
 
           // 2. Crear un NUEVO log de salida (check_out)
@@ -742,8 +753,12 @@ export const useAppStore = create<AppState>()(
             type: 'check_out',
             timestamp: endTimestamp,
             status: 'completed' as const,
-            isManual: true,
-            systemNote: note || "Cierre forzado por administrador"
+            isManual: detectedClosureType === 'cierre forzado' ? false : true,
+            systemNote: note || (detectedClosureType === 'cierre forzado' ? "Cierre automático de sesión" : "Cierre forzado por administrador"),
+            tipoCierre: detectedClosureType === 'cierre forzado' ? 'AUTOMATICO' : 'MANUAL',
+            estado: 'CERRADO',
+            horaSalidaReal: endTimestamp,
+            detalle: detectedClosureType,
           };
           
           await setDoc(doc(db, 'Asistencia', checkOutId), checkOutLog);
@@ -756,15 +771,26 @@ export const useAppStore = create<AppState>()(
           });
 
           // 4. Registrar en asistencia_manual para que aparezca en el mapa de turnos
-          // Usar fecha LOCAL (no UTC) para consistencia con la gestión de turnos
-          const endObj = new Date(endTimestamp);
-          const dateStr = `${endObj.getFullYear()}-${String(endObj.getMonth() + 1).padStart(2, '0')}-${String(endObj.getDate()).padStart(2, '0')}`;
-          const manualDocId = `manual_${checkInData.employeeId}_${dateStr}`;
+          // Determinar la fecha de la jornada a partir del check-in original (para turnos nocturnos)
+          let jornadaDate = checkInData.localDate || '';
+          if (checkInData.shiftId && typeof checkInData.shiftId === 'string' && checkInData.shiftId.includes('_')) {
+            const parts = checkInData.shiftId.split('_');
+            const datePart = parts[parts.length - 1];
+            if (datePart.match(/^\d{4}-\d{2}-\d{2}$/)) {
+              jornadaDate = datePart;
+            }
+          }
+          if (!jornadaDate) {
+            const startObj = new Date(checkInData.timestamp);
+            jornadaDate = `${startObj.getFullYear()}-${String(startObj.getMonth() + 1).padStart(2, '0')}-${String(startObj.getDate()).padStart(2, '0')}`;
+          }
+
+          const manualDocId = `manual_${checkInData.employeeId}_${jornadaDate}`;
           await setDoc(doc(db, 'asistencia_manual', manualDocId), {
             employeeId: checkInData.employeeId,
-            date: dateStr,
+            date: jornadaDate,
             status: 'presente',
-            type: 'forced_checkout',
+            type: detectedClosureType === 'cierre forzado' ? 'forced_checkout_auto' : 'forced_checkout',
             updatedAt: Timestamp.fromDate(new Date())
           }, { merge: true });
 
