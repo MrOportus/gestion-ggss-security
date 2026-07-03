@@ -61,7 +61,7 @@ const formatDateKey = (date: Date) => {
 };
 
 const ShiftManagement: React.FC = () => {
-    const { sites, employees, currentUser, fetchInitialData } = useAppStore();
+    const { sites, employees, currentUser, fetchInitialData, showConfirmation } = useAppStore();
 
     const filteredSitesForUser = useMemo(() => {
         if (currentUser?.role === 'supervisor') {
@@ -483,15 +483,20 @@ const ShiftManagement: React.FC = () => {
         }
     };
 
-    const handleRemoveEmployeeFromSite = async (empId: string) => {
-        if (!window.confirm("¿Seguro que deseas quitar a este colaborador de esta sucursal?")) return;
-        try {
-            const ref = doc(db, 'Colaboradores', empId);
-            await updateDoc(ref, { currentSiteId: 0 });
-            await fetchInitialData();
-        } catch (e) {
-            console.error("Error removing employee:", e);
-        }
+    const handleRemoveEmployeeFromSite = (empId: string) => {
+        showConfirmation({
+            title: "Quitar Colaborador",
+            message: "¿Seguro que deseas quitar a este colaborador de esta sucursal?",
+            onConfirm: async () => {
+                try {
+                    const ref = doc(db, 'Colaboradores', empId);
+                    await updateDoc(ref, { currentSiteId: 0 });
+                    await fetchInitialData();
+                } catch (e) {
+                    console.error("Error removing employee:", e);
+                }
+            }
+        });
     };
 
     // --- FILTERED LIST FOR DISPLAY ---

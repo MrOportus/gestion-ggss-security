@@ -32,7 +32,7 @@ import { PushNotifications } from '@capacitor/push-notifications';
 
 
 const App: React.FC = () => {
-  const { currentUser, logout, fetchInitialData, isLoading, initializeAuthListener, registerFCMToken, showNotification, processSyncQueue, authInitialized } = useAppStore();
+  const { currentUser, logout, fetchInitialData, isLoading, initializeAuthListener, registerFCMToken, showNotification, processSyncQueue, authInitialized, showConfirmation } = useAppStore();
   const [currentView, setCurrentView] = useState<'dashboard' | 'employees' | 'tasks' | 'sites' | 'payments' | 'supervisor_mgmt' | 'mandante_mgmt' | 'notes' | 'attendance' | 'rounds' | 'shift_management' | 'loans' | 'documents' | 'solicitudes_turnos_extra'>('dashboard');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   
@@ -49,7 +49,12 @@ const App: React.FC = () => {
     try {
       const pendingItems = await SyncQueueService.getPending();
       if (pendingItems.length > 0) {
-        alert(`No puedes cerrar sesión. Tienes ${pendingItems.length} registros pendientes de enviar a la nube. Conéctate a internet para sincronizar.`);
+        showConfirmation({
+          title: "Sincronización Pendiente",
+          message: `No puedes cerrar sesión. Tienes ${pendingItems.length} registros pendientes de enviar a la nube. Conéctate a internet para sincronizar.`,
+          type: 'alert',
+          onConfirm: () => {}
+        });
         return;
       }
     } catch (e) {

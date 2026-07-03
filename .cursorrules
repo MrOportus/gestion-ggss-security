@@ -9,6 +9,7 @@
 - **Código Existente:** Existen funciones críticas que ya están funcionando a la perfección. **PROHIBIDO** modificar lógica estructural existente a menos que se solicite explícitamente. Prioriza la compatibilidad hacia atrás.
 - **Despliegues y Compilación:** - **NO** realizar ningún tipo de deploy sin instrucción expresa.
   - **NO** ejecutar ni proponer el script de 'publish apk' (el cual genera, actualiza y pone a disposición la APK para descarga) a menos que se pida directamente.
+- **Modales y Popups:** Toda nueva funcionalidad o modificación que requiera mostrar alertas o confirmaciones al usuario **debe utilizar el modal de confirmación personalizado de la aplicación (`showConfirmation` de useAppStore)** y **está estrictamente prohibido utilizar pop-ups nativos del navegador (`window.confirm`, `alert` o `prompt`)** para mantener el diseño integrado de la app.
 
 ## 3. Lógica de Negocio Obligatoria (Reglas del Dominio)
 - **Roles y Vistas:** La aplicación cuenta con una estructura de accesos dividida en 4 roles estrictos, cada uno con sus respectivas vistas e interfaces:

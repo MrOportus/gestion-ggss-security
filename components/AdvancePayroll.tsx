@@ -30,7 +30,8 @@ const AdvancePayroll: React.FC<AdvancePayrollProps> = ({ onBack }) => {
     const {
         currentUser, employees: storeEmployees, sites, advances,
         fetchAdvances, addAdvances, showNotification,
-        deleteAdvance, markAdvanceAsPaid, bulkMarkAdvancesAsPaid
+        deleteAdvance, markAdvanceAsPaid, bulkMarkAdvancesAsPaid,
+        showConfirmation
     } = useAppStore();
 
     const [activeTab, setActiveTab] = useState<'create' | 'list'>('create');
@@ -552,10 +553,16 @@ const AdvancePayroll: React.FC<AdvancePayrollProps> = ({ onBack }) => {
                                         <Download size={14} /> Exportar
                                     </button>
                                     <button
-                                        onClick={async () => {
+                                        onClick={() => {
                                             const pendingIds = filteredAdvances.filter(a => a.status === 'PENDING').map(a => a.id);
-                                            if (pendingIds.length > 0 && window.confirm('¿Pagar todos los pendientes?')) {
-                                                await bulkMarkAdvancesAsPaid(pendingIds);
+                                            if (pendingIds.length > 0) {
+                                                showConfirmation({
+                                                    title: "Pagar Todo",
+                                                    message: "¿Seguro que deseas marcar todos los anticipos pendientes como pagados?",
+                                                    onConfirm: async () => {
+                                                        await bulkMarkAdvancesAsPaid(pendingIds);
+                                                    }
+                                                });
                                             }
                                         }}
                                         className="flex items-center gap-2 px-3 py-1.5 bg-blue-600 text-white rounded-xl text-xs font-bold hover:bg-blue-700 transition-colors shadow-sm"
@@ -622,10 +629,16 @@ const AdvancePayroll: React.FC<AdvancePayrollProps> = ({ onBack }) => {
                                                                 <CheckCircle size={16} />
                                                             </button>
                                                         )}
-                                                        <button
-                                                            onClick={() => { if (window.confirm('¿Eliminar registro?')) deleteAdvance(adv.id); }}
-                                                            className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-colors"
-                                                        >
+                                                         <button
+                                                             onClick={() => {
+                                                                 showConfirmation({
+                                                                     title: "Eliminar Registro",
+                                                                     message: "¿Seguro que deseas eliminar este registro de anticipo?",
+                                                                     onConfirm: () => deleteAdvance(adv.id)
+                                                                 });
+                                                             }}
+                                                             className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-colors"
+                                                         >
                                                             <Trash2 size={16} />
                                                         </button>
                                                     </div>

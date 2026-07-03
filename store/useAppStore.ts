@@ -890,10 +890,20 @@ export const useAppStore = create<AppState>()(
         try {
           await batch.commit();
           set({ employees: updatedEmployees });
-          alert(`Carga completada:\n- ${addedCount} nuevos colaboradores agregados.\n- ${updatedCount} colaboradores existentes actualizados.`);
+          get().showConfirmation({
+            title: "Carga Masiva Completada",
+            message: `Carga completada:\n- ${addedCount} nuevos colaboradores agregados.\n- ${updatedCount} colaboradores existentes actualizados.`,
+            type: 'alert',
+            onConfirm: () => {}
+          });
         } catch (error) {
           console.error("Error bulk upsert:", error);
-          alert("Error en la carga masiva.");
+          get().showConfirmation({
+            title: "Error",
+            message: "Error en la carga masiva.",
+            type: 'alert',
+            onConfirm: () => {}
+          });
         } finally {
           set({ isLoading: false });
         }

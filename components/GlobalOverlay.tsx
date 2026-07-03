@@ -56,15 +56,17 @@ export const GlobalOverlay: React.FC = () => {
                         </div>
 
                         <div className="p-6 bg-slate-50 border-t border-slate-100 flex gap-3">
-                            <button
-                                onClick={() => {
-                                    confirmation.onCancel?.();
-                                    hideConfirmation();
-                                }}
-                                className="flex-1 py-3 px-4 rounded-xl text-slate-500 font-bold hover:bg-slate-100 transition"
-                            >
-                                Cancelar
-                            </button>
+                            {confirmation.type !== 'alert' && (
+                                <button
+                                    onClick={() => {
+                                        confirmation.onCancel?.();
+                                        hideConfirmation();
+                                    }}
+                                    className="flex-1 py-3 px-4 rounded-xl text-slate-500 font-bold hover:bg-slate-100 transition"
+                                >
+                                    Cancelar
+                                </button>
+                            )}
                             <button
                                 onClick={() => {
                                     confirmation.onConfirm();

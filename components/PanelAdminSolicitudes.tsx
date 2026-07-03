@@ -8,7 +8,7 @@ import { SolicitudTurno } from '../types';
 import { Calendar, DollarSign, MapPin, Clock, Plus, Trash2, Search, X, Info, Layers } from 'lucide-react';
 
 const PanelAdminSolicitudes: React.FC = () => {
-  const { sites, currentUser, employees, showNotification } = useAppStore();
+  const { sites, currentUser, employees, showNotification, showConfirmation } = useAppStore();
   const [solicitudes, setSolicitudes] = useState<SolicitudTurno[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   
@@ -127,7 +127,7 @@ const PanelAdminSolicitudes: React.FC = () => {
     }
   };
 
-  const handleDelete = async (sol: SolicitudTurno) => {
+  const handleDelete = (sol: SolicitudTurno) => {
     const isCancelada = sol.estado === 'cancelado';
     const confirmMsg = isCancelada 
       ? "¿Deseas eliminar permanentemente esta solicitud de la base de datos?" 
@@ -135,21 +135,25 @@ const PanelAdminSolicitudes: React.FC = () => {
       ? "¿Seguro que deseas cancelar esta solicitud? Los guardias verán el aviso de cancelación durante 24 horas."
       : "¿Seguro que deseas eliminar esta solicitud de la base de datos?";
 
-    if (window.confirm(confirmMsg)) {
-      try {
-        const solRef = doc(db, 'solicitudes_turnos', sol.id);
-        if (sol.estado === 'disponible') {
-          await setDoc(solRef, {
-            estado: 'cancelado',
-            fecha_cancelacion: new Date().toISOString()
-          }, { merge: true });
-        } else {
-          await deleteDoc(solRef);
+    showConfirmation({
+      title: isCancelada ? "Eliminar Solicitud" : sol.estado === 'disponible' ? "Cancelar Solicitud" : "Eliminar Solicitud",
+      message: confirmMsg,
+      onConfirm: async () => {
+        try {
+          const solRef = doc(db, 'solicitudes_turnos', sol.id);
+          if (sol.estado === 'disponible') {
+            await setDoc(solRef, {
+              estado: 'cancelado',
+              fecha_cancelacion: new Date().toISOString()
+            }, { merge: true });
+          } else {
+            await deleteDoc(solRef);
+          }
+        } catch (error) {
+          console.error("Error handling delete/cancel:", error);
         }
-      } catch (error) {
-        console.error("Error handling delete/cancel:", error);
       }
-    }
+    });
   };
 
   return (

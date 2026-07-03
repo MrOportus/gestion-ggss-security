@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
+import { useAppStore } from '../store/useAppStore';
 import { Download, X, RefreshCw, Smartphone, Zap } from 'lucide-react';
 import { Capacitor } from '@capacitor/core';
 import { downloadAndInstallUpdate, notifyAppReady } from '../lib/UpdateService';
@@ -11,7 +12,7 @@ import { downloadAndInstallUpdate, notifyAppReady } from '../lib/UpdateService';
 // Este valor debe actualizarse manualmente (o con el script
 // scripts/publish-version.js) cada vez que generes un nuevo APK.
 // ────────────────────────────────────────────────────────────────
-export const APP_VERSION = '3.0.7';
+export const APP_VERSION = '3.0.8';
 
 interface AppVersionConfig {
   version: string; // Versión del APK
@@ -23,6 +24,7 @@ interface AppVersionConfig {
 }
 
 const AppUpdateBanner: React.FC = () => {
+  const showConfirmation = useAppStore(state => state.showConfirmation);
   const [updateInfo, setUpdateInfo] = useState<AppVersionConfig | null>(null);
   const [isDismissed, setIsDismissed] = useState(false);
   const [isChecking, setIsChecking] = useState(false);
@@ -132,7 +134,12 @@ const AppUpdateBanner: React.FC = () => {
           // Nota: downloadAndInstallUpdate reinicia automáticamente la aplicación
         } catch (error) {
           console.error('[UPDATE] Error al aplicar actualización OTA:', error);
-          alert('No se pudo aplicar la actualización web. Por favor, intenta de nuevo.');
+          showConfirmation({
+            title: "Actualización Fallida",
+            message: "No se pudo aplicar la actualización web. Por favor, intenta de nuevo.",
+            type: 'alert',
+            onConfirm: () => {}
+          });
         } finally {
           setIsUpdating(false);
         }

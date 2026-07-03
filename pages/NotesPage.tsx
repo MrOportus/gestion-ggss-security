@@ -160,7 +160,10 @@ interface NoteCardProps {
     onTogglePin: () => void;
 }
 
-const NoteCard: React.FC<NoteCardProps> = ({ note, onEdit, onDelete, onTogglePin }) => (
+const NoteCard: React.FC<NoteCardProps> = ({ note, onEdit, onDelete, onTogglePin }) => {
+    const showConfirmation = useAppStore(state => state.showConfirmation);
+    
+    return (
         <div
             onClick={onEdit}
             className={`group border border-slate-200 rounded-xl p-4 bg-white hover:shadow-md hover:border-slate-300 transition-all cursor-pointer relative flex flex-col ${note.completed ? 'opacity-60 grayscale-[0.5]' : ''}`}
@@ -219,14 +222,22 @@ const NoteCard: React.FC<NoteCardProps> = ({ note, onEdit, onDelete, onTogglePin
         <div className="mt-auto opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-0.5 pt-3">
             <button className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-full transition-colors"><Bell size={14} /></button>
             <button
-                onClick={e => { e.stopPropagation(); if (confirm('¿Eliminar nota?')) onDelete(); }}
+                onClick={e => {
+                    e.stopPropagation();
+                    showConfirmation({
+                        title: "Eliminar Nota",
+                        message: "¿Seguro que deseas eliminar esta nota?",
+                        onConfirm: onDelete
+                    });
+                }}
                 className="p-1.5 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-full transition-colors"
             >
                 <Trash2 size={14} />
             </button>
         </div>
     </div>
-);
+    );
+};
 
 /* ──────────────────────────────────────────
    Main Page

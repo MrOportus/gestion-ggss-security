@@ -51,7 +51,7 @@ const DocumentsPage: React.FC = () => {
         showNotification
     } = useAppStore();
 
-    const [activeTab, setActiveTab] = useState<'pending' | 'signed'>('pending');
+    const [activeTab, setActiveTab] = useState<'pending' | 'signed' | 'all'>('pending');
     const [searchTerm, setSearchTerm] = useState('');
     const [showUploadModal, setShowUploadModal] = useState(false);
     const [selectedDocToSign, setSelectedDocToSign] = useState<DigitalDocument | null>(null);
@@ -65,8 +65,8 @@ const DocumentsPage: React.FC = () => {
     const [isBulkSigning, setIsBulkSigning] = useState(false);
     const [bulkSignProgress, setBulkSignProgress] = useState({ current: 0, total: 0 });
 
-    // Filtros rápidos
-    const [quickFilter, setQuickFilter] = useState<'all' | 'pending' | 'signed' | 'recent'>('all');
+    // Paginación interna de documentos por trabajador
+    const [employeeDocsPages, setEmployeeDocsPages] = useState<Record<string, number>>({});
 
     // Diálogo de alerta/confirmación personalizado
     const [alertDialog, setAlertDialog] = useState<{
@@ -84,7 +84,8 @@ const DocumentsPage: React.FC = () => {
     // Resetear página al cambiar filtros
     useEffect(() => {
         setCurrentPage(1);
-    }, [searchTerm, activeTab, quickFilter]);
+        setEmployeeDocsPages({});
+    }, [searchTerm, activeTab]);
 
     // Opciones del Asistente Masivo (Wizard)
     const [wizardStep, setWizardStep] = useState<'docs' | 'destinatarios' | 'confirmacion' | 'resultado'>('docs');
@@ -183,19 +184,8 @@ const DocumentsPage: React.FC = () => {
         }
 
         // Filtro por Tab de firma
-        docs = docs.filter(d => d.status === (activeTab === 'pending' ? 'pending' : 'signed'));
-
-        // Filtro Rápido
-        if (currentUser?.role === 'admin' && quickFilter !== 'all') {
-            if (quickFilter === 'pending') {
-                docs = docs.filter(d => d.status === 'pending');
-            } else if (quickFilter === 'signed') {
-                docs = docs.filter(d => d.status === 'signed');
-            } else if (quickFilter === 'recent') {
-                const sevenDaysAgo = new Date();
-                sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-                docs = docs.filter(d => new Date(d.createdAt) >= sevenDaysAgo);
-            }
+        if (activeTab !== 'all') {
+            docs = docs.filter(d => d.status === activeTab);
         }
 
         // Filtro por búsqueda (Título, Tipo o Nombre del Colaborador)
@@ -211,7 +201,7 @@ const DocumentsPage: React.FC = () => {
         }
 
         return docs;
-    }, [digitalDocuments, currentUser, activeTab, quickFilter, searchTerm, employees]);
+    }, [digitalDocuments, currentUser, activeTab, searchTerm, employees]);
 
     // Cantidad de pendientes para la vista de guardia
     const pendingDocsCount = useMemo(() => {
@@ -693,65 +683,27 @@ const DocumentsPage: React.FC = () => {
             {/* BARRA BUSQUEDA Y FILTROS */}
             <div className="bg-white p-3 rounded-3xl shadow-sm border border-slate-100 flex flex-col gap-4">
                 <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
-                    {/* Pestañas de estado (Pendiente / Firmados) */}
+                    {/* Pestañas de estado (Pendientes / Firmados / Todos) */}
                     <div className="flex p-1 bg-slate-100 rounded-2xl w-full sm:w-auto">
                         <button
-                            onClick={() => {
-                                setActiveTab('pending');
-                                setQuickFilter('all');
-                            }}
+                            onClick={() => setActiveTab('pending')}
                             className={`flex-1 sm:px-6 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all ${activeTab === 'pending' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
                         >
                             Pendientes
                         </button>
                         <button
-                            onClick={() => {
-                                setActiveTab('signed');
-                                setQuickFilter('all');
-                            }}
+                            onClick={() => setActiveTab('signed')}
                             className={`flex-1 sm:px-6 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all ${activeTab === 'signed' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
                         >
                             Firmados
                         </button>
+                        <button
+                            onClick={() => setActiveTab('all')}
+                            className={`flex-1 sm:px-6 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all ${activeTab === 'all' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                        >
+                            Todos
+                        </button>
                     </div>
-
-                    {/* Filtros rápidos (Solo Admin) */}
-                    {currentUser?.role === 'admin' && (
-                        <div className="flex flex-wrap gap-2 w-full sm:w-auto justify-end">
-                            <button
-                                onClick={() => setQuickFilter('all')}
-                                className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all ${
-                                    quickFilter === 'all' ? 'bg-slate-800 text-white shadow-md' : 'bg-slate-100 hover:bg-slate-200 text-slate-600'
-                                }`}
-                            >
-                                Todos
-                            </button>
-                            <button
-                                onClick={() => setQuickFilter('pending')}
-                                className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all ${
-                                    quickFilter === 'pending' ? 'bg-amber-500 text-white shadow-md' : 'bg-slate-100 hover:bg-slate-200 text-slate-600'
-                                }`}
-                            >
-                                Pendientes
-                            </button>
-                            <button
-                                onClick={() => setQuickFilter('signed')}
-                                className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all ${
-                                    quickFilter === 'signed' ? 'bg-emerald-600 text-white shadow-md' : 'bg-slate-100 hover:bg-slate-200 text-slate-600'
-                                }`}
-                            >
-                                Firmados
-                            </button>
-                            <button
-                                onClick={() => setQuickFilter('recent')}
-                                className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all ${
-                                    quickFilter === 'recent' ? 'bg-blue-600 text-white shadow-md' : 'bg-slate-100 hover:bg-slate-200 text-slate-600'
-                                }`}
-                            >
-                                Recientes
-                            </button>
-                        </div>
-                    )}
                 </div>
 
                 <div className="relative w-full">
@@ -852,6 +804,17 @@ const DocumentsPage: React.FC = () => {
                             const assignee = employees.find(e => e.id === employeeId);
                             const initials = assignee ? `${assignee.firstName[0]}${assignee.lastNamePaterno[0]}` : 'U';
 
+                            const sortedDocs = [...docs].sort((a, b) => {
+                                const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+                                const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+                                return dateB - dateA;
+                            });
+
+                            const docsPerPage = 3;
+                            const empPage = employeeDocsPages[employeeId] || 1;
+                            const totalEmpPages = Math.ceil(sortedDocs.length / docsPerPage);
+                            const displayedDocs = sortedDocs.slice((empPage - 1) * docsPerPage, empPage * docsPerPage);
+
                             return (
                                 <div key={employeeId} className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-300">
                                     <div className="p-4 bg-slate-50/50 flex items-center justify-between border-b border-slate-100">
@@ -872,7 +835,7 @@ const DocumentsPage: React.FC = () => {
                                     </div>
 
                                     <div className="divide-y divide-slate-50">
-                                        {docs.map((doc) => (
+                                        {displayedDocs.map((doc) => (
                                             <div key={doc.id} className="p-3 sm:px-6 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-slate-50 transition-colors">
                                                 <div className="flex items-center gap-4">
                                                     <div className={`p-2 rounded-lg ${doc.status === 'signed' ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'}`}>
@@ -900,6 +863,20 @@ const DocumentsPage: React.FC = () => {
                                                             >
                                                                 <Eye size={16} />
                                                             </a>
+                                                            <button
+                                                                onClick={() => {
+                                                                    setAlertDialog({
+                                                                        title: "Eliminar Registro",
+                                                                        message: "¿Seguro que deseas eliminar este registro?",
+                                                                        type: 'confirm',
+                                                                        onConfirm: () => deleteDigitalDocument(doc.id)
+                                                                    });
+                                                                }}
+                                                                className="p-2 bg-rose-50 hover:bg-rose-100 text-rose-500 rounded-lg transition-all"
+                                                                title="Eliminar Registro"
+                                                            >
+                                                                <Trash2 size={16} />
+                                                            </button>
                                                         </div>
                                                     ) : (
                                                         <div className="flex gap-2 w-full sm:w-auto">
@@ -930,6 +907,38 @@ const DocumentsPage: React.FC = () => {
                                             </div>
                                         ))}
                                     </div>
+
+                                    {totalEmpPages > 1 && (
+                                        <div className="p-3 bg-slate-50/50 border-t border-slate-100 flex items-center justify-between text-[11px] font-bold text-slate-500">
+                                            <span>
+                                                Pág. {empPage} de {totalEmpPages}
+                                            </span>
+                                            <div className="flex gap-1">
+                                                <button
+                                                    onClick={() => setEmployeeDocsPages(prev => ({
+                                                        ...prev,
+                                                        [employeeId]: Math.max(1, empPage - 1)
+                                                    }))}
+                                                    disabled={empPage === 1}
+                                                    className="px-2.5 py-1 bg-white hover:bg-slate-50 border border-slate-200 rounded-lg text-slate-600 disabled:opacity-40 transition-all flex items-center justify-center"
+                                                    title="Anterior"
+                                                >
+                                                    <ChevronLeft size={14} />
+                                                </button>
+                                                <button
+                                                    onClick={() => setEmployeeDocsPages(prev => ({
+                                                        ...prev,
+                                                        [employeeId]: Math.min(totalEmpPages, empPage + 1)
+                                                    }))}
+                                                    disabled={empPage === totalEmpPages}
+                                                    className="px-2.5 py-1 bg-white hover:bg-slate-50 border border-slate-200 rounded-lg text-slate-600 disabled:opacity-40 transition-all flex items-center justify-center"
+                                                    title="Siguiente"
+                                                >
+                                                    <ChevronRight size={14} />
+                                                </button>
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
                             );
                         })

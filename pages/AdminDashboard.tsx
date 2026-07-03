@@ -13,7 +13,7 @@ import EmployeeModal from '../components/EmployeeModal';
 type DashboardFilter = 'active_total' | 'os10_all' | 'contracts_all' | 'reminders_all';
 
 const AdminDashboard: React.FC = () => {
-  const { employees, attendanceLogs, sites, forceCloseAttendance, currentUser } = useAppStore();
+  const { employees, attendanceLogs, sites, forceCloseAttendance, currentUser, showConfirmation } = useAppStore();
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<string | null>(null);
   const [activeFilter, setActiveFilter] = useState<DashboardFilter>('active_total');
   const [searchTerm, setSearchTerm] = useState('');
@@ -1042,7 +1042,12 @@ const AdminDashboard: React.FC = () => {
                       await forceCloseAttendance(closingLogInfo.id, date.toISOString(), "Cierre forzado por administrador");
                       setClosingLogInfo(null);
                     } catch (e) {
-                      alert("Error al cerrar turno");
+                      showConfirmation({
+                        title: "Error",
+                        message: "Error al cerrar turno",
+                        type: 'alert',
+                        onConfirm: () => {}
+                      });
                     }
                   }}
                   className="flex-[2] py-4 bg-rose-600 text-white rounded-2xl font-black uppercase tracking-widest text-xs shadow-lg shadow-rose-200"

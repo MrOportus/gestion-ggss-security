@@ -19,7 +19,7 @@ import {
 import RouteMapModal from '../components/RouteMapModal';
 
 const MandanteView: React.FC = () => {
-    const { guardRounds, sites, currentUser, employees, logout, fetchInitialData } = useAppStore();
+    const { guardRounds, sites, currentUser, employees, logout, fetchInitialData, showConfirmation } = useAppStore();
     const [searchTerm, setSearchTerm] = useState('');
     const [notesSearch, setNotesSearch] = useState('');
     const [resultFilter, setResultFilter] = useState<'all' | 'SIN_NOVEDAD' | 'CON_NOVEDAD' | 'SOSPECHA'>('all');
@@ -81,9 +81,11 @@ const MandanteView: React.FC = () => {
                     </button>
                     <button 
                         onClick={() => {
-                            if (window.confirm('¿Estás seguro que deseas cerrar sesión?')) {
-                                logout();
-                            }
+                            showConfirmation({
+                                title: "Cerrar Sesión",
+                                message: "¿Estás seguro que deseas cerrar sesión?",
+                                onConfirm: () => logout()
+                            });
                         }}
                         className="flex items-center gap-1.5 text-rose-400 hover:text-rose-300 transition tracking-widest uppercase"
                     >
@@ -212,8 +214,12 @@ const MandanteView: React.FC = () => {
                                                         {round.notes.length > 120 && (
                                                             <button 
                                                                 onClick={() => {
-                                                                    const fullNote = round.notes;
-                                                                    alert(fullNote);
+                                                                    showConfirmation({
+                                                                        title: "Nota Completa de Ronda",
+                                                                        message: round.notes,
+                                                                        type: 'alert',
+                                                                        onConfirm: () => {}
+                                                                    });
                                                                 }}
                                                                 className="ml-1 text-amber-700 hover:text-amber-900 underline cursor-pointer"
                                                             >

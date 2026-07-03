@@ -120,16 +120,15 @@ const RoundsControl: React.FC<RoundsControlProps> = ({ onBack }) => {
         // Point passed — update ref and persist
         lastSavedPointRef.current = point;
         handlePositionUpdate(point);
-    // handlePositionUpdate is stable (defined below), deps intentionally omitted
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
+    }, [activeRound]);
 
     // ── GPS error callback ────────────────────────────────────────────────────
     const handleGpsError = React.useCallback((code: number, _message: string) => {
         const syntheticErr = { code, message: _message } as GeolocationPositionError;
         handleWatchError(syntheticErr);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
+    }, [activeRound]);
 
     // ── Activate the hybrid GPS hook while a round is in progress ─────────────
     useSecurityGeolocation(

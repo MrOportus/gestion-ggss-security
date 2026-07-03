@@ -27,7 +27,7 @@ interface ExtractedData {
 }
 
 const SmartAutofill: React.FC<{ onBack: () => void }> = ({ onBack }) => {
-    const { employees, sites } = useAppStore();
+    const { employees, sites, showConfirmation } = useAppStore();
     const [activeTab, setActiveTab] = useState<'search' | 'text'>('search');
     const [searchTerm, setSearchTerm] = useState('');
     const [inputText, setInputText] = useState('');
@@ -127,7 +127,12 @@ const SmartAutofill: React.FC<{ onBack: () => void }> = ({ onBack }) => {
 
         try {
             if (!finalApiKey) {
-                alert("Falta la API KEY. Por favor configúrela en .env o ingrésela manualmente.");
+                showConfirmation({
+                    title: "Falta API Key",
+                    message: "Falta la API KEY. Por favor configúrela en .env o ingrésela manualmente.",
+                    type: 'alert',
+                    onConfirm: () => {}
+                });
                 setIsProcessing(false);
                 return;
             }
@@ -171,7 +176,12 @@ const SmartAutofill: React.FC<{ onBack: () => void }> = ({ onBack }) => {
 
         } catch (error) {
             console.error("Error extracting data:", error);
-            alert("Error al procesar el texto.");
+            showConfirmation({
+                title: "Error",
+                message: "Error al procesar el texto.",
+                type: 'alert',
+                onConfirm: () => {}
+            });
         } finally {
             setIsProcessing(false);
         }

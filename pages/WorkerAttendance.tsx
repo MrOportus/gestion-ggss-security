@@ -71,7 +71,11 @@ const WorkerAttendance: React.FC = () => {
   const fetchInitialData = useAppStore(state => state.fetchInitialData);
   const registerFCMToken = useAppStore(state => state.registerFCMToken);
   const showNotification = useAppStore(state => state.showNotification);
+  const showConfirmation = useAppStore(state => state.showConfirmation);
   const digitalDocuments = useAppStore(state => state.digitalDocuments);
+  const employee = useAppStore(state =>
+    state.currentUser ? state.employees.find(e => e.id === state.currentUser?.uid) : undefined
+  );
 
   const pendingDocsCount = React.useMemo(() => {
     return digitalDocuments.filter(d => d.assignedTo === currentUser?.uid && d.status === 'pending').length;
@@ -182,11 +186,7 @@ const WorkerAttendance: React.FC = () => {
         if (resizeObserver) resizeObserver.disconnect();
       };
     }
-  }, [step]);
-
-  const employee = useAppStore(state =>
-    state.currentUser ? state.employees.find(e => e.id === state.currentUser?.uid) : undefined
-  );
+  }, [step, employee?.signatureUrl]);
 
   useEffect(() => {
     if (employee) {
@@ -1305,11 +1305,15 @@ const WorkerAttendance: React.FC = () => {
                           )}
                         </div>
                         <button
-                          onClick={async () => {
-                            if (window.confirm("¿Seguro que deseas actualizar tu firma?")) {
-                              await updateEmployee(currentUser!.uid, { signatureUrl: undefined, signatureUpdatedAt: undefined });
-                              showNotification("Firma limpiada. Dibuja tu nueva firma.", "info");
-                            }
+                          onClick={() => {
+                            showConfirmation({
+                              title: "Actualizar Firma",
+                              message: "¿Seguro que deseas actualizar tu firma? Se eliminará la firma actual y deberás dibujar una nueva.",
+                              onConfirm: async () => {
+                                await updateEmployee(currentUser!.uid, { signatureUrl: null, signatureUpdatedAt: null });
+                                showNotification("Firma limpiada. Dibuja tu nueva firma.", "info");
+                              }
+                            });
                           }}
                           className="px-4 py-1.5 border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-full font-black text-[10px] uppercase tracking-wider transition-all"
                         >

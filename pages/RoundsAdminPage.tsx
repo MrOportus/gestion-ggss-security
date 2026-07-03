@@ -2,6 +2,8 @@
 import React, { useState } from 'react';
 import { useAppStore } from '../store/useAppStore';
 import { getThumbnailUrl } from '../lib/imageUtils';
+import { db } from '../lib/firebase';
+import { collection, query, where, getDocs, doc, deleteDoc } from 'firebase/firestore';
 import {
     Navigation,
     Search,
@@ -13,12 +15,14 @@ import {
     Camera,
     ShieldCheck,
     AlertCircle,
-    ShieldAlert
+    ShieldAlert,
+    Trash2,
+    X
 } from 'lucide-react';
 import RouteMapModal from '../components/RouteMapModal';
 
 const RoundsAdminPage: React.FC = () => {
-    const { guardRounds, sites } = useAppStore();
+    const { guardRounds, sites, showConfirmation, employees, fetchGuardRounds, showNotification } = useAppStore();
     const [searchTerm, setSearchTerm] = useState('');
     const [notesSearch, setNotesSearch] = useState('');
     const [resultFilter, setResultFilter] = useState<'all' | 'SIN_NOVEDAD' | 'CON_NOVEDAD' | 'SOSPECHA'>('all');
@@ -26,6 +30,51 @@ const RoundsAdminPage: React.FC = () => {
     const [endDateFilter, setEndDateFilter] = useState('');
     const [selectedSiteId, setSelectedSiteId] = useState<string | 'all'>('all');
     const [selectedRound, setSelectedRound] = useState<any | null>(null);
+
+    // Test mode state
+    const [showTestModal, setShowTestModal] = useState(false);
+    const [selectedWorkerId, setSelectedWorkerId] = useState('');
+    const [isDeleting, setIsDeleting] = useState(false);
+
+    const handleDeleteUserRounds = async () => {
+        if (!selectedWorkerId) return;
+
+        const worker = employees.find(e => e.id === selectedWorkerId);
+        const workerName = worker ? `${worker.firstName} ${worker.lastNamePaterno}` : "este usuario";
+
+        showConfirmation({
+            title: "Eliminar Rondas (Pruebas)",
+            message: `¿Seguro que deseas eliminar permanentemente TODAS las rondas de ${workerName}? Esta acción borrará todos los registros de rondas de la base de datos y no aparecerán en el monitoreo.`,
+            onConfirm: async () => {
+                setIsDeleting(true);
+                try {
+                    const q = query(collection(db, "Rondas"), where("workerId", "==", selectedWorkerId));
+                    const snapshot = await getDocs(q);
+                    
+                    if (snapshot.empty) {
+                        showNotification("No se encontraron rondas para este colaborador.", "info");
+                        setIsDeleting(false);
+                        setShowTestModal(false);
+                        return;
+                    }
+
+                    // Borrar cada documento
+                    const deletePromises = snapshot.docs.map(docSnap => deleteDoc(doc(db, "Rondas", docSnap.id)));
+                    await Promise.all(deletePromises);
+
+                    showNotification(`Se eliminaron correctamente ${snapshot.size} rondas de ${workerName}.`, "success");
+                    await fetchGuardRounds();
+                } catch (error) {
+                    console.error("Error deleting user rounds:", error);
+                    showNotification("Error al eliminar las rondas.", "error");
+                } finally {
+                    setIsDeleting(false);
+                    setShowTestModal(false);
+                    setSelectedWorkerId('');
+                }
+            }
+        });
+    };
 
     // Filter logic
     const filteredRounds = guardRounds.filter(round => {
@@ -57,7 +106,15 @@ const RoundsAdminPage: React.FC = () => {
             <header className="bg-white border-b border-slate-200 px-4 md:px-6 py-6 sticky top-0 z-30">
                 <div className="max-w-7xl mx-auto flex flex-col lg:flex-row lg:items-center justify-between gap-6">
                     <div>
-                        <h2 className="text-2xl md:text-3xl font-black text-slate-800 tracking-tighter">Monitoreo de Rondas</h2>
+                        <div className="flex flex-wrap items-center gap-3">
+                            <h2 className="text-2xl md:text-3xl font-black text-slate-800 tracking-tighter">Monitoreo de Rondas</h2>
+                            <button
+                                onClick={() => setShowTestModal(true)}
+                                className="px-3 py-1 bg-amber-50 hover:bg-amber-100 text-amber-700 text-[10px] font-black uppercase tracking-widest rounded-full transition-all border border-amber-200"
+                            >
+                                Uso exclusivo para pruebas
+                            </button>
+                        </div>
                         <p className="text-[10px] md:text-sm text-slate-500 font-bold uppercase tracking-widest mt-1 opacity-70">Seguimiento GPS de vigilancia por sucursal</p>
                     </div>
 
@@ -185,7 +242,12 @@ const RoundsAdminPage: React.FC = () => {
                                                             <button 
                                                                 onClick={() => {
                                                                     const fullNote = round.notes;
-                                                                    alert(fullNote);
+                                                                    showConfirmation({
+                                                                        title: "Nota Completa de Ronda",
+                                                                        message: fullNote,
+                                                                        type: 'alert',
+                                                                        onConfirm: () => {}
+                                                                    });
                                                                 }}
                                                                 className="ml-1 text-amber-700 hover:text-amber-900 underline cursor-pointer"
                                                             >
@@ -321,6 +383,87 @@ const RoundsAdminPage: React.FC = () => {
                     round={selectedRound}
                     onClose={() => setSelectedRound(null)}
                 />
+            )}
+
+            {/* Modal de Pruebas: Eliminar Rondas */}
+            {showTestModal && (
+                <div className="fixed inset-0 z-[10002] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
+                    <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200">
+                        {/* Header */}
+                        <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-slate-50">
+                            <div className="flex items-center gap-3">
+                                <div className="w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center text-amber-600">
+                                    <ShieldAlert size={20} />
+                                </div>
+                                <div>
+                                    <h3 className="text-sm font-black text-slate-800 uppercase tracking-tight">Zona de Pruebas</h3>
+                                    <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest leading-none mt-1">Uso exclusivo de desarrollo</p>
+                                </div>
+                            </div>
+                            <button
+                                onClick={() => { setShowTestModal(false); setSelectedWorkerId(''); }}
+                                className="p-1.5 hover:bg-slate-200 text-slate-400 hover:text-slate-600 rounded-lg transition-colors"
+                            >
+                                <X size={20} />
+                            </button>
+                        </div>
+
+                        {/* Body */}
+                        <div className="p-6 space-y-4">
+                            <div className="bg-amber-50 border border-amber-100 p-4 rounded-2xl flex gap-2.5 items-start">
+                                <AlertCircle size={16} className="text-amber-600 shrink-0 mt-0.5" />
+                                <p className="text-[11px] font-bold text-amber-800 leading-snug">
+                                    Esta herramienta permite eliminar permanentemente todas las rondas registradas de un colaborador específico. Útil para limpiar datos de prueba.
+                                </p>
+                            </div>
+
+                            <div className="space-y-1.5">
+                                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Seleccionar Colaborador:</label>
+                                <select
+                                    value={selectedWorkerId}
+                                    onChange={(e) => setSelectedWorkerId(e.target.value)}
+                                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-bold text-slate-700 outline-none focus:ring-2 focus:ring-blue-500"
+                                >
+                                    <option value="">-- Selecciona un colaborador --</option>
+                                    {employees
+                                        .sort((a, b) => a.firstName.localeCompare(b.firstName))
+                                        .map((emp) => (
+                                            <option key={emp.id} value={emp.id}>
+                                                {emp.firstName} {emp.lastNamePaterno} ({emp.rut})
+                                            </option>
+                                        ))
+                                    }
+                                </select>
+                            </div>
+                        </div>
+
+                        {/* Footer */}
+                        <div className="p-6 bg-slate-50 border-t border-slate-100 flex gap-3">
+                            <button
+                                onClick={() => { setShowTestModal(false); setSelectedWorkerId(''); }}
+                                className="flex-1 py-3 px-4 rounded-2xl text-slate-500 font-bold hover:bg-slate-100 transition text-xs uppercase tracking-wider"
+                                disabled={isDeleting}
+                            >
+                                Cancelar
+                            </button>
+                            <button
+                                onClick={handleDeleteUserRounds}
+                                disabled={!selectedWorkerId || isDeleting}
+                                className="flex-1 py-3 px-4 rounded-2xl bg-rose-600 text-white font-bold shadow-lg shadow-rose-100 hover:bg-rose-700 transition active:scale-95 text-xs uppercase tracking-wider disabled:opacity-50 flex items-center justify-center gap-1.5"
+                            >
+                                {isDeleting ? (
+                                    <>
+                                        <Loader2 size={14} className="animate-spin" /> Eliminando...
+                                    </>
+                                ) : (
+                                    <>
+                                        <Trash2 size={14} /> Eliminar Rondas
+                                    </>
+                                )}
+                            </button>
+                        </div>
+                    </div>
+                </div>
             )}
         </div>
     );

@@ -63,8 +63,8 @@ export interface Employee {
   forceLogout?: boolean; // Para cerrar sesión remota
   lastForceLogout?: string; // ISO timestamp
   assignedSites?: number[]; // IDs of sites assigned to a supervisor
-  signatureUrl?: string; // Base64 data URL representing the signature
-  signatureUpdatedAt?: string; // ISO timestamp of when signature was registered/updated
+  signatureUrl?: string | null; // Base64 data URL representing the signature
+  signatureUpdatedAt?: string | null; // ISO timestamp of when signature was registered/updated
 }
 
 export interface AttendanceLog {
@@ -169,6 +169,7 @@ export interface AppConfirmation {
   message: string;
   onConfirm: () => void;
   onCancel?: () => void;
+  type?: 'alert' | 'confirm';
 }
 
 export interface ContractRecord {
