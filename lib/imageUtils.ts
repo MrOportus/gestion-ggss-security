@@ -128,47 +128,44 @@ export const STORAGE_CACHE_METADATA = {
 };
 
 /**
- * Transforma una URL de Firebase Storage original en la URL de su miniatura
- * generada por la extensión "Resize Images" de Firebase.
+ * Extrae el path de Firebase Storage desde una URL de descarga y construye
+ * el path del thumbnail generado por la extensión "Resize Images".
  * 
- * La extensión genera copias con sufijo _200x200 en la misma ruta.
- * Ejemplo:
- *   Original:  .../foto_123.webp?token=...
- *   Thumbnail: .../foto_123_200x200.webp?token=...
+ * Las URLs de Firebase Storage tienen el formato:
+ *   https://firebasestorage.googleapis.com/v0/b/BUCKET/o/PATH_ENCODED?alt=media&token=TOKEN
  * 
- * Compatible con URLs que tienen query params (token de Firebase) y
- * con nombres de archivo codificados en URL (%2F).
+ * El PATH_ENCODED usa %2F en lugar de /. Esta función:
+ * 1. Extrae el path encoded (entre /o/ y ?)
+ * 2. Lo decodifica (ej: evidencias%2Fuser%2Ffoto.jpg -> evidencias/user/foto.jpg)
+ * 3. Reemplaza la extensión por _200x200.webp
  * 
- * Si la URL es una blob URL local (offline), se retorna sin modificar.
+ * Retorna null si la URL no se puede parsear o es un blob URL.
  */
-export const getThumbnailUrl = (originalUrl: string): string => {
-    if (!originalUrl || originalUrl.startsWith('blob:')) return originalUrl;
+export const getThumbnailStoragePath = (originalUrl: string): string | null => {
+    if (!originalUrl || originalUrl.startsWith('blob:')) return null;
 
     try {
-        // Las URLs de Firebase Storage tienen el path codificado antes de ?alt=media&token=...
-        // Formato: https://firebasestorage.googleapis.com/v0/b/BUCKET/o/PATH?alt=media&token=TOKEN
-        // El PATH está URL-encoded (/ -> %2F)
-        
-        // Buscar la última extensión de imagen en el path (antes de query params)
-        // Soporta: .webp, .jpg, .jpeg, .png
-        const extensionRegex = /(\.(webp|jpg|jpeg|png))/i;
-        
-        // Separar path de query string
-        const queryIndex = originalUrl.indexOf('?');
-        const basePart = queryIndex !== -1 ? originalUrl.substring(0, queryIndex) : originalUrl;
-        const queryPart = queryIndex !== -1 ? originalUrl.substring(queryIndex) : '';
+        // Extraer el path encoded de la URL de Firebase Storage
+        // Formato: .../o/PATH_ENCODED?alt=media&token=...
+        const oIndex = originalUrl.indexOf('/o/');
+        if (oIndex === -1) return null;
 
-        // Insertar _200x200 antes de la extensión
-        const match = basePart.match(extensionRegex);
-        if (match && match.index !== undefined) {
-            const beforeExt = basePart.substring(0, match.index);
-            const ext = match[1];
-            return `${beforeExt}_200x200${ext}${queryPart}`;
-        }
+        const afterO = originalUrl.substring(oIndex + 3); // después de /o/
+        const queryIndex = afterO.indexOf('?');
+        const encodedPath = queryIndex !== -1 ? afterO.substring(0, queryIndex) : afterO;
 
-        // Si no se puede parsear, retornar original
-        return originalUrl;
+        // Decodificar el path (ej: evidencias%2Fuser%2Ffoto.jpg -> evidencias/user/foto.jpg)
+        const decodedPath = decodeURIComponent(encodedPath);
+
+        // Reemplazar la extensión por _200x200.webp
+        const extensionRegex = /\.(webp|jpg|jpeg|png)$/i;
+        const match = decodedPath.match(extensionRegex);
+        if (!match) return null;
+
+        const beforeExt = decodedPath.substring(0, decodedPath.length - match[0].length);
+        return `${beforeExt}_200x200.webp`;
     } catch {
-        return originalUrl;
+        return null;
     }
 };
+

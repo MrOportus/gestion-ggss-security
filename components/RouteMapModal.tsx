@@ -5,7 +5,7 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { X, Navigation, MapPin, Camera, Image, Clock as ClockIcon, ChevronLeft, ChevronRight } from 'lucide-react';
 import { getHaversineDistance, movingAverage } from '../lib/gpsUtils';
-import { getThumbnailUrl } from '../lib/imageUtils';
+import ThumbnailImage from './ThumbnailImage';
 
 // Fix for Leaflet default icon issues in React using CDN URLs
 const DefaultIcon = L.icon({
@@ -390,20 +390,11 @@ const RouteMapModal: React.FC<RouteMapModalProps> = ({ round, onClose }) => {
                                     >
                                         <Popup>
                                             <div className="w-48 overflow-hidden rounded-lg">
-                                                <img
-                                                    src={getThumbnailUrl(evidence.photoUrl)}
+                                                <ThumbnailImage
+                                                    photoUrl={evidence.photoUrl}
                                                     alt="Evidencia"
-                                                    loading="lazy"
-                                                    decoding="async"
                                                     className="w-full aspect-square object-cover mb-2 cursor-pointer"
                                                     onClick={() => setSelectedPhotoIndex(idx)}
-                                                    onError={(e) => {
-                                                        const target = e.target as HTMLImageElement;
-                                                        if (!target.dataset.fallbackApplied && evidence.photoUrl && target.src !== evidence.photoUrl) {
-                                                            target.dataset.fallbackApplied = '1';
-                                                            target.src = evidence.photoUrl;
-                                                        }
-                                                    }}
                                                 />
                                                 <div className="p-1 text-center">
                                                     <p className="font-black text-amber-600 text-[10px] uppercase">Evidencia Fotográfica</p>
@@ -498,31 +489,10 @@ const RouteMapModal: React.FC<RouteMapModalProps> = ({ round, onClose }) => {
                                         onClick={() => setSelectedPhotoIndex(idx)}
                                     >
                                         <div className="aspect-[4/3] relative bg-slate-100 flex items-center justify-center">
-                                            <img
-                                                src={getThumbnailUrl(evidence.photoUrl)}
-                                                loading="lazy"
-                                                decoding="async"
+                                            <ThumbnailImage
+                                                photoUrl={evidence.photoUrl}
                                                 className="w-full h-full object-cover transition-transform group-hover:scale-105"
                                                 alt={`Evidencia ${idx}`}
-                                                onError={(e) => {
-                                                    const target = e.target as HTMLImageElement;
-                                                    // Si la miniatura _200x200 falla, intentar cargar la imagen original completa
-                                                    // (ocurre cuando la extensión Resize Images no generó thumbnail para .webp)
-                                                    if (!target.dataset.fallbackApplied && evidence.photoUrl && target.src !== evidence.photoUrl) {
-                                                        target.dataset.fallbackApplied = '1';
-                                                        target.src = evidence.photoUrl;
-                                                        return;
-                                                    }
-                                                    // Si también la original falla, mostrar placeholder
-                                                    target.style.display = 'none';
-                                                    const parent = target.parentElement;
-                                                    if (parent) {
-                                                        const placeholder = document.createElement('div');
-                                                        placeholder.className = "flex flex-col items-center justify-center text-slate-300 gap-1";
-                                                        placeholder.innerHTML = `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg><span class="text-[8px] font-black uppercase">Falla</span>`;
-                                                        parent.appendChild(placeholder);
-                                                    }
-                                                }}
                                             />
                                             <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
                                             <div className="absolute bottom-2 left-2 right-2 flex items-center justify-between text-white opacity-0 group-hover:opacity-100 transition-opacity">

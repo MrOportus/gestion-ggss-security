@@ -550,9 +550,10 @@ const SHIFT_SCHEDULES = {
 
 exports.autoCloseShifts = onSchedule(
   {
-    schedule: 'every 5 minutes',
+    schedule: 'every 30 minutes',
     region: 'us-central1',
     timeZone: 'America/Santiago',
+    memory: '256MiB',
   },
   async (event) => {
     const now = new Date();

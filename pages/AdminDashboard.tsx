@@ -6,11 +6,11 @@ import { collection, query, where, onSnapshot, orderBy, doc, updateDoc, limit } 
 import { db } from '../lib/firebase';
 import { Employee, BoardNote } from '../types';
 import {
-  Users, FileCheck, MapPin, Search, Eye, AlertCircle, ShieldAlert, FileWarning, LogOut, Bell, Clock, Calendar, CheckCircle
+  Users, FileCheck, MapPin, Search, Eye, AlertCircle, ShieldAlert, FileWarning, LogOut, Bell, Clock, Calendar, CheckCircle, Cake
 } from 'lucide-react';
 import EmployeeModal from '../components/EmployeeModal';
 
-type DashboardFilter = 'active_total' | 'os10_all' | 'contracts_all' | 'reminders_all';
+type DashboardFilter = 'active_total' | 'os10_all' | 'contracts_all' | 'reminders_all' | 'birthdays_all';
 
 const AdminDashboard: React.FC = () => {
   const { employees, attendanceLogs, sites, forceCloseAttendance, currentUser, showConfirmation } = useAppStore();
@@ -62,6 +62,74 @@ const AdminDashboard: React.FC = () => {
     return d < date;
   };
 
+  const getNextBirthday = (fechaNacStr: string | undefined): Date | null => {
+    if (!fechaNacStr) return null;
+    const parts = fechaNacStr.split('T')[0].split('-');
+    if (parts.length !== 3) return null;
+    const birthMonth = parseInt(parts[1], 10) - 1; // 0-indexed
+    const birthDay = parseInt(parts[2], 10);
+    
+    const bdayThisYear = new Date(today.getFullYear(), birthMonth, birthDay);
+    bdayThisYear.setHours(0, 0, 0, 0);
+    
+    if (bdayThisYear < today) {
+      const bdayNextYear = new Date(today.getFullYear() + 1, birthMonth, birthDay);
+      bdayNextYear.setHours(0, 0, 0, 0);
+      return bdayNextYear;
+    }
+    return bdayThisYear;
+  };
+
+  const isBirthdayInWindow = (fechaNacStr: string | undefined): boolean => {
+    if (!fechaNacStr) return false;
+    const parts = fechaNacStr.split('T')[0].split('-');
+    if (parts.length !== 3) return false;
+    const birthMonth = parseInt(parts[1], 10) - 1; // 0-indexed
+    const birthDay = parseInt(parts[2], 10);
+    
+    const years = [today.getFullYear() - 1, today.getFullYear(), today.getFullYear() + 1];
+    
+    for (const yr of years) {
+      const bday = new Date(yr, birthMonth, birthDay);
+      bday.setHours(0, 0, 0, 0);
+      
+      const diffTime = bday.getTime() - today.getTime();
+      const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
+      
+      if (diffDays >= -7 && diffDays <= 30) {
+        return true;
+      }
+    }
+    return false;
+  };
+
+  const getBirthdayProximityDays = (fechaNacStr: string | undefined): number => {
+    if (!fechaNacStr) return Infinity;
+    const parts = fechaNacStr.split('T')[0].split('-');
+    if (parts.length !== 3) return Infinity;
+    const birthMonth = parseInt(parts[1], 10) - 1; // 0-indexed
+    const birthDay = parseInt(parts[2], 10);
+    
+    const years = [today.getFullYear() - 1, today.getFullYear(), today.getFullYear() + 1];
+    let closestDiff = Infinity;
+    
+    for (const yr of years) {
+      const bday = new Date(yr, birthMonth, birthDay);
+      bday.setHours(0, 0, 0, 0);
+      
+      const diffTime = bday.getTime() - today.getTime();
+      const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
+      
+      if (diffDays >= -7 && diffDays <= 30) {
+        return diffDays;
+      }
+      if (Math.abs(diffDays) < Math.abs(closestDiff)) {
+        closestDiff = diffDays;
+      }
+    }
+    return closestDiff;
+  };
+
   // 1.1 Obtener datos del usuario actual para filtrado
   const currentEmp = employees.find(e => e.id === currentUser?.uid);
   
@@ -106,6 +174,8 @@ const AdminDashboard: React.FC = () => {
     return d > sixtyDaysFromNow && d <= ninetyDaysFromNow;
   });
 
+  const expiringBirthdays_30 = activeEmployees.filter(e => isBirthdayInWindow(e.fechaNacimiento));
+
   // --- 2. Selección de Datos para la Vista Principal ---
   let currentList: typeof employees = [];
   let viewTitle = "";
@@ -134,6 +204,14 @@ const AdminDashboard: React.FC = () => {
       viewTitle = "Gestión de Contratos";
       viewDescription = "Consolidado de personal con contrato vencido o por vencer en los próximos 90 días.";
       dateColumnHeader = "Término Contrato";
+      break;
+    case 'birthdays_all':
+      currentList = [...expiringBirthdays_30].sort((a, b) => {
+        return getBirthdayProximityDays(a.fechaNacimiento) - getBirthdayProximityDays(b.fechaNacimiento);
+      });
+      viewTitle = "Cumpleaños Próximos y Recientes";
+      viewDescription = "Listado de personal activo con cumpleaños en los próximos 30 días o hace menos de 1 semana.";
+      dateColumnHeader = "Cumpleaños";
       break;
     case 'reminders_all':
       viewTitle = "Gestión de Recordatorios";
@@ -375,6 +453,28 @@ const AdminDashboard: React.FC = () => {
 
       return <span className={`font-bold ${textColor}`}>{date}</span>;
     }
+    if (activeFilter === 'birthdays_all') {
+      const nextBday = getNextBirthday(emp.fechaNacimiento);
+      const date = emp.fechaNacimiento ? new Date(emp.fechaNacimiento) : null;
+      if (!date || !nextBday) return <span className="text-slate-400">N/A</span>;
+      
+      const diffTime = nextBday.getTime() - today.getTime();
+      const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
+      
+      let dayStr = "";
+      if (diffDays === 0) dayStr = "¡Hoy!";
+      else if (diffDays === 1) dayStr = "Mañana";
+      else dayStr = `En ${diffDays} días`;
+
+      const formattedBday = `${date.getDate().toString().padStart(2, '0')}/${(date.getMonth() + 1).toString().padStart(2, '0')}`;
+      
+      return (
+        <div className="text-center">
+          <span className="font-bold text-slate-800">{formattedBday}</span>
+          <span className="block text-[10px] font-semibold text-orange-500 uppercase tracking-wider">{dayStr}</span>
+        </div>
+      );
+    }
     return null;
   };
 
@@ -390,7 +490,7 @@ const AdminDashboard: React.FC = () => {
       </div>
 
       {/* KPI Cards Interactivas */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 md:gap-4">
 
         {/* Card 1: Estatus de Curso OS10 */}
         <button
@@ -465,7 +565,30 @@ const AdminDashboard: React.FC = () => {
           {activeFilter === 'reminders_all' && <div className="absolute right-0 top-0 bottom-0 w-1 bg-amber-500"></div>}
         </button>
 
-        {/* Card 4: Turnos en Vivo */}
+        {/* Card 4: Próximos Cumpleaños */}
+        <button
+          onClick={() => setActiveFilter('birthdays_all')}
+          className={`bg-white p-5 rounded-xl shadow-sm border text-left transition-all hover:shadow-md relative overflow-hidden group ${activeFilter === 'birthdays_all' ? 'border-orange-500/30 ring-1 ring-orange-500/30 bg-orange-50/20' : 'border-slate-100'}`}
+        >
+          <div className="flex items-center gap-4 relative z-10">
+            <div className={`p-3 rounded-lg ${activeFilter === 'birthdays_all' ? 'bg-orange-100 text-orange-600' : 'bg-orange-50/50 text-orange-500/70'}`}>
+              <Cake size={24} />
+            </div>
+            <div className="flex-1">
+              <p className="text-xs font-bold uppercase tracking-wider text-slate-500">Próximos Cumpleaños</p>
+              <div className="flex items-baseline gap-2">
+                <h3 className="text-2xl font-bold text-slate-800">{expiringBirthdays_30.length}</h3>
+                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-tight">Próx. 30 días</p>
+              </div>
+            </div>
+          </div>
+          <div className="mt-4 flex gap-1 h-1.5 rounded-full overflow-hidden bg-slate-100 relative z-10">
+            <div className="bg-orange-500/20 h-full w-full"></div>
+          </div>
+          {activeFilter === 'birthdays_all' && <div className="absolute right-0 top-0 bottom-0 w-1 bg-orange-500/30"></div>}
+        </button>
+
+        {/* Card 5: Turnos en Vivo */}
         <button
           onClick={() => setActiveFilter('active_total')}
           className={`bg-white p-5 rounded-xl shadow-sm border text-left transition-all hover:shadow-md relative overflow-hidden group ${activeFilter === 'active_total' ? 'border-emerald-500 ring-1 ring-emerald-500 bg-emerald-50' : 'border-slate-100'}`}
@@ -835,7 +958,7 @@ const AdminDashboard: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {(activeFilter === 'os10_all' || activeFilter === 'contracts_all') ? (
+                  {(activeFilter === 'os10_all' || activeFilter === 'contracts_all' || activeFilter === 'birthdays_all') ? (
                     /* ── ALERTAS con sub-agrupación por Empresa ── */
                     (() => {
                       // Helper: obtener el nombre de empresa de un empleado
@@ -851,11 +974,19 @@ const AdminDashboard: React.FC = () => {
                         { label: 'URGENTE: VENCE < 30 DÍAS',        list: filteredList.filter(e => isBetween(e.fechaVencimientoOS10, today, thirtyDaysFromNow)),                       color: 'text-orange-600', bg: 'bg-orange-50/60',  icon: ShieldAlert },
                         { label: 'AVISO: VENCE 30-60 DÍAS',         list: filteredList.filter(e => { if (!e.fechaVencimientoOS10) return false; const d = new Date(e.fechaVencimientoOS10); d.setHours(0,0,0,0); return d > thirtyDaysFromNow && d <= sixtyDaysFromNow; }), color: 'text-orange-400', bg: 'bg-slate-50/40', icon: ShieldAlert },
                         { label: 'PLANIFICACIÓN: VENCE 60-90 DÍAS', list: filteredList.filter(e => { if (!e.fechaVencimientoOS10) return false; const d = new Date(e.fechaVencimientoOS10); d.setHours(0,0,0,0); return d > sixtyDaysFromNow && d <= ninetyDaysFromNow; }), color: 'text-yellow-600', bg: 'bg-slate-50/20', icon: ShieldAlert },
-                      ] : [
+                      ] : activeFilter === 'contracts_all' ? [
                         { label: 'CRÍTICO: CONTRATO VENCIDO',       list: filteredList.filter(e => isBefore(e.fechaTerminoContrato, today)),                                            color: 'text-red-600',    bg: 'bg-red-50/60',     icon: AlertCircle },
                         { label: 'URGENTE: VENCE < 30 DÍAS',        list: filteredList.filter(e => isBetween(e.fechaTerminoContrato, today, thirtyDaysFromNow)),                       color: 'text-orange-600', bg: 'bg-orange-50/60',  icon: FileWarning },
                         { label: 'AVISO: VENCE 30-60 DÍAS',         list: filteredList.filter(e => { if (!e.fechaTerminoContrato) return false; const d = new Date(e.fechaTerminoContrato); d.setHours(0,0,0,0); return d > thirtyDaysFromNow && d <= sixtyDaysFromNow; }), color: 'text-blue-600', bg: 'bg-blue-50/30', icon: FileCheck },
                         { label: 'PLANIFICACIÓN: VENCE 60-90 DÍAS', list: filteredList.filter(e => { if (!e.fechaTerminoContrato) return false; const d = new Date(e.fechaTerminoContrato); d.setHours(0,0,0,0); return d > sixtyDaysFromNow && d <= ninetyDaysFromNow; }), color: 'text-slate-600', bg: 'bg-slate-50/10', icon: FileCheck },
+                      ] : [
+                        {
+                          label: 'CUMPLEAÑOS PRÓXIMOS (30 DÍAS)',
+                          list: filteredList,
+                          color: 'text-orange-600/80',
+                          bg: 'bg-orange-50/20',
+                          icon: Cake
+                        }
                       ];
 
                       return (
@@ -913,8 +1044,13 @@ const AdminDashboard: React.FC = () => {
                                       {/* Filas de empleados de esta empresa */}
                                       {empList.map((emp) => {
                                         const siteName = sites.find(s => s.id === emp.currentSiteId)?.name || 'Sin Asignar';
+                                        const diffDays = activeFilter === 'birthdays_all' ? getBirthdayProximityDays(emp.fechaNacimiento) : null;
+                                        const isHighlight = activeFilter === 'birthdays_all' && (diffDays === 0 || diffDays === 1);
+                                        const rowClass = isHighlight 
+                                          ? "bg-yellow-50 border-l-4 border-yellow-400 hover:bg-yellow-100/60 transition-colors"
+                                          : "hover:bg-blue-50/50 transition-colors group";
                                         return (
-                                          <tr key={emp.id} className="hover:bg-blue-50/50 transition-colors group">
+                                          <tr key={emp.id} className={rowClass}>
                                             <td className="px-6 py-3">
                                               <div className="font-bold text-slate-900">{emp.firstName}</div>
                                               <div className="text-xs text-slate-500 uppercase">{emp.lastNamePaterno} {emp.lastNameMaterno}</div>
