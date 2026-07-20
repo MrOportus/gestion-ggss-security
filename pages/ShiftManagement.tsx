@@ -1,8 +1,7 @@
-
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useAppStore } from '../store/useAppStore';
 import { db } from '../lib/firebase';
-import { collection, query, where, onSnapshot, doc, setDoc, updateDoc, deleteDoc, Timestamp } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, doc, updateDoc, Timestamp } from 'firebase/firestore';
 import {
     Calendar as CalendarIcon,
     MapPin,
@@ -17,21 +16,34 @@ import {
     Users,
     Plus,
     UserMinus,
-    Circle
+    Circle,
+    AlertTriangle,
+    AlertCircle
 } from 'lucide-react';
 import ManageStaffModal from '../components/ManageStaffModal';
+import { useShiftManagementFacade } from '../lib/phase2/useShiftManagementFacade';
+import ShadowDiagnosticPanel from '../components/ShadowDiagnosticPanel';
+import { ContractStatusBadge } from '../components/phase3/ContractStatusBadge';
+import { MonthContractSummary } from '../components/phase3/MonthContractSummary';
+import { ContractBindingService } from '../lib/phase3/contractBindingService';
+import ShiftTransferModal from '../components/phase4/ShiftTransferModal';
+import ShiftActionModal from '../components/phase4/ShiftActionModal';
+import AdditionalShiftModal from '../components/phase4/AdditionalShiftModal';
+import VacancyCoverageModal from '../components/phase4/VacancyCoverageModal';
+import { ArrowRightLeft } from 'lucide-react';
 
 // --- Types ---
 
-type ShiftStatus = 'programado' | 'asistio_manual' | 'asistio_manual_completed' | 'ausente' | 'noche' | 'descanso' | null;
+type ShiftStatus = 'programado' | 'asistio_manual' | 'asistio_manual_completed' | 'ausente' | 'noche' | 'descanso' | 'trasladado' | null;
 
 interface ProgramacionDoc {
     id?: string;
     employeeId: string;
     siteId: string | number; // Support both
     date: string; // YYYY-MM-DD
-    status: 'programado' | 'noche' | 'descanso';
+    status: 'programado' | 'noche' | 'descanso' | 'trasladado';
 }
+
 
 interface AsistenciaDigitalDoc {
     id?: string;
@@ -61,7 +73,7 @@ const formatDateKey = (date: Date) => {
 };
 
 const ShiftManagement: React.FC = () => {
-    const { sites, employees, currentUser, fetchInitialData, showConfirmation } = useAppStore();
+    const { sites, employees, currentUser, fetchInitialData, showConfirmation, contratos } = useAppStore();
 
     const filteredSitesForUser = useMemo(() => {
         if (currentUser?.role === 'supervisor') {
@@ -89,6 +101,7 @@ const ShiftManagement: React.FC = () => {
 
     // Local Changes for Edit Mode (before save)
     const [pendingChanges, setPendingChanges] = useState<Record<string, ShiftStatus>>({});
+    const [conflictError, setConflictError] = useState<string | null>(null);
 
     // Modal State
     const [detailModal, setDetailModal] = useState<{
@@ -101,6 +114,39 @@ const ShiftManagement: React.FC = () => {
         empId: string;
         day: Date;
         key: string;
+    } | null>(null);
+
+    const [transferModal, setTransferModal] = useState<{
+        isOpen: boolean;
+        colaboradorId: string;
+        colaboradorNombre: string;
+        colaboradorRut: string;
+        sucursalOrigenId: string | number;
+        sucursalOrigenNombre: string;
+        fecha: string;
+    } | null>(null);
+
+    const [actionModal, setActionModal] = useState<{
+        isOpen: boolean;
+        empId: string;
+        fecha: string;
+        shiftStatus: string;
+        requiereCobertura: boolean;
+        shiftId?: string; // needed for coverage and revert
+    } | null>(null);
+
+    const [additionalModal, setAdditionalModal] = useState<{
+        isOpen: boolean;
+        colaboradorId: string;
+        colaboradorNombre: string;
+        fecha: string;
+    } | null>(null);
+
+    const [coverageModal, setCoverageModal] = useState<{
+        isOpen: boolean;
+        vacanteTurnoId: string;
+        sucursalId: string | number;
+        fecha: string;
     } | null>(null);
 
     // Init default site
@@ -211,10 +257,10 @@ const ShiftManagement: React.FC = () => {
     };
 
     const getCellStatus = (empId: string, day: Date): {
-        type: 'empty' | 'programado' | 'noche' | 'descanso' | 'digital' | 'manual_present' | 'manual_absent',
+        type: 'empty' | 'programado' | 'noche' | 'descanso' | 'digital' | 'manual_present' | 'manual_absent' | 'trasladado',
         details?: any,
         completed?: boolean,
-        programmedStatus?: 'programado' | 'noche' | 'descanso'
+        programmedStatus?: 'programado' | 'noche' | 'descanso' | 'trasladado'
     } => {
         const dateKey = formatDateKey(day);
         const key = getCellKey(empId, day);
@@ -244,10 +290,14 @@ const ShiftManagement: React.FC = () => {
         }
 
         if (programmingMap[key]) {
-            const status = programmingMap[key].status;
-            if (status === 'noche') return { type: 'noche', details: programmingMap[key] };
-            if (status === 'descanso') return { type: 'descanso', details: programmingMap[key] };
-            return { type: 'programado', details: programmingMap[key] };
+            const prog = programmingMap[key] as any;
+            const status = prog.status;
+            const turno = String(prog.turno || prog.codigoTurno || '').trim().toUpperCase();
+
+            if (status === 'noche' || turno === 'N' || turno === 'NOCHE') return { type: 'noche', details: prog };
+            if (status === 'descanso' || turno === 'D' || turno === 'DESCANSO') return { type: 'descanso', details: prog };
+            if (status === 'trasladado') return { type: 'trasladado', details: prog };
+            return { type: 'programado', details: prog };
         }
 
         return { type: 'empty' };
@@ -324,135 +374,88 @@ const ShiftManagement: React.FC = () => {
                     data: status.details,
                     employeeName: emp ? `${emp.firstName} ${emp.lastNamePaterno}` : 'Desconocido'
                 });
+            } else if ((status.type === 'programado' || status.type === 'noche' || status.type === 'descanso' || status.type === 'trasladado') && status.details) {
+                const emp = employees.find(e => e.id === empId);
+                const site = sites.find(s => s.id == selectedSiteId);
+                if (emp && site && currentUser?.role !== 'rrhh') {
+                    setActionModal({
+                        isOpen: true,
+                        empId: emp.id,
+                        fecha: formatDateKey(day),
+                        shiftStatus: status.type,
+                        requiereCobertura: status.details.requiereCobertura === true,
+                        shiftId: status.details.id
+                    });
+                }
             }
         }
         // If isEditMode, MouseDown handled it
     };
 
-    const saveChanges = async () => {
-        try {
-            const batchPromises = [];
-            for (const [key, status] of Object.entries(pendingChanges)) {
-                const parts = key.split('_');
-                const siteId = parts[0];
-                const dateStr = parts[parts.length - 1];
-                const empId = parts.slice(1, -1).join('_');
+    const { saveChanges: facadeSaveChanges, isSaving } = useShiftManagementFacade();
 
-                const progDocId = `prog_${siteId}_${empId}_${dateStr}`;
-                const progRef = doc(db, 'programacion', progDocId);
+    const [summaryModalState, setSummaryModalState] = useState<{
+        isOpen: boolean;
+        result?: import('../lib/phase2/useShiftManagementFacade').SaveChangesResult;
+    }>({ isOpen: false });
+    const [savedTokens, setSavedTokens] = useState<Record<string, string>>({});
 
-                const manualDocId = `manual_${empId}_${dateStr}`;
-                const manualRef = doc(db, 'asistencia_manual', manualDocId);
+    const saveChanges = async (overrideConflicts: boolean = false) => {
+        setConflictError(null);
+        const result = await facadeSaveChanges({
+            pendingChanges,
+            programmingMap,
+            sites,
+            employees,
+            currentUser,
+            previousTokens: savedTokens,
+            overrideConflicts,
+        });
 
-                const site = sites.find(s => s.id.toString() === siteId.toString());
-                const emp = employees.find(e => e.id === empId);
+        setSavedTokens(result.newTokens);
 
-                if (status === 'programado' || status === 'noche' || status === 'descanso') {
-                    batchPromises.push(setDoc(progRef, {
-                        employeeId: empId,
-                        siteId: Number(siteId) || siteId,
-                        date: dateStr,
-                        status: status
-                    }, { merge: true }));
-                } else if (status === 'asistio_manual' || status === 'asistio_manual_completed') {
-                    // 1. Guardar en asistencia_manual (para el calendario)
-                    batchPromises.push(setDoc(manualRef, {
-                        employeeId: empId,
-                        date: dateStr,
-                        status: 'presente',
-                        editorId: currentUser?.uid || 'admin',
-                        updatedAt: new Date()
-                    }, { merge: true }));
-
-                    // 2. Crear un log en "Asistencia" para que aparezca en el Control de Asistencia
-                    if (emp && site) {
-                        const type = status === 'asistio_manual_completed' ? 'check_out' : 'check_in';
-                        const attId = `manual_att_${type}_${empId}_${dateStr}`;
-                        const attRef = doc(db, 'Asistencia', attId);
-                        
-                        console.log("Generating manual attendance log:", type, attId);
-
-                        // Determinar horario según programación (X o N)
-                        const progKey = `${siteId}_${empId}_${dateStr}`;
-                        const existingProg = programmingMap[progKey];
-                        const isNight = existingProg?.status === 'noche';
-                        const [year, month, dayNum] = dateStr.split('-').map(Number);
-
-                        let startH = 7, startM = 30;
-                        let endH = 19, endM = 30;
-                        if (isNight) {
-                            startH = 19; startM = 30;
-                            endH = 7; endM = 30;
-                        }
-
-                        const startTimestamp = new Date(year, month - 1, dayNum, startH, startM).toISOString();
-                        let endTimestamp = new Date(year, month - 1, dayNum, endH, endM).toISOString();
-                        if (isNight) {
-                            const nextDay = new Date(year, month - 1, dayNum + 1, endH, endM);
-                            endTimestamp = nextDay.toISOString();
-                        }
-
-                        const isCompleted = status === 'asistio_manual_completed';
-
-                        batchPromises.push(setDoc(attRef, {
-                            employeeId: empId,
-                            employeeName: `${emp.firstName} ${emp.lastNamePaterno}`,
-                            rut: emp.rut,
-                            siteId: site.id,
-                            siteName: site.name,
-                            timestamp: isCompleted ? endTimestamp : startTimestamp,
-                            type: isCompleted ? 'check_out' : 'check_in',
-                            isManual: true,
-                            status: isCompleted ? 'completed' : 'active',
-                            startTime: startTimestamp,
-                            endTime: isCompleted ? endTimestamp : null,
-                            createdBy: 'admin',
-                            systemNote: 'Registro manual desde Gestión de Turnos',
-                            shiftId: progDocId,
-                            detalle: 'REGISTRO MANUAL'
-                        }, { merge: true }));
-                    }
-                } else if (status === 'ausente') {
-                    batchPromises.push(setDoc(manualRef, {
-                        employeeId: empId,
-                        date: dateStr,
-                        status: 'ausente',
-                        editorId: currentUser?.uid || 'admin',
-                        updatedAt: new Date()
-                    }, { merge: true }));
-
-                    // Eliminar logs manuales si existían (ambos tipos)
-                    batchPromises.push(deleteDoc(doc(db, 'Asistencia', `manual_att_check_in_${empId}_${dateStr}`)));
-                    batchPromises.push(deleteDoc(doc(db, 'Asistencia', `manual_att_check_out_${empId}_${dateStr}`)));
-
-                    // Eliminar log digital si existía
-                    const digId = `${siteId}_${empId}_${dateStr}`;
-                    batchPromises.push(deleteDoc(doc(db, 'asistencia_digital', digId)));
-
-                } else if (status === null) {
-                    batchPromises.push(deleteDoc(progRef));
-                    batchPromises.push(deleteDoc(manualRef));
-
-                    // Eliminar logs manuales si existían (ambos tipos)
-                    batchPromises.push(deleteDoc(doc(db, 'Asistencia', `manual_att_check_in_${empId}_${dateStr}`)));
-                    batchPromises.push(deleteDoc(doc(db, 'Asistencia', `manual_att_check_out_${empId}_${dateStr}`)));
-
-                    // Eliminar log digital si existía
-                    const digId = `${siteId}_${empId}_${dateStr}`;
-                    batchPromises.push(deleteDoc(doc(db, 'asistencia_digital', digId)));
-                }
+        // Limpiar de pendingChanges aquellos que fueron exitosos
+        const newPending = { ...pendingChanges };
+        const failedIds = result.failedColabIds;
+        Object.keys(newPending).forEach(key => {
+            const empId = key.split('_').slice(1, -1).join('_');
+            if (!failedIds.includes(empId)) {
+                delete newPending[key];
             }
-            await Promise.all(batchPromises);
-            setPendingChanges({});
+        });
+        setPendingChanges(newPending);
+        
+        if (result.conflicts.length > 0 || result.technicalErrors.length > 0) {
+            setSummaryModalState({ isOpen: true, result });
+        } else {
             setIsEditMode(false);
-        } catch (error) {
-            console.error("Error saving changes:", error);
+            setConflictError(null);
+            setSavedTokens({});
         }
+    };
+
+    const handleForceConflicts = async () => {
+        setSummaryModalState({ isOpen: false });
+        await saveChanges(true);
+    };
+
+    const handleRetryTechnical = async () => {
+        if (!summaryModalState.result) return;
+        const failedIds = summaryModalState.result.failedColabIds;
+        
+        // Filtramos pendingChanges para dejar solo los de los trabajadores que fallaron técnicamente
+        // (y que no están en conflictos, porque los conflictos no se reintentan así)
+        // En realidad, failedColabIds incluye conflictos y technical errors. 
+        // Mejor limpiamos los conflictos de pendingChanges y dejamos que el usuario decida.
+        // Por ahora cerramos el modal e invocamos saveChanges de nuevo.
+        setSummaryModalState({ isOpen: false });
+        await saveChanges();
     };
 
     const discardChanges = () => {
         setPendingChanges({});
         setIsEditMode(false);
+        setSavedTokens({});
     };
 
     const handleUpdateStaff = async (selectedIds: string[]) => {
@@ -511,9 +514,76 @@ const ShiftManagement: React.FC = () => {
         return (emp.currentSiteId == selectedSiteId) || extraEmployeeIds.has(emp.id);
     });
 
+    // --- PHASE 3: EVALUACION CONTRACTUAL MENSUAL OPTIMIZADA ---
+    // 1. Precalcular el estado contractual de cada empleado para cada día del mes (independiente de si tiene turno o no)
+    const employeeContractEvaluations = useMemo(() => {
+        const evals: Record<string, Record<string, { estado: string, contratoId?: string }>> = {};
+        finalVisibleEmployees.forEach(emp => {
+            const empContracts = contratos.filter(c => c.colaboradorId === emp.id);
+            evals[emp.id] = {};
+            days.forEach(day => {
+                const dateKey = formatDateKey(day);
+                evals[emp.id][dateKey] = ContractBindingService.evaluateTurno(
+                    emp.id,
+                    String(selectedSiteId),
+                    dateKey,
+                    empContracts
+                );
+            });
+        });
+        return evals;
+    }, [finalVisibleEmployees, days, contratos, selectedSiteId]);
+
+    // 2. Calcular resumen mensual usando los turnos actuales y la evaluación precalculada
+    const monthSummary = useMemo(() => {
+        const summary = { totalTurnos: 0, sinContrato: 0, otraSucursal: 0, multiples: 0 };
+
+        finalVisibleEmployees.forEach(emp => {
+            const evals = employeeContractEvaluations[emp.id];
+            days.forEach(day => {
+                const status = getCellStatus(emp.id, day);
+                if (status.type === 'programado' || status.type === 'noche' || status.type === 'digital' || status.type === 'manual_present') {
+                    summary.totalTurnos++;
+                    const evalRes = evals[formatDateKey(day)];
+                    if (evalRes?.estado === 'sin_contrato') summary.sinContrato++;
+                    else if (evalRes?.estado === 'otra_sucursal') summary.otraSucursal++;
+                    else if (evalRes?.estado === 'multiples') summary.multiples++;
+                }
+            });
+        });
+        return summary;
+    }, [finalVisibleEmployees, days, getCellStatus, employeeContractEvaluations]);
+
+    // 3. Obtener el peor estado contractual de un empleado en el mes visible
+    const getEmployeeWorstContractState = useCallback((empId: string) => {
+        const evals = employeeContractEvaluations[empId];
+        let worstState: 'compatible' | 'otra_sucursal' | 'sin_contrato' | 'multiples' | 'pendiente_revision' | 'resuelto_manual' = 'compatible';
+
+        for (const day of days) {
+            const status = getCellStatus(empId, day);
+            if (status.type === 'programado' || status.type === 'noche' || status.type === 'digital' || status.type === 'manual_present') {
+                const evalRes = evals[formatDateKey(day)];
+                if (evalRes?.estado === 'sin_contrato') return 'sin_contrato'; // Peor caso
+                if (evalRes?.estado === 'multiples') worstState = 'multiples';
+                if (evalRes?.estado === 'otra_sucursal' && worstState !== 'multiples') worstState = 'otra_sucursal';
+            }
+        }
+        return worstState;
+    }, [employeeContractEvaluations, days, getCellStatus]);
+
 
     return (
         <div className="p-6 max-w-[100vw] overflow-x-hidden space-y-6 h-screen flex flex-col bg-slate-50 select-none">
+            
+            {isSaving && (
+                <div className="fixed inset-0 bg-slate-900/20 backdrop-blur-sm z-[100] flex items-center justify-center pointer-events-none">
+                    <div className="bg-white p-6 rounded-2xl shadow-2xl border border-slate-100 flex flex-col items-center max-w-xs text-center pointer-events-auto">
+                        <div className="w-12 h-12 border-4 border-slate-100 border-t-blue-600 rounded-full animate-spin mb-4"></div>
+                        <h3 className="text-lg font-black text-slate-800 mb-1">Guardando...</h3>
+                        <p className="text-sm font-medium text-slate-500">Procesando y validando los turnos. Esto puede tardar unos segundos.</p>
+                    </div>
+                </div>
+            )}
 
             {/* Header & Controls */}
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-4 rounded-xl shadow-sm border border-slate-200 shrink-0">
@@ -528,6 +598,7 @@ const ShiftManagement: React.FC = () => {
                 <div className="flex items-center gap-4 flex-wrap">
                     {/* Save / Edit Controls */}
                     {isEditMode ? (
+                        <>
                         <div className="flex items-center gap-2">
                             <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200 mr-2">
                                 <button
@@ -582,12 +653,29 @@ const ShiftManagement: React.FC = () => {
                                 <XCircle size={18} /> Cancelar
                             </button>
                             <button
-                                onClick={saveChanges}
-                                className="flex items-center gap-2 px-6 py-2 bg-green-500 hover:bg-green-600 text-white rounded-lg shadow-lg shadow-green-200 font-bold transition animate-pulse-once"
+                                onClick={() => saveChanges(false)}
+                                disabled={isSaving}
+                                className={`flex items-center gap-2 px-6 py-2 rounded-lg font-bold transition ${isSaving ? 'bg-slate-300 text-slate-500 cursor-not-allowed' : 'bg-green-500 hover:bg-green-600 text-white shadow-lg shadow-green-200 animate-pulse-once'}`}
                             >
-                                <Save size={18} /> GUARDAR CAMBIOS
+                                {isSaving ? (
+                                    <>
+                                        <div className="w-4 h-4 border-2 border-slate-500 border-t-transparent rounded-full animate-spin"></div>
+                                        GUARDANDO...
+                                    </>
+                                ) : (
+                                    <>
+                                        <Save size={18} /> GUARDAR CAMBIOS
+                                    </>
+                                )}
                             </button>
                         </div>
+                        {conflictError && (
+                            <div className="mt-2 px-4 py-3 bg-red-50 border border-red-300 text-red-700 rounded-lg text-sm font-medium flex items-start gap-2">
+                                <XCircle size={16} className="mt-0.5 shrink-0 text-red-500" />
+                                <span>{conflictError}</span>
+                            </div>
+                        )}
+                        </>
                     ) : (
                         <button
                             onClick={() => setIsEditMode(true)}
@@ -625,6 +713,14 @@ const ShiftManagement: React.FC = () => {
                     </div>
                 </div>
             </div>
+
+            {/* Fase 3: Resumen Mensual */}
+            <MonthContractSummary
+                totalTurnos={monthSummary.totalTurnos}
+                sinContrato={monthSummary.sinContrato}
+                otraSucursal={monthSummary.otraSucursal}
+                multiples={monthSummary.multiples}
+            />
 
             {/* Main Table */}
             <div className="flex-1 overflow-hidden bg-white rounded-xl shadow-sm border border-slate-200 flex flex-col">
@@ -665,15 +761,18 @@ const ShiftManagement: React.FC = () => {
                                                 <span className="text-sm font-bold text-slate-800 truncate">{emp.firstName} {emp.lastNamePaterno}</span>
                                                 <span className="text-[10px] font-mono text-slate-400">{emp.rut}</span>
                                             </div>
-                                            {isEditMode && (
-                                                <button
-                                                    onClick={(e) => { e.stopPropagation(); handleRemoveEmployeeFromSite(emp.id); }}
-                                                    className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded transition shrink-0"
-                                                    title="Quitar de esta sucursal"
-                                                >
-                                                    <UserMinus size={16} />
-                                                </button>
-                                            )}
+                                            <div className="flex flex-col items-end gap-1 shrink-0">
+                                                {isEditMode && (
+                                                    <button
+                                                        onClick={(e) => { e.stopPropagation(); handleRemoveEmployeeFromSite(emp.id); }}
+                                                        className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded transition shrink-0"
+                                                        title="Quitar de esta sucursal"
+                                                    >
+                                                        <UserMinus size={16} />
+                                                    </button>
+                                                )}
+                                                <ContractStatusBadge estado={getEmployeeWorstContractState(emp.id)} />
+                                            </div>
                                         </div>
                                     </td>
                                     {days.map(day => {
@@ -705,6 +804,11 @@ const ShiftManagement: React.FC = () => {
                                                     {status.type === 'descanso' && (
                                                         <div className="w-8 h-8 flex items-center justify-center bg-emerald-50 text-emerald-700 rounded font-black text-sm border border-emerald-100 shadow-sm">
                                                             D
+                                                        </div>
+                                                    )}
+                                                    {status.type === 'trasladado' && (
+                                                        <div className="w-8 h-8 flex items-center justify-center bg-orange-50 text-orange-600 rounded font-black text-sm border border-orange-100 shadow-sm relative overflow-hidden" title="Trasladado a otra sucursal">
+                                                            <ArrowRightLeft size={16} />
                                                         </div>
                                                     )}
                                                     {status.type === 'digital' && (
@@ -798,12 +902,21 @@ const ShiftManagement: React.FC = () => {
                     <span className="text-[10px] font-black text-slate-400 uppercase">Planta: {sites.find(s => s.id == selectedSiteId)?.name || '...'}</span>
                     <button
                         onClick={() => setIsManageStaffOpen(true)}
-                        className="ml-2 flex items-center gap-1 text-[10px] font-bold bg-slate-100 hover:bg-slate-200 text-slate-600 px-2 py-1 rounded transition"
+                        className="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-500 rounded transition"
+                        title="Gestionar Dotación"
                     >
-                        <Users size={10} /> BUSCAR/EDITAR MASIVO
+                        <Users size={16} />
                     </button>
                 </div>
             </div>
+
+            {/* Administrador: Panel Shadow Mode */}
+            {currentUser?.role === 'admin' && (
+                <ShadowDiagnosticPanel
+                    siteId={selectedSiteId}
+                    monthKey={formatDateKey(currentDate).substring(0, 7)}
+                />
+            )}
 
             {/* Detail Modal (Read Mode) */}
             {detailModal.isOpen && detailModal.data && (
@@ -942,6 +1055,201 @@ const ShiftManagement: React.FC = () => {
                 </div>
             )}
 
+            {/* Fase 4: Modal de Traslado */}
+            {transferModal && (
+                <ShiftTransferModal
+                    isOpen={transferModal.isOpen}
+                    onClose={() => setTransferModal(null)}
+                    colaboradorId={transferModal.colaboradorId}
+                    colaboradorNombre={transferModal.colaboradorNombre}
+                    colaboradorRut={transferModal.colaboradorRut}
+                    sucursalOrigenId={transferModal.sucursalOrigenId}
+                    sucursalOrigenNombre={transferModal.sucursalOrigenNombre}
+                    fechasPreseleccionadas={[transferModal.fecha]}
+                    onTransferComplete={(res) => {
+                        console.log('Traslado completado:', res);
+                        // El modal se cierra manualmente o se puede forzar:
+                        // setTransferModal(null);
+                    }}
+                />
+            )}
+            {/* Fase 4: Modal de Acciones */}
+            {actionModal && (
+                <ShiftActionModal
+                    isOpen={actionModal.isOpen}
+                    onClose={() => setActionModal(null)}
+                    shiftStatus={actionModal.shiftStatus}
+                    requiereCobertura={actionModal.requiereCobertura}
+                    colaboradorNombre={
+                        employees.find(e => e.id === actionModal.empId)
+                            ? `${employees.find(e => e.id === actionModal.empId)?.firstName} ${employees.find(e => e.id === actionModal.empId)?.lastNamePaterno}`
+                            : 'Desconocido'
+                    }
+                    fecha={actionModal.fecha}
+                    role={currentUser?.role}
+                    onAction={(action) => {
+                        const emp = employees.find(e => e.id === actionModal.empId);
+                        const site = sites.find(s => s.id == selectedSiteId);
+                        if (!emp || !site) return;
+
+                        if (action === 'transfer') {
+                            setTransferModal({
+                                isOpen: true,
+                                colaboradorId: emp.id,
+                                colaboradorNombre: `${emp.firstName} ${emp.lastNamePaterno}`,
+                                colaboradorRut: emp.rut,
+                                sucursalOrigenId: site.id,
+                                sucursalOrigenNombre: site.name,
+                                fecha: actionModal.fecha,
+                            });
+                        } else if (action === 'additional') {
+                            setAdditionalModal({
+                                isOpen: true,
+                                colaboradorId: emp.id,
+                                colaboradorNombre: `${emp.firstName} ${emp.lastNamePaterno}`,
+                                fecha: actionModal.fecha
+                            });
+                        } else if (action === 'coverage') {
+                            if (actionModal.shiftId) {
+                                setCoverageModal({
+                                    isOpen: true,
+                                    vacanteTurnoId: actionModal.shiftId,
+                                    sucursalId: site.id,
+                                    fecha: actionModal.fecha
+                                });
+                            }
+                        } else if (action === 'revert') {
+                            if (actionModal.shiftId) {
+                                showConfirmation({
+                                    title: "Revertir Traslado",
+                                    message: "¿Seguro que desea revertir este traslado? Esta acción intentará cancelar el turno destino y restaurar el turno origen.",
+                                    onConfirm: async () => {
+                                        try {
+                                            const { getFunctions, httpsCallable } = await import('firebase/functions');
+                                            const fns = getFunctions();
+                                            const revertShiftTransfer = httpsCallable(fns, 'revertShiftTransfer');
+                                            const res = await revertShiftTransfer({
+                                                turnoOrigenId: actionModal.shiftId,
+                                                motivo: 'Reversión solicitada desde UI'
+                                            });
+                                            const data = res.data as any;
+                                            if (data.success) {
+                                                console.log("Traslado revertido con éxito.");
+                                            } else {
+                                                alert(data.errorMessage || "Error al revertir.");
+                                            }
+                                        } catch (e: any) {
+                                            console.error(e);
+                                            alert(e.message || "Error de red.");
+                                        }
+                                    }
+                                });
+                            }
+                        }
+                    }}
+                />
+            )}
+
+            {additionalModal && (
+                <AdditionalShiftModal
+                    isOpen={additionalModal.isOpen}
+                    onClose={() => setAdditionalModal(null)}
+                    colaboradorId={additionalModal.colaboradorId}
+                    colaboradorNombre={additionalModal.colaboradorNombre}
+                    fecha={additionalModal.fecha}
+                />
+            )}
+
+            {coverageModal && (
+                <VacancyCoverageModal
+                    isOpen={coverageModal.isOpen}
+                    onClose={() => setCoverageModal(null)}
+                    vacanteTurnoId={coverageModal.vacanteTurnoId}
+                    sucursalId={coverageModal.sucursalId}
+                    fecha={coverageModal.fecha}
+                />
+            )}
+
+            {summaryModalState.isOpen && summaryModalState.result && (
+                <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+                    <div className="bg-white w-full max-w-2xl rounded-2xl shadow-2xl flex flex-col max-h-[90vh]">
+                        <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50 rounded-t-2xl">
+                            <h2 className="text-xl font-black text-slate-800">Resumen de Guardado</h2>
+                            <button onClick={() => setSummaryModalState({ isOpen: false })} className="text-slate-400 hover:text-slate-600">
+                                <XCircle size={24} />
+                            </button>
+                        </div>
+                        <div className="p-6 overflow-y-auto space-y-6 flex-1 custom-scrollbar">
+                            <div className="grid grid-cols-3 gap-4">
+                                <div className="bg-green-50 rounded-xl p-4 border border-green-100 text-center">
+                                    <div className="text-3xl font-black text-green-600">{summaryModalState.result.success}</div>
+                                    <div className="text-xs font-bold text-green-700 uppercase mt-1">Exitosos</div>
+                                </div>
+                                <div className="bg-orange-50 rounded-xl p-4 border border-orange-100 text-center">
+                                    <div className="text-3xl font-black text-orange-600">{summaryModalState.result.conflicts.length}</div>
+                                    <div className="text-xs font-bold text-orange-700 uppercase mt-1">Conflictos</div>
+                                </div>
+                                <div className="bg-red-50 rounded-xl p-4 border border-red-100 text-center">
+                                    <div className="text-3xl font-black text-red-600">{summaryModalState.result.technicalErrors.length}</div>
+                                    <div className="text-xs font-bold text-red-700 uppercase mt-1">Errores Técnicos</div>
+                                </div>
+                            </div>
+
+                            {summaryModalState.result.conflicts.length > 0 && (
+                                <div>
+                                    <h3 className="text-sm font-black text-slate-800 uppercase mb-3 flex items-center gap-2">
+                                        <AlertTriangle size={16} className="text-orange-500" /> Conflictos Detectados
+                                    </h3>
+                                    <ul className="space-y-2">
+                                        {summaryModalState.result.conflicts.map((msg: string, idx: number) => (
+                                            <li key={idx} className="bg-orange-50/50 text-orange-800 text-sm p-3 rounded-lg border border-orange-100">{msg}</li>
+                                        ))}
+                                    </ul>
+                                </div>
+                            )}
+
+                            {summaryModalState.result.technicalErrors.length > 0 && (
+                                <div>
+                                    <h3 className="text-sm font-black text-slate-800 uppercase mb-3 flex items-center gap-2">
+                                        <AlertCircle size={16} className="text-red-500" /> Errores Técnicos
+                                    </h3>
+                                    <ul className="space-y-2">
+                                        {summaryModalState.result.technicalErrors.map((msg: string, idx: number) => (
+                                            <li key={idx} className="bg-red-50/50 text-red-800 text-sm p-3 rounded-lg border border-red-100">{msg}</li>
+                                        ))}
+                                    </ul>
+                                </div>
+                            )}
+                        </div>
+                        <div className="p-4 border-t border-slate-100 bg-slate-50 rounded-b-2xl flex justify-end gap-3">
+                            <button
+                                onClick={() => setSummaryModalState({ isOpen: false })}
+                                className="px-6 py-2 bg-white text-slate-600 border border-slate-200 hover:bg-slate-50 font-bold rounded-lg transition-colors shadow-sm"
+                            >
+                                Cerrar
+                            </button>
+                            {summaryModalState.result.conflicts.length > 0 && (
+                                <button
+                                    onClick={handleForceConflicts}
+                                    disabled={isSaving}
+                                    className="px-6 py-2 bg-orange-600 text-white hover:bg-orange-700 font-bold rounded-lg shadow-md transition-colors flex items-center gap-2 disabled:opacity-50"
+                                >
+                                    {isSaving ? 'Forzando...' : 'Forzar Asignación (Sobrescribir)'}
+                                </button>
+                            )}
+                            {summaryModalState.result.technicalErrors.length > 0 && (
+                                <button
+                                    onClick={handleRetryTechnical}
+                                    disabled={isSaving}
+                                    className="px-6 py-2 bg-blue-600 text-white hover:bg-blue-700 font-bold rounded-lg shadow-md transition-colors flex items-center gap-2 disabled:opacity-50"
+                                >
+                                    {isSaving ? 'Reintentando...' : 'Reintentar Errores Técnicos'}
+                                </button>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

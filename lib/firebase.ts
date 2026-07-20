@@ -21,7 +21,7 @@ const firebaseConfig = {
 //    - persistentLocalCache: Almacena datos en disco para evitar re-lecturas al servidor
 //    - persistentMultipleTabManager: Sincroniza el caché entre múltiples pestañas/WebViews
 //    - Reduce drásticamente las lecturas de Firestore en cada recarga de la app
-const app = initializeApp(firebaseConfig);
+export const app = initializeApp(firebaseConfig);
 export const db = initializeFirestore(app, {
   localCache: persistentLocalCache({
     tabManager: persistentMultipleTabManager()

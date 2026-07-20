@@ -31,9 +31,11 @@ import { Capacitor } from '@capacitor/core';
 import { PushNotifications } from '@capacitor/push-notifications';
 
 
+import HRContractsDashboard from './pages/HRContractsDashboard';
+
 const App: React.FC = () => {
   const { currentUser, logout, fetchInitialData, isLoading, initializeAuthListener, registerFCMToken, showNotification, processSyncQueue, authInitialized, showConfirmation } = useAppStore();
-  const [currentView, setCurrentView] = useState<'dashboard' | 'employees' | 'tasks' | 'sites' | 'payments' | 'supervisor_mgmt' | 'mandante_mgmt' | 'notes' | 'attendance' | 'rounds' | 'shift_management' | 'loans' | 'documents' | 'solicitudes_turnos_extra'>('dashboard');
+  const [currentView, setCurrentView] = useState<'dashboard' | 'employees' | 'tasks' | 'sites' | 'payments' | 'supervisor_mgmt' | 'mandante_mgmt' | 'notes' | 'attendance' | 'rounds' | 'shift_management' | 'loans' | 'documents' | 'solicitudes_turnos_extra' | 'hr_contracts'>('dashboard');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   
   const { connected } = useNetworkStatus();
@@ -435,6 +437,13 @@ const App: React.FC = () => {
             <ShieldCheck size={20} />
             <span className="font-medium">Documentos</span>
           </button>
+
+          {currentUser.role === 'admin' && (
+            <button onClick={() => setCurrentView('hr_contracts')} className={navItemClass('hr_contracts')}>
+              <ClipboardList size={20} />
+              <span className="font-medium">Panel RRHH</span>
+            </button>
+          )}
 
 
           <button onClick={() => setCurrentView('notes')} className={navItemClass('notes')}>

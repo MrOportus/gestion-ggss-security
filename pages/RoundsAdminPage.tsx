@@ -244,7 +244,7 @@ const RoundsAdminPage: React.FC = () => {
                                                                     const fullNote = round.notes;
                                                                     showConfirmation({
                                                                         title: "Nota Completa de Ronda",
-                                                                        message: fullNote,
+                                                                        message: fullNote || '',
                                                                         type: 'alert',
                                                                         onConfirm: () => {}
                                                                     });

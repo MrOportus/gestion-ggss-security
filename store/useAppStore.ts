@@ -1,12 +1,13 @@
-import { jsPDF } from "jspdf";
-import { format } from "date-fns";
+
 import { SyncQueueService } from '../lib/SyncQueueService';
 import { STORAGE_CACHE_METADATA } from '../lib/imageUtils';
 import { Network } from '@capacitor/network';
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import { User, Employee, Site, AttendanceLog, Document, DigitalDocument, ComparisonRecord, DailyPayment, AppNotification, AppConfirmation, ContractRecord, Advance, SupervisorTask, ChecklistTemplate, ResignationRequest, RecurringSupervisorTask, SupervisorSubTask, BoardNote, GuardRound, Loan } from '../types';
-import { db, auth, secondaryAuth, storage } from '../lib/firebase';
+import { Contrato } from '../types/phase1';
+import { db, auth, secondaryAuth, storage, functions } from '../lib/firebase';
+import { httpsCallable } from 'firebase/functions';
 import { ref, uploadBytes, getDownloadURL, uploadString } from 'firebase/storage';
 import {
   signInWithEmailAndPassword,
@@ -42,6 +43,7 @@ interface AppState {
   documents: Document[];
   f30History: ComparisonRecord[];
   contractHistory: ContractRecord[];
+  contratos: Contrato[]; // Fase 3
   dailyPayments: DailyPayment[]; // NEW
   advances: Advance[];
   notifications: AppNotification[];
@@ -79,6 +81,7 @@ interface AppState {
   saveF30Comparison: (record: Omit<ComparisonRecord, 'id' | 'timestamp'>) => void;
   saveContractRecord: (record: Omit<ContractRecord, 'id' | 'timestamp'>) => Promise<void>;
   fetchContractHistory: () => Promise<void>;
+  fetchContratos: (filtros?: { colaboradorId?: string; estado?: string; limit?: number }) => Promise<void>;
 
   // Site Actions
   addSite: (site: Omit<Site, 'id'>) => Promise<void>;
@@ -187,6 +190,7 @@ export const useAppStore = create<AppState>()(
 
       f30History: [],
       contractHistory: [],
+      contratos: [],
       dailyPayments: [],
       advances: [],
       supervisorTasks: [],
@@ -728,92 +732,44 @@ export const useAppStore = create<AppState>()(
 
       forceCloseAttendance: async (logId, endTimestamp, note, closureType) => {
         try {
-          // 1. Marcar el log de ingreso original como completado (sin cambiar su tipo)
-          const checkInRef = doc(db, 'Asistencia', logId);
-          const checkInSnap = await getDoc(checkInRef);
+          const forceCloseAttendanceValidated = httpsCallable(functions, 'forceCloseAttendanceValidated');
+          const requestId = `req_${Date.now()}_${Math.random().toString(36).substring(7)}`;
           
-          if (!checkInSnap.exists()) return;
-          const checkInData = checkInSnap.data() as AttendanceLog;
-
-          // Determinar el detalle de cierre
-          let detectedClosureType: 'cierre forzado' | 'cierre por Admin' = closureType || 'cierre por Admin';
-          if (!closureType && note && note.toLowerCase().includes('automático')) {
-            detectedClosureType = 'cierre forzado';
-          }
-
-          await updateDoc(checkInRef, { 
-            status: 'completed',
-            endTime: endTimestamp,
-            estado: 'CERRADO',
-            tipoCierre: detectedClosureType === 'cierre forzado' ? 'AUTOMATICO' : 'MANUAL',
-            horaSalidaReal: endTimestamp,
-            detalle: detectedClosureType,
+          await forceCloseAttendanceValidated({
+            attendanceId: logId,
+            requestId,
+            note: note || ''
           });
 
-          // 2. Crear un NUEVO log de salida (check_out)
-          const checkOutId = "att_out_" + Date.now();
-          const checkOutLog: AttendanceLog = {
-            ...checkInData,
-            id: checkOutId,
-            type: 'check_out',
-            timestamp: endTimestamp,
-            status: 'completed' as const,
-            isManual: detectedClosureType === 'cierre forzado' ? false : true,
-            systemNote: note || (detectedClosureType === 'cierre forzado' ? "Cierre automático de sesión" : "Cierre forzado por administrador"),
-            tipoCierre: detectedClosureType === 'cierre forzado' ? 'AUTOMATICO' : 'MANUAL',
-            estado: 'CERRADO',
-            horaSalidaReal: endTimestamp,
-            detalle: detectedClosureType,
-          };
-          
-          await setDoc(doc(db, 'Asistencia', checkOutId), checkOutLog);
+          // Actualizar estado local (optimista/después del éxito)
+          set(state => {
+            const checkOutId = "att_out_" + Date.now(); // Aproximado para la UI, será sobreescrito en el próximo fetch real
+            const originalLog = state.attendanceLogs.find(l => l.id === logId);
+            const checkOutLog = originalLog ? {
+              ...originalLog,
+              id: checkOutId,
+              type: 'check_out' as const,
+              timestamp: endTimestamp,
+              status: 'completed' as const,
+            } : null;
 
-          // 3. Forzar el logout del empleado
-          const empRef = doc(db, 'Colaboradores', checkInData.employeeId);
-          await updateDoc(empRef, { 
-            forceLogout: true,
-            lastForceLogout: new Date().toISOString()
+            return {
+              attendanceLogs: [
+                ...(checkOutLog ? [checkOutLog] : []),
+                ...state.attendanceLogs.map(log =>
+                  log.id === logId ? { ...log, status: 'completed' as const, endTime: endTimestamp } : log
+                )
+              ]
+            };
           });
 
-          // 4. Registrar en asistencia_manual para que aparezca en el mapa de turnos
-          // Determinar la fecha de la jornada a partir del check-in original (para turnos nocturnos)
-          let jornadaDate = checkInData.localDate || '';
-          if (checkInData.shiftId && typeof checkInData.shiftId === 'string' && checkInData.shiftId.includes('_')) {
-            const parts = checkInData.shiftId.split('_');
-            const datePart = parts[parts.length - 1];
-            if (datePart.match(/^\d{4}-\d{2}-\d{2}$/)) {
-              jornadaDate = datePart;
-            }
-          }
-          if (!jornadaDate) {
-            const startObj = new Date(checkInData.timestamp);
-            jornadaDate = `${startObj.getFullYear()}-${String(startObj.getMonth() + 1).padStart(2, '0')}-${String(startObj.getDate()).padStart(2, '0')}`;
-          }
-
-          const manualDocId = `manual_${checkInData.employeeId}_${jornadaDate}`;
-          await setDoc(doc(db, 'asistencia_manual', manualDocId), {
-            employeeId: checkInData.employeeId,
-            date: jornadaDate,
-            status: 'presente',
-            type: detectedClosureType === 'cierre forzado' ? 'forced_checkout_auto' : 'forced_checkout',
-            updatedAt: Timestamp.fromDate(new Date())
-          }, { merge: true });
-
-          // 5. Actualizar estado local
-          set(state => ({
-            attendanceLogs: [
-              checkOutLog,
-              ...state.attendanceLogs.map(log =>
-                log.id === logId ? { ...log, status: 'completed' as const, endTime: endTimestamp } : log
-              )
-            ]
-          }));
-
-        } catch (error) {
+        } catch (error: any) {
           console.error("Error force closing attendance:", error);
-          throw error;
+          throw new Error(error.message || "Error al forzar el cierre de asistencia.");
         }
       },
+
+
 
       getEmployeeByUserId: (uid) => get().employees.find(e => e.id === uid),
 
@@ -945,6 +901,30 @@ export const useAppStore = create<AppState>()(
           set({ contractHistory: history });
         } catch (error) {
           console.error("Error fetching contract history:", error);
+        }
+      },
+
+      fetchContratos: async (filtros?: { colaboradorId?: string; estado?: string; limit?: number }) => {
+        try {
+          let q: any = collection(db, "Contratos");
+          if (filtros?.colaboradorId) {
+            q = query(q, where('colaboradorId', '==', filtros.colaboradorId));
+          }
+          if (filtros?.estado) {
+            q = query(q, where('estado', '==', filtros.estado));
+          }
+          if (filtros?.limit) {
+            q = query(q, limit(filtros.limit));
+          }
+          // Para RRHH, cargamos solo los contratos requeridos en el dashboard
+          const snapshot = await getDocs(q);
+          const contratos: Contrato[] = [];
+          snapshot.forEach(doc => {
+            contratos.push({ ...(doc.data() as any), id: doc.id } as Contrato);
+          });
+          set({ contratos });
+        } catch (error) {
+          console.error("Error fetching contratos:", error);
         }
       },
 

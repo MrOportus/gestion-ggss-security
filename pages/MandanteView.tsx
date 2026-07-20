@@ -216,7 +216,7 @@ const MandanteView: React.FC = () => {
                                                                 onClick={() => {
                                                                     showConfirmation({
                                                                         title: "Nota Completa de Ronda",
-                                                                        message: round.notes,
+                                                                        message: round.notes || '',
                                                                         type: 'alert',
                                                                         onConfirm: () => {}
                                                                     });

@@ -1,10 +1,24 @@
+console.log("=== INDEX.JS LOADED ===");
 const { onRequest, onCall, HttpsError } = require('firebase-functions/v2/https');
 const { onDocumentCreated } = require('firebase-functions/v2/firestore');
 const { onSchedule } = require('firebase-functions/v2/scheduler');
+const functionsV1 = require('firebase-functions/v1');
+const logger = require('firebase-functions/logger');
 const admin = require('firebase-admin');
+const { FieldValue } = require('firebase-admin/firestore');
+
 const axios = require('axios');
 
-admin.initializeApp();
+if (!admin.apps.length) {
+  admin.initializeApp();
+}
+const { resolveShadowShift, toAbsoluteMinutes } = require('./shadowResolver');
+const { processAutoCloseShifts } = require('./autoCloseHelper');
+const { saveProgramacionValidated } = require('./src/phase5/saveProgramacionValidated');
+const { forceCloseAttendanceValidated } = require('./src/phase5/forceCloseAttendanceValidated');
+
+exports.saveProgramacionValidated = saveProgramacionValidated;
+exports.forceCloseAttendanceValidated = forceCloseAttendanceValidated;
 
 // Función para generar contratos (vía Apps Script)
 exports.generarContrato = onRequest(
@@ -548,6 +562,10 @@ const SHIFT_SCHEDULES = {
   'noche':      { inicio: '19:30', termino: '07:30' },
 };
 
+
+
+
+
 exports.autoCloseShifts = onSchedule(
   {
     schedule: 'every 30 minutes',
@@ -557,117 +575,145 @@ exports.autoCloseShifts = onSchedule(
   },
   async (event) => {
     const now = new Date();
-    console.log(`[AUTO-CLOSE] Ejecutando cierre automático: ${now.toISOString()}`);
-
-    try {
-      // Buscar todos los turnos ABIERTOS
-      const snapshot = await admin.firestore()
-        .collection('Asistencia')
-        .where('type', '==', 'check_in')
-        .where('estado', '==', 'ABIERTO')
-        .get();
-
-      if (snapshot.empty) {
-        console.log('[AUTO-CLOSE] No hay turnos abiertos.');
-        return;
-      }
-
-      console.log(`[AUTO-CLOSE] Encontrados ${snapshot.size} turnos abiertos.`);
-      let closedCount = 0;
-
-      for (const docSnap of snapshot.docs) {
-        const data = docSnap.data();
-        const startDate = new Date(data.timestamp);
-
-        if (isNaN(startDate.getTime())) {
-          console.log(`[AUTO-CLOSE] Turno ${docSnap.id} con fecha de inicio inválida, saltando.`);
-          continue;
-        }
-
-        // Cierre automático tras 12 horas + 60 minutos (13 horas en total)
-        const thirteenHoursMs = 13 * 60 * 60 * 1000;
-        const expirationTime = new Date(startDate.getTime() + thirteenHoursMs);
-
-        if (now >= expirationTime) {
-          // Cerrar automáticamente (la hora de cierre es exactamente la de expiración)
-          const horaCierre = expirationTime.toISOString();
-
-          await docSnap.ref.update({
-            estado: 'CERRADO',
-            tipoCierre: 'AUTOMATICO',
-            horaSalidaReal: horaCierre,
-            status: 'completed',
-            endTime: horaCierre,
-            detalle: 'cierre forzado',
-          });
-
-          // Crear check_out automático
-          const checkOutId = `att_auto_${Date.now()}_${docSnap.id.slice(-6)}`;
-          await admin.firestore().collection('Asistencia').doc(checkOutId).set({
-            employeeId: data.employeeId,
-            employeeName: data.employeeName || '',
-            rut: data.rut || '',
-            type: 'check_out',
-            timestamp: horaCierre,
-            locationLat: data.locationLat || null,
-            locationLng: data.locationLng || null,
-            siteId: data.siteId || null,
-            siteName: data.siteName || '',
-            shiftId: data.shiftId || null,
-            status: 'completed',
-            isManual: false,
-            systemNote: `Cierre automático: turno excedió 12 horas + 60 minutos de gracia`,
-            tipoCierre: 'AUTOMATICO',
-            estado: 'CERRADO',
-            horaSalidaReal: horaCierre,
-            turnoProgramadoInicio: data.turnoProgramadoInicio || null,
-            turnoProgramadoTermino: data.turnoProgramadoTermino || null,
-            turnoProgramadoStatus: data.turnoProgramadoStatus || null,
-            detalle: 'cierre forzado',
-          });
-
-          // Sincronizar con asistencia_manual/asistencia_digital
-          // Determinar la fecha de la jornada original de forma robusta
-          let jornadaDate = data.localDate || '';
-          if (data.shiftId && typeof data.shiftId === 'string' && data.shiftId.includes('_')) {
-            const parts = data.shiftId.split('_');
-            const datePart = parts[parts.length - 1];
-            if (datePart.match(/^\d{4}-\d{2}-\d{2}$/)) {
-              jornadaDate = datePart;
-            }
-          }
-          if (!jornadaDate) {
-            const startObj = new Date(data.timestamp);
-            jornadaDate = `${startObj.getFullYear()}-${String(startObj.getMonth() + 1).padStart(2, '0')}-${String(startObj.getDate()).padStart(2, '0')}`;
-          }
-          const siteId = data.siteId || 'sin_sucursal';
-
-          // Eliminar pulso digital
-          const digId = `${siteId}_${data.employeeId}_${jornadaDate}`;
-          try {
-            await admin.firestore().collection('asistencia_digital').doc(digId).delete();
-          } catch (e) {
-            console.log(`[AUTO-CLOSE] No se pudo eliminar asistencia_digital ${digId}:`, e.message);
-          }
-
-          // Crear asistencia manual
-          const manualDocId = `manual_${data.employeeId}_${jornadaDate}`;
-          await admin.firestore().collection('asistencia_manual').doc(manualDocId).set({
-            employeeId: data.employeeId,
-            date: jornadaDate,
-            status: 'presente',
-            type: 'auto_checkout',
-            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-          }, { merge: true });
-
-          closedCount++;
-          console.log(`[AUTO-CLOSE] ✅ Turno cerrado para ${data.employeeName || data.employeeId}: ${docSnap.id}`);
-        }
-      }
-
-      console.log(`[AUTO-CLOSE] Proceso completado: ${closedCount} turnos cerrados de ${snapshot.size} abiertos.`);
-    } catch (error) {
-      console.error('[AUTO-CLOSE] Error en cierre automático:', error);
-    }
+    await processAutoCloseShifts(admin.firestore(), now);
   }
 );
+
+
+// ──────────────────────────────────────────────────────────────────────
+// FASE 5B.4: Shadow Resolver Backend
+// ──────────────────────────────────────────────────────────────────────
+exports.shadowAttendanceResolver = functionsV1.firestore.document('Asistencia/{attendanceId}').onCreate(async (snapshot, context) => {
+  try {
+    const attendanceId = context.params.attendanceId;
+    const data = snapshot.data();
+    if (!data || data.type !== 'check_in') {
+      return;
+    }
+
+    const db = admin.firestore();
+  
+    const { employeeId, siteId, localDate, timestamp } = data;
+    
+    // Validaciones
+    if (!employeeId || !siteId || !localDate || !timestamp) return;
+
+    // Feature Flag Check (Phase 5C Canary & Staging)
+    const featureFlagSnap = await db.collection('app_config').doc('feature_flags').get();
+    const flags = featureFlagSnap.data() || {};
+    const attendanceShadowEnabled = flags.attendanceShadowEnabled === true;
+    const attendanceShadowAllBranches = flags.attendanceShadowAllBranches === true;
+    const sucursalesHabilitadas = Array.isArray(flags.sucursalesHabilitadas) ? flags.sucursalesHabilitadas : [];
+    
+    const shadowActivo = attendanceShadowEnabled && (attendanceShadowAllBranches || sucursalesHabilitadas.includes(siteId));
+    
+    if (!shadowActivo) {
+      console.log(`[SHADOW RESOLVER] Abortado por Feature Flag o Sucursal no habilitada (Site: ${siteId}).`);
+      return;
+    }
+
+    // Use the event timestamp (trigger execution time) explicitly, guarding against spoofed offline timestamps.
+    const baseDate = context.timestamp ? new Date(context.timestamp) : new Date(timestamp);
+    
+    // IANA Timezone conversion robust implementation
+    const formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/Santiago',
+      year: 'numeric',
+      month: 'numeric',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: 'numeric',
+      hourCycle: 'h23' // 0-23 hours
+    });
+    const parts = formatter.formatToParts(baseDate);
+    const dateMap = new Map(parts.map(p => [p.type, p.value]));
+    
+    const santiagoYear = dateMap.get('year');
+    const santiagoMonth = dateMap.get('month').padStart(2, '0');
+    const santiagoDay = dateMap.get('day').padStart(2, '0');
+    const santiagoHour = dateMap.get('hour').padStart(2, '0');
+    const santiagoMinute = dateMap.get('minute').padStart(2, '0');
+    
+    const dateStr = `${santiagoYear}-${santiagoMonth}-${santiagoDay}`;
+    const timeStr = `${santiagoHour}:${santiagoMinute}`;
+    const isNextDay = dateStr !== localDate;
+    
+    const currentAbsMins = toAbsoluteMinutes(localDate, timeStr, isNextDay);
+    
+    await db.runTransaction(async (transaction) => {
+      const diagRef = db.collection('AttendanceShadowDiagnostics').doc(attendanceId);
+      const diagDoc = await transaction.get(diagRef);
+      
+      const attendanceRef = snapshot.ref;
+      const currentAttendanceDoc = await transaction.get(attendanceRef);
+      if (!currentAttendanceDoc.exists) return;
+      
+      const currentAttendanceData = currentAttendanceDoc.data();
+      const currentId = currentAttendanceData.turnoProgramadoId;
+
+      if (diagDoc.exists) {
+        const diagData = diagDoc.data();
+        if (diagData.resultado === 'unico' && diagData.turnoProgramadoId && !currentId) {
+          logger.info(`[SHADOW RESOLVER] Reparando asistencia ${attendanceId} (falta ID) según diagnóstico previo.`);
+          transaction.update(attendanceRef, { turnoProgramadoId: diagData.turnoProgramadoId });
+          return;
+        }
+        logger.info(`[SHADOW RESOLVER] Asistencia ${attendanceId} ya diagnosticada. Ignorando.`);
+        return;
+      }
+      
+      const candidatesSnap = await transaction.get(
+        db.collection('TurnosProgramados')
+          .where('colaboradorId', '==', employeeId)
+          .where('fecha', 'in', [localDate, dateStr])
+      );
+        
+      const candidates = [];
+      candidatesSnap.forEach(doc => {
+        candidates.push({ id: doc.id, ...doc.data() });
+      });
+
+      const legacyCode = data.turnoProgramadoStatus || 'programado'; // ej 'noche' o 'programado'
+      const result = resolveShadowShift(candidates, siteId, legacyCode, currentAbsMins);
+
+      // Si Asistencia YA tiene ID asignado manual o por otro medio
+      if (currentId) {
+        if (currentId === result.turnoProgramadoId) {
+          logger.info(`[SHADOW RESOLVER] Asistencia ya tiene el ID correcto (${currentId}). Solo confirmando diagnóstico.`);
+        } else {
+          logger.info(`[SHADOW RESOLVER] Conflicto: Asistencia tiene ID ${currentId} pero resolución entregó ${result.turnoProgramadoId || 'ninguno'}.`);
+          result.diagnostico = 'conflicto_tecnico';
+        }
+      } else {
+        if (result.turnoProgramadoId) {
+          transaction.update(attendanceRef, { turnoProgramadoId: result.turnoProgramadoId });
+        }
+      }
+
+      transaction.set(diagRef, {
+        attendanceId,
+        turnoProgramadoId: result.turnoProgramadoId || null,
+        resultado: result.diagnostico,
+        cantidadCandidatos: candidates.length,
+        sucursalId: siteId,
+        fechaOperacional: localDate,
+        resolverVersion: '1.0.1',
+        createdAt: FieldValue.serverTimestamp(),
+        errorCode: (result.diagnostico !== 'unico' && result.diagnostico !== 'conflicto_tecnico') ? result.diagnostico : null
+      });
+    });
+  } catch (error) {
+    logger.error(`[SHADOW RESOLVER] Error final (${context.params.attendanceId}):`, error);
+    try {
+      await admin.firestore().collection('AttendanceShadowDiagnostics').doc(context.params?.attendanceId || 'unknown').set({
+        attendanceId: context.params?.attendanceId || 'unknown',
+        resultado: 'error_tecnico',
+        createdAt: FieldValue.serverTimestamp(),
+        errorCode: 'exception'
+      }, { merge: true });
+    } catch (e2) {
+      logger.error(`[SHADOW RESOLVER] Catch secondary:`, e2);
+    }
+  }
+});
+

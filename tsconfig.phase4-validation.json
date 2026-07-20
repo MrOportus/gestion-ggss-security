@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true
+  },
+  "include": [
+    "types/phase4.ts",
+    "lib/phase4/**/*",
+    "components/phase4/**/*",
+    "pages/ShiftManagement.tsx"
+  ]
+}

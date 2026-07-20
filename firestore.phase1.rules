@@ -1,0 +1,195 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // ==========================================
+    // HELPERS SEGUROS (Validan Autenticación Primero)
+    // ==========================================
+    
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    // Obtiene el documento del colaborador actual. Falla segura si no existe o no está autenticado.
+    function getCurrentUserDoc() {
+      return isAuthenticated() ? get(/databases/$(database)/documents/Colaboradores/$(request.auth.uid)) : null;
+    }
+    
+    function userDocumentExists() {
+      return isAuthenticated() && exists(/databases/$(database)/documents/Colaboradores/$(request.auth.uid));
+    }
+    
+    function getUserRole() {
+      let doc = getCurrentUserDoc();
+      return doc != null ? doc.data.role : null;
+    }
+    
+    function isAdmin() {
+      return getUserRole() == 'admin';
+    }
+    
+    function isRRHH() {
+      return getUserRole() == 'rrhh';
+    }
+    
+    function isOperationsManager() {
+      return getUserRole() == 'jefe_operaciones';
+    }
+    
+    function isSupervisor() {
+      return getUserRole() == 'supervisor';
+    }
+    
+    function esRolOperativo() {
+      let role = getUserRole();
+      return role in ['admin', 'supervisor', 'jefe_operaciones', 'rrhh'];
+    }
+
+    function isOwner(colaboradorId) {
+      return isAuthenticated() && colaboradorId == request.auth.uid;
+    }
+
+    // Alcance por Sucursal (Propuesta)
+    // Lee desde la nueva colección de autorización operativa
+    function hasBranchAccess(sucursalId) {
+      let accessDoc = isAuthenticated() ? get(/databases/$(database)/documents/AlcancesOperativos/$(request.auth.uid)) : null;
+      return accessDoc != null && accessDoc.data.activo == true && (sucursalId in accessDoc.data.sucursalesAutorizadas);
+    }
+
+    // Validación de campos inmutables comunes
+    function isUnmodified(field) {
+      return request.resource.data[field] == resource.data[field];
+    }
+
+    // ==========================================
+    // NUEVAS COLECCIONES FASE 1
+    // ==========================================
+
+    match /Contratos/{contratoId} {
+      allow read: if isAdmin() || isRRHH() || isOperationsManager() || isOwner(resource.data.colaboradorId);
+      
+      allow create: if (isAdmin() || isRRHH())
+                    && request.resource.data.keys().hasAll(['colaboradorId', 'sucursalId', 'fechaInicio', 'estado', 'creadoPor', 'creadoEn'])
+                    && request.resource.data.estado in ['borrador', 'pendiente_firma', 'vigente', 'vencido', 'finiquitado', 'anulado'];
+                    
+      allow update: if (isAdmin() || isRRHH())
+                    && isUnmodified('colaboradorId')
+                    && isUnmodified('creadoPor')
+                    && isUnmodified('creadoEn')
+                    && request.resource.data.estado in ['borrador', 'pendiente_firma', 'vigente', 'vencido', 'finiquitado', 'anulado'];
+                    
+      allow delete: if false; // Eliminación física prohibida
+    }
+
+    match /AsignacionesOperacionales/{asignacionId} {
+      allow read: if esRolOperativo() || isOwner(resource.data.colaboradorId);
+      
+      allow create: if (isAdmin() || isOperationsManager())
+                    && request.resource.data.keys().hasAll(['colaboradorId', 'sucursalId', 'mes', 'estado', 'creadoPor', 'creadoEn'])
+                    && request.resource.data.estado in ['activa', 'retirada', 'cancelada'];
+                    
+      allow update: if (isAdmin() || isOperationsManager())
+                    && isUnmodified('colaboradorId')
+                    && isUnmodified('sucursalId')
+                    && isUnmodified('mes') // monthKey
+                    && request.resource.data.estado in ['activa', 'retirada', 'cancelada'];
+                    
+      allow delete: if false; // Eliminación física prohibida
+    }
+
+    match /TurnosProgramados/{turnoId} {
+      allow read: if esRolOperativo() || isOwner(resource.data.colaboradorId);
+      
+      // Alcance por sucursal requerido para crear
+      allow create: if (isAdmin() || isOperationsManager() || (isSupervisor() && hasBranchAccess(request.resource.data.sucursalId)))
+                    && request.resource.data.keys().hasAll(['colaboradorId', 'asignacionOperacionalId', 'sucursalId', 'fecha', 'horarioSnapshot', 'estado', 'creadoPor', 'creadoEn'])
+                    && !request.resource.data.keys().hasAny([
+                         'transferredToShiftId', 'transferredFromShiftId', 'originBranchId', 
+                         'destinationBranchId', 'transferReason', 'transferredAt', 'transferredBy', 
+                         'correlationId', 'replacementShiftId', 'replacesShiftId', 
+                         'requiereCobertura', 'coveredAt', 'coveredBy'
+                       ])
+                    && request.resource.data.estado in ['programado', 'descanso', 'ausente'];
+      
+      allow update: if (isAdmin() || isOperationsManager() || isRRHH() || (isSupervisor() && hasBranchAccess(resource.data.sucursalId)))
+                    && isUnmodified('colaboradorId')
+                    && isUnmodified('asignacionOperacionalId')
+                    && isUnmodified('horarioSnapshot') // Snapshot inmutable
+                    && isUnmodified('creadoPor')
+                    && isUnmodified('creadoEn')
+                    && isUnmodified('estadoContratoVinculado')
+                    && isUnmodified('contratoIdAsociado')
+                    && isUnmodified('resueltoPor')
+                    && isUnmodified('resueltoEn')
+                    && isUnmodified('motivoResolucion')
+                    && isUnmodified('fechaEvaluacionContrato')
+                    && isUnmodified('fuenteEvaluacionContrato')
+                    // ── Fase 4: campos de traslado — solo escritos desde Admin SDK (Cloud Functions) ──
+                    && isUnmodified('transferredToShiftId')
+                    && isUnmodified('transferredFromShiftId')
+                    && isUnmodified('originBranchId')
+                    && isUnmodified('destinationBranchId')
+                    && isUnmodified('transferReason')
+                    && isUnmodified('transferredAt')
+                    && isUnmodified('transferredBy')
+                    && isUnmodified('correlationId')
+                    && isUnmodified('replacementShiftId')
+                    && isUnmodified('replacesShiftId')
+                    && isUnmodified('requiereCobertura')
+                    && request.resource.data.estado in ['programado', 'trasladado', 'cancelado', 'completado', 'ausente', 'descanso'];
+                    
+      allow delete: if false; // Eliminación física prohibida
+    }
+
+
+    match /PlantillasTurno/{plantillaId} {
+      allow read: if esRolOperativo();
+      allow create, update: if isAdmin() || isOperationsManager();
+      allow delete: if false; // Preferir desactivación
+    }
+
+    match /PatronesJornada/{patronId} {
+      allow read: if esRolOperativo();
+      allow create, update: if isAdmin() || isOperationsManager();
+      allow delete: if false; // Preferir desactivación
+    }
+
+    match /AuditoriaAcciones/{auditoriaId} {
+      // Lectura restringida
+      allow read: if isAdmin();
+      
+      // Creación, actualización y eliminación bloqueadas desde cliente
+      // Deben crearse usando Admin SDK (Cloud Functions o Backend)
+      allow create, update, delete: if false; 
+    }
+
+    match /FeatureFlags/{flagId} {
+      allow read: if esRolOperativo();
+      allow create, update: if isAdmin();
+      allow delete: if false;
+    }
+    
+    // Colecciones temporales para validaciones de pruebas
+    match /AlcancesOperativos/{uid} {
+      allow read: if isAuthenticated() && request.auth.uid == uid;
+      allow write: if isAdmin();
+    }
+    
+    match /ShadowSyncQueue/{taskId} {
+      // Cliente puede crear la tarea pero con restricciones
+      // Cliente NO puede crear ni editar la tarea. Todo se hace mediante Cloud Function / Admin SDK.
+      allow create: if false;
+      
+      // Administrador puede leer para diagnóstico
+      allow read: if isAdmin();
+      
+      // El update y delete están bloqueados desde frontend. (Solo el backend puede procesar o cambiar status).
+      allow update, delete: if false;
+    }
+    
+    match /Colaboradores/{uid} {
+      allow read: if true; // Para simplificar en esta subfase y no romper dependencias legacy
+      allow write: if false; 
+    }
+  }
+}

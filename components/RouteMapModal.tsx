@@ -3,7 +3,7 @@ import React, { useEffect } from 'react';
 import { MapContainer, TileLayer, Polyline, Marker, Popup, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import { X, Navigation, MapPin, Camera, Image, Clock as ClockIcon, ChevronLeft, ChevronRight } from 'lucide-react';
+import { X, Navigation, MapPin, Camera, Image, Clock as ClockIcon, ChevronLeft, ChevronRight, AlertCircle } from 'lucide-react';
 import { getHaversineDistance, movingAverage } from '../lib/gpsUtils';
 import ThumbnailImage from './ThumbnailImage';
 

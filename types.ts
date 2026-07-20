@@ -1,5 +1,5 @@
 
-export type Role = 'admin' | 'supervisor' | 'worker' | 'mandante';
+export type Role = 'admin' | 'supervisor' | 'worker' | 'mandante' | 'jefe_operaciones' | 'rrhh';
 
 export interface User {
   uid: string;
@@ -94,6 +94,11 @@ export interface AttendanceLog {
   tipoCierre?: 'MANUAL' | 'AUTOMATICO' | 'AUTOMATICO_POR_NUEVA_ENTRADA';
   estado?: 'ABIERTO' | 'CERRADO';
   detalle?: 'APP MOVIL' | 'REGISTRO MANUAL' | 'cierre forzado' | 'cierre por Admin';
+  // Fase 5: Shadow Mode para TurnoProgramado
+  turnoProgramadoId?: string | null;
+  correlationId?: string;
+  localDate?: string;
+  shadowDiagnostico?: string;
 }
 
 export interface Document {
@@ -298,10 +303,10 @@ export interface GuardRound {
   startLocation: { lat: number; lng: number; accuracy?: number };
   endLocation?: { lat: number; lng: number; accuracy?: number };
   status: 'IN_PROGRESS' | 'COMPLETED';
-  path?: { 
-    lat: number | null; 
-    lng: number | null; 
-    timestamp: string; 
+  path?: {
+    lat: number | null;
+    lng: number | null;
+    timestamp: string;
     accuracy?: number;
     location_source?: 'GPS_OK' | 'GPS_SIGNAL_LOST_TECHNICAL' | 'GPS_SABOTEADO';
   }[];

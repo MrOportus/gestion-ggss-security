@@ -483,7 +483,7 @@ const NotesPage: React.FC = () => {
                                 <div
                                     ref={inlineContentRef}
                                     contentEditable
-                                    placeholder="Escribe algo..."
+                                    data-placeholder="Escribe algo..."
                                     className="note-content min-h-[72px] text-[14px] text-slate-600 focus:outline-none leading-relaxed"
                                 />
 
@@ -640,7 +640,7 @@ const NotesPage: React.FC = () => {
                             <div
                                 ref={editContentRef}
                                 contentEditable
-                                placeholder="Escribe algo..."
+                                data-placeholder="Escribe algo..."
                                 className="note-content min-h-[120px] max-h-[40vh] overflow-y-auto text-[14px] text-slate-700 focus:outline-none leading-relaxed custom-scrollbar"
                             />
 

@@ -444,7 +444,7 @@ const DocumentsPage: React.FC = () => {
 
         const pdfBytes = await pdfDoc.save();
         const signedFileName = `signed_${docToSign.id}.pdf`;
-        const signedBlob = new Blob([pdfBytes], { type: 'application/pdf' });
+        const signedBlob = new Blob([pdfBytes as any], { type: 'application/pdf' });
         const signedUrl = await uploadFile(signedBlob, `signed_docs/${signedFileName}`);
 
         await signDigitalDocument(docToSign.id, signedUrl, {
@@ -596,7 +596,6 @@ const DocumentsPage: React.FC = () => {
                             <button
                                 onClick={() => {
                                     setActiveTab('pending');
-                                    setQuickFilter('pending');
                                 }}
                                 className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-[11px] font-black uppercase tracking-wider transition-all"
                             >

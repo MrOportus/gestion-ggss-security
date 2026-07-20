@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useAppStore } from '../store/useAppStore';
 import {
   CheckCircle,
@@ -38,19 +38,22 @@ import { PenTool, FileText } from 'lucide-react';
 import DocumentsPage from './DocumentsPage';
 import { GlobalOverlay } from '../components/GlobalOverlay';
 import { db, auth } from '../lib/firebase';
-import { collection, query, where, getDocs, onSnapshot, doc as firestoreDoc, orderBy, limit, updateDoc, setDoc, deleteDoc, Timestamp } from 'firebase/firestore';
+import { collection, query, where, getDocs, getDoc, onSnapshot, doc as firestoreDoc, limit, updateDoc, setDoc, deleteDoc, Timestamp } from 'firebase/firestore';
 import { EmailAuthProvider, reauthenticateWithCredential, updatePassword } from 'firebase/auth';
 
 import RoundsControl from '../components/RoundsControl';
 import MarketTurnos from '../components/MarketTurnos';
+import { evaluateNocturnalClosure } from '../lib/phase5/nocturnalClosure';
 import MyExtraShifts from '../components/MyExtraShifts';
 import MyFixedShifts from '../components/MyFixedShifts';
 import AppUpdateBanner, { APP_VERSION } from '../components/AppUpdateBanner';
 import { Capacitor } from '@capacitor/core';
 import { Geolocation } from '@capacitor/geolocation';
+import { toAbsoluteMinutes } from '../lib/phase5/shadowResolver';
 
 
 // ── Constantes de horarios de turno ───────────────────────────────────────
+// Resolver Shadow trasladado al backend en Subfase 5B.3───────────────────────────────────────
 const SHIFT_SCHEDULES: Record<string, { inicio: string; termino: string }> = {
   programado: { inicio: '07:30', termino: '19:30' },
   noche:      { inicio: '19:30', termino: '07:30' },
@@ -96,7 +99,6 @@ const WorkerAttendance: React.FC = () => {
   const [validationStep, setValidationStep] = useState<'idle' | 'gps' | 'turno' | 'abierto' | 'done'>('idle');
   const [validationError, setValidationError] = useState<string | null>(null);
   const [validationErrorType, setValidationErrorType] = useState<'gps' | 'no_turno' | 'turno_abierto' | null>(null);
-  const [todayShift, setTodayShift] = useState<{ status: 'programado' | 'noche' | 'descanso'; siteId: string | number } | null>(null);
   
   // ── Contador de tiempo transcurrido ──────────────────────────────────
   const [elapsedTime, setElapsedTime] = useState('00h 00m');
@@ -378,6 +380,7 @@ const WorkerAttendance: React.FC = () => {
     // ── VALIDACIÓN 2: TURNO PROGRAMADO ──────────────────────────────
     setValidationStep('turno');
     const dateStr = getTodayDateStr();
+    let validatedShiftDoc: any = null;
     try {
       const q = query(
         collection(db, 'programacion'),
@@ -402,7 +405,16 @@ const WorkerAttendance: React.FC = () => {
         setValidationErrorType('no_turno');
         return;
       }
-      setTodayShift({ status: shiftDoc.status, siteId: shiftDoc.siteId });
+      
+      if (!shiftDoc.siteId) {
+        setLoading(false);
+        setValidationStep('idle');
+        setValidationError("El turno programado no tiene una sucursal válida asignada.\nContacte a su supervisor.");
+        setValidationErrorType('no_turno');
+        return;
+      }
+      
+      validatedShiftDoc = shiftDoc;
     } catch (err) {
       console.error("Error verificando turno programado:", err);
       setLoading(false);
@@ -440,9 +452,46 @@ const WorkerAttendance: React.FC = () => {
           setValidationErrorType('turno_abierto');
           return;
         } else {
-          // Otro día — cerrar automáticamente el turno anterior
-          console.log("[SEGURIDAD] Cerrando turno anterior de otro día:", openDoc.id);
-          const now = new Date().toISOString();
+          // 🌚 HOTFIX NOCTURNO (Fase 5B.5) 🌚
+          let turnoProgramadoData = null;
+          let legacyProgramacionData = null;
+
+          if (openData.turnoProgramadoId) {
+            try {
+              const tpSnap = await getDoc(firestoreDoc(db, 'TurnosProgramados', openData.turnoProgramadoId));
+              if (tpSnap.exists()) {
+                turnoProgramadoData = tpSnap.data();
+              }
+            } catch (e) {
+              console.warn("Error resolviendo Hotfix Nocturno (TurnosProgramados):", e);
+            }
+          } else if (openData.shiftId) {
+            // Si todavía no tiene turnoProgramadoId resuelto, buscamos la programación legacy
+            try {
+              const progSnap = await getDoc(firestoreDoc(db, 'programacion', openData.shiftId));
+              if (progSnap.exists()) {
+                legacyProgramacionData = progSnap.data();
+              }
+            } catch (e) {
+              console.warn("Error resolviendo Hotfix Nocturno (programacion legacy):", e);
+            }
+          }
+          
+          const now = new Date();
+          const nowTimeStr = now.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit', hour12: false });
+          
+          const hasOpenShiftDifferentDay = evaluateNocturnalClosure(
+            openData,
+            turnoProgramadoData,
+            legacyProgramacionData,
+            now.getTime(),
+            nowTimeStr,
+            dateStr
+          );
+          
+          if (hasOpenShiftDifferentDay) {
+            console.log("[SEGURIDAD] Cerrando turno anterior de otro día:", openDoc.id);
+            const nowIso = now.toISOString();
           
           // Cerrar todos los turnos abiertos de otros días
           for (const docSnap of openSnapshot.docs) {
@@ -454,9 +503,9 @@ const WorkerAttendance: React.FC = () => {
             await updateDoc(docRef, {
               estado: 'CERRADO',
               tipoCierre: 'AUTOMATICO_POR_NUEVA_ENTRADA',
-              horaSalidaReal: now,
+              horaSalidaReal: nowIso,
               status: 'completed',
-              endTime: now,
+              endTime: nowIso,
               detalle: 'cierre forzado',
             });
 
@@ -466,7 +515,7 @@ const WorkerAttendance: React.FC = () => {
               ...data,
               id: checkOutId,
               type: 'check_out',
-              timestamp: now,
+              timestamp: nowIso,
               status: 'completed',
               isManual: false,
               systemNote: 'Cierre automático por nueva entrada en otro día',
@@ -504,6 +553,7 @@ const WorkerAttendance: React.FC = () => {
           }
           
           showNotification("Turno anterior cerrado automáticamente.", "info");
+          } // Cierra if (hasOpenShiftDifferentDay)
         }
       }
     } catch (err) {
@@ -518,9 +568,15 @@ const WorkerAttendance: React.FC = () => {
       const dateStr = getTodayDateStr();
       const actionTimestamp = now.toISOString();
       
-      const shiftStatus = todayShift?.status || 'programado';
+      const shiftStatus = validatedShiftDoc?.status || 'programado';
       const schedule = SHIFT_SCHEDULES[shiftStatus] || SHIFT_SCHEDULES.programado;
-      const shiftId = `prog_${employee!.currentSiteId}_${employee!.id}_${dateStr}`;
+      
+      const shiftSiteId = validatedShiftDoc?.siteId ? String(validatedShiftDoc.siteId) : null;
+      if (!shiftSiteId) {
+        throw new Error("No se pudo determinar la sucursal del turno programado.");
+      }
+
+      const shiftId = `prog_${shiftSiteId}_${employee!.id}_${dateStr}`;
 
       await addAttendanceLog({
         employeeId: employee!.id,
@@ -530,8 +586,8 @@ const WorkerAttendance: React.FC = () => {
         timestamp: actionTimestamp,
         locationLat: finalCoords!.lat,
         locationLng: finalCoords!.lng,
-        siteId: employee!.currentSiteId ?? null,
-        siteName: sites.find(s => s.id === employee!.currentSiteId)?.name || 'Sin Sucursal',
+        siteId: isNaN(Number(shiftSiteId)) ? shiftSiteId : Number(shiftSiteId),
+        siteName: sites.find(s => s.id.toString() === shiftSiteId)?.name || 'Sin Sucursal',
         shiftId: shiftId,
         localDate: dateStr,
         // Nuevos campos

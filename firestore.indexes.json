@@ -41,6 +41,75 @@
           "order": "DESCENDING"
         }
       ]
+    },
+    {
+      "collectionGroup": "TurnosProgramados",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "colaboradorId", "order": "ASCENDING" },
+        { "fieldPath": "fecha", "order": "ASCENDING" },
+        { "fieldPath": "estado", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "TurnosProgramados",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "sucursalId", "order": "ASCENDING" },
+        { "fieldPath": "fecha", "order": "ASCENDING" },
+        { "fieldPath": "requiereCobertura", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "TurnosProgramados",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "colaboradorId", "order": "ASCENDING" },
+        { "fieldPath": "estadoContratoVinculado", "order": "ASCENDING" },
+        { "fieldPath": "estado", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "asistencia_digital",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "employeeId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "siteId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "date",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "Asistencia",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "turnoProgramadoId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "type",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "Asistencia",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "employeeId", "order": "ASCENDING" },
+        { "fieldPath": "estado", "order": "ASCENDING" },
+        { "fieldPath": "type", "order": "ASCENDING" },
+        { "fieldPath": "timestamp", "order": "ASCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []

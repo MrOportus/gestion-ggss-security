@@ -23,8 +23,9 @@ const AdminDashboard: React.FC = () => {
   const [localAttendanceLogs, setLocalAttendanceLogs] = React.useState(attendanceLogs);
   const [reminders, setReminders] = useState<BoardNote[]>([]);
 
-  const [closingLogInfo, setClosingLogInfo] = useState<{ id: string; name: string; timestamp: string } | null>(null);
-  const [exitTime, setExitTime] = useState('');
+  const [closingLogInfo, setClosingLogInfo] = useState<{id: string, name: string, timestamp: string} | null>(null);
+  const [exitTime, setExitTime] = useState<string>('');
+  const [isClosing, setIsClosing] = useState(false);
 
   // Ref para acceder al valor actual de employees dentro del onSnapshot sin ponerlo como dependencia
   const employeesRef = useRef(employees);
@@ -138,7 +139,7 @@ const AdminDashboard: React.FC = () => {
     if (!e.isActive) return false;
     // Si es supervisor, solo ve empleados de sus sedes asignadas
     if (currentUser?.role === 'supervisor') {
-      return (currentEmp?.assignedSites || []).includes(e.currentSiteId);
+      return (currentEmp?.assignedSites || []).includes(e.currentSiteId as any);
     }
     return true;
   });
@@ -309,11 +310,12 @@ const AdminDashboard: React.FC = () => {
     const unsubManual = onSnapshot(qManual, (snapshotMan) => {
       const manuals = snapshotMan.docs.map(doc => {
         const data = doc.data();
-        // Usar employeesRef.current para leer el valor actual sin agregarlo como dependencia
-        const emp = employeesRef.current.find(e => e.id === data.employeeId);
+        // R2 hotfix (5D.1): Usar data.siteId del documento de asistencia_manual si existe.
+        // NO usar currentSiteId del colaborador — puede no reflejar el turno vigente.
+        // Si el doc legacy no tiene siteId, se deja como 'all' para no asignar sucursal incorrecta.
         return {
           employeeId: data.employeeId,
-          siteId: emp?.currentSiteId || 'all',
+          siteId: data.siteId ? String(data.siteId) : 'all',
           isManualPresent: data.status === 'presente'
         };
       });
@@ -360,11 +362,10 @@ const AdminDashboard: React.FC = () => {
 
   const liveBySite = activeSites.reduce((acc, site) => {
     // 1. Encontrar empleados programados o con asistencia manual hoy en esta sucursal
+    // R2 hotfix (5D.1): Solo usar siteId del registro de programación/asistencia.
+    // Los docs con siteId='all' (legacy sin sucursal) no se asignan a ninguna sucursal específica.
     const programmedForSiteIds = new Set(programming
-      .filter(p => 
-        String(p.siteId) === String(site.id) || 
-        (p.siteId === 'all' && employees.find(e => e.id === p.employeeId)?.currentSiteId === site.id)
-      )
+      .filter(p => String(p.siteId) === String(site.id))
       .map(p => p.employeeId)
     );
 
@@ -1164,31 +1165,43 @@ const AdminDashboard: React.FC = () => {
 
               <div className="flex gap-4">
                 <button
-                  onClick={() => setClosingLogInfo(null)}
-                  className="flex-1 py-4 bg-slate-100 text-slate-500 rounded-2xl font-black uppercase tracking-widest text-xs"
+                  onClick={() => !isClosing && setClosingLogInfo(null)}
+                  disabled={isClosing}
+                  className="flex-1 py-4 bg-slate-100 text-slate-500 rounded-2xl font-black uppercase tracking-widest text-xs disabled:opacity-50"
                 >
                   Cancelar
                 </button>
                 <button
+                  disabled={isClosing}
                   onClick={async () => {
                     try {
+                      setIsClosing(true);
                       const [h, m] = exitTime.split(':');
                       const date = new Date(closingLogInfo.timestamp);
                       date.setHours(parseInt(h), parseInt(m));
                       await forceCloseAttendance(closingLogInfo.id, date.toISOString(), "Cierre forzado por administrador");
                       setClosingLogInfo(null);
-                    } catch (e) {
+                    } catch (e: any) {
                       showConfirmation({
-                        title: "Error",
-                        message: "Error al cerrar turno",
+                        title: "Error al Cerrar",
+                        message: e.message || "No se pudo cerrar el turno. Intente nuevamente.",
                         type: 'alert',
                         onConfirm: () => {}
                       });
+                    } finally {
+                      setIsClosing(false);
                     }
                   }}
-                  className="flex-[2] py-4 bg-rose-600 text-white rounded-2xl font-black uppercase tracking-widest text-xs shadow-lg shadow-rose-200"
+                  className="flex-[2] py-4 bg-rose-600 text-white rounded-2xl font-black uppercase tracking-widest text-xs shadow-lg shadow-rose-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                 >
-                  Confirmar Salida
+                  {isClosing ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                      Procesando...
+                    </>
+                  ) : (
+                    "Confirmar Salida"
+                  )}
                 </button>
               </div>
             </div>
