@@ -1,6 +1,7 @@
 const admin = require('firebase-admin');
 const { FieldValue } = require('firebase-admin/firestore');
 const { toTimestampMs } = require('./src/phase4/conflictService');
+const { executeAttendanceClosure } = require('./src/phase5/attendanceClosureCore');
 
 const AUTO_CLOSE_GRACE_MINUTES = 15;
 
@@ -89,97 +90,31 @@ async function processAutoCloseShifts(db, now, FieldValue = admin.firestore.Fiel
         continue;
       }
 
-      // Cerrar automáticamente dentro de una transacción para Idempotencia
-      const checkOutId = `auto_checkout_${attendanceId}`;
-      const horaCierre = expirationTime.toISOString();
-      const checkInRef = db.collection('Asistencia').doc(attendanceId);
-      const checkOutRef = db.collection('Asistencia').doc(checkOutId);
-
+      // Ejecutar cierre unificado
       try {
-        await db.runTransaction(async (transaction) => {
-          const checkOutDoc = await transaction.get(checkOutRef);
-          if (checkOutDoc.exists) {
-            console.log(`[AUTO-CLOSE] Check-out ${checkOutId} ya existe. Ignorando.`);
-            return; // Ya procesado concurrentemente
-          }
-          
-          const currentCheckIn = await transaction.get(checkInRef);
-          if (!currentCheckIn.exists || currentCheckIn.data().estado !== 'ABIERTO') {
-             console.log(`[AUTO-CLOSE] Check-in ${attendanceId} ya no está ABIERTO. Ignorando.`);
-             return;
-          }
-
-          transaction.update(checkInRef, {
-            estado: 'CERRADO',
-            tipoCierre: 'AUTOMATICO',
-            horaSalidaReal: horaCierre,
-            status: 'completed',
-            endTime: horaCierre,
-            detalle: 'cierre forzado',
-          });
-
-          const checkOutData = {
-            employeeId: data.employeeId,
-            employeeName: data.employeeName || '',
-            rut: data.rut || '',
-            type: 'check_out',
-            timestamp: horaCierre,
-            locationLat: data.locationLat || null,
-            locationLng: data.locationLng || null,
-            siteId: data.siteId || null,
-            siteName: data.siteName || '',
-            shiftId: data.shiftId || null,
-            status: 'completed',
-            isManual: false,
-            systemNote: `Cierre automático`,
-            tipoCierre: 'AUTOMATICO',
-            estado: 'CERRADO',
-            horaSalidaReal: horaCierre,
-            turnoProgramadoInicio: data.turnoProgramadoInicio || null,
-            turnoProgramadoTermino: data.turnoProgramadoTermino || null,
-            turnoProgramadoStatus: data.turnoProgramadoStatus || null,
-            detalle: 'cierre forzado',
-            closedByAttendanceId: attendanceId
-          };
-
-          if (data.turnoProgramadoId) {
-            checkOutData.turnoProgramadoId = data.turnoProgramadoId;
-          }
-
-          transaction.set(checkOutRef, checkOutData);
-
-          // Sincronizar digital y manual
-          let jornadaDate = data.localDate || '';
-          if (!jornadaDate) {
-            const startObj = new Date(data.timestamp);
-            const formatter = new Intl.DateTimeFormat('es-CL', {
-              timeZone: 'America/Santiago',
-              year: 'numeric', month: '2-digit', day: '2-digit',
-            });
-            const parts = formatter.formatToParts(startObj);
-            const pMap = {};
-            parts.forEach(p => { pMap[p.type] = p.value; });
-            jornadaDate = `${pMap.year}-${pMap.month}-${pMap.day}`;
-          }
-          const siteId = data.siteId || 'sin_sucursal';
-          const digId = `${siteId}_${data.employeeId}_${jornadaDate}`;
-          const manualDocId = `manual_${data.employeeId}_${jornadaDate}`;
-          
-          const digRef = db.collection('asistencia_digital').doc(digId);
-          transaction.delete(digRef);
-
-          const manualRef = db.collection('asistencia_manual').doc(manualDocId);
-          transaction.set(manualRef, {
-            employeeId: data.employeeId,
-            date: jornadaDate,
-            status: 'presente',
-            type: 'auto_checkout',
-            updatedAt: FieldValue.serverTimestamp(),
-          }, { merge: true });
+        const requestId = `auto_close_${attendanceId}`;
+        const closeResult = await executeAttendanceClosure(db, {
+          attendanceId,
+          actorUid: 'system',
+          actorEmail: 'system@ggss.cl',
+          actorRole: 'system',
+          origen: 'scheduler',
+          motivo: 'Cierre automático de sesión',
+          checkPermissions: false,
+          cleanupDigitalAttendance: true, // AutoClose sí debe limpiar el marcador activo
+          auditType: 'auto_close',
+          requestId: requestId,
+          isSystemActor: true,
+          payloadHash: null,
+          FieldValue: FieldValue
         });
 
-        result.cerrados++;
-        console.log(`[AUTO-CLOSE] ✓ Turno cerrado para ${data.employeeName || data.employeeId}: ${attendanceId}`);
+        if (closeResult.success) {
+          result.cerrados++;
+          console.log(`[AUTO-CLOSE] ✓ Turno cerrado para ${data.employeeName || data.employeeId}: ${attendanceId}`);
+        } else {
+          console.log(`[AUTO-CLOSE] Cierre no ejecutado (ya cerrado u otro motivo) para ${attendanceId}`);
+        }
       } catch (txError) {
         console.error(`[AUTO-CLOSE] Error transaccional en ${attendanceId}:`, txError);
       }

@@ -320,7 +320,8 @@ const EmployeeModal: React.FC<EmployeeModalProps> = ({ employee, onClose }) => {
                   options={[
                     { val: 'worker', label: 'Guardia / Operativo' },
                     { val: 'supervisor', label: 'Supervisor' },
-                    { val: 'admin', label: 'Administrador' }
+                    { val: 'admin', label: 'Administrador' },
+                    { val: 'mandante', label: 'Mandante / Cliente' }
                   ]}
                 />
 

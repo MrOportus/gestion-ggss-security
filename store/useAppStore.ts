@@ -356,6 +356,7 @@ export const useAppStore = create<AppState>()(
         try {
           await signOut(auth);
           get().unsubDigitalDocuments();
+          get().hideConfirmation();
           set({ currentUser: null, employees: [] });
         } catch (error) {
           console.error("Logout error:", error);
@@ -1548,8 +1549,8 @@ export const useAppStore = create<AppState>()(
 
         try {
           let q;
-          if (currentUser.role === 'admin' || currentUser.role === 'supervisor') {
-            q = query(collection(db, "Rondas"), orderBy("startTime", "desc"), limit(100));
+          if (currentUser.role === 'admin' || currentUser.role === 'supervisor' || currentUser.role === 'mandante') {
+            q = query(collection(db, "Rondas"), orderBy("startTime", "desc"), limit(200));
           } else {
             q = query(
               collection(db, "Rondas"),

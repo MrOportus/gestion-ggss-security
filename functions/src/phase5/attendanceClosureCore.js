@@ -1,0 +1,261 @@
+const { HttpsError } = require('firebase-functions/v2/https');
+const admin = require('firebase-admin');
+const { FieldValue: AdminFieldValue } = require('firebase-admin/firestore');
+
+/**
+ * Función centralizada para el cierre de asistencias.
+ * Unifica la lógica de cierre manual (por administrador) y cierre automático (por scheduler).
+ */
+async function executeAttendanceClosure(db, params) {
+  const {
+    attendanceId,
+    actorUid,
+    actorEmail,
+    actorRole,
+    origen,
+    motivo,
+    checkPermissions,
+    cleanupDigitalAttendance,
+    auditType,
+    requestId,
+    isSystemActor,
+    payloadHash,
+    FieldValue = AdminFieldValue
+  } = params;
+
+  if (!requestId) {
+    throw new Error('executeAttendanceClosure requires a valid requestId for idempotency');
+  }
+
+  const tokenRef = db.collection('OperationTokens').doc(requestId);
+
+  return db.runTransaction(async (transaction) => {
+    // --- 1. LECTURAS ---
+    const tokenDoc = await transaction.get(tokenRef);
+    const checkInRef = db.collection('Asistencia').doc(attendanceId);
+    const checkInSnap = await transaction.get(checkInRef);
+
+    if (!checkInSnap.exists) {
+      if (isSystemActor) {
+        return { success: false, reason: 'not-found', message: 'Registro no encontrado' };
+      }
+      throw new HttpsError('not-found', 'Registro de asistencia no encontrado.');
+    }
+    const checkInData = checkInSnap.data();
+
+    // Resolución de sucursal
+    let tpSnap = null;
+    let shiftSnap = null;
+    if (checkInData.turnoProgramadoId) {
+      tpSnap = await transaction.get(db.collection('TurnosProgramados').doc(checkInData.turnoProgramadoId));
+    } else if (checkInData.shiftId && typeof checkInData.shiftId === 'string' && !checkInData.shiftId.startsWith('manual_')) {
+      shiftSnap = await transaction.get(db.collection('programacion').doc(checkInData.shiftId));
+    }
+
+    // Alcances Operativos (solo manual)
+    let alcanceSnap = null;
+    if (checkPermissions && (actorRole === 'supervisor' || actorRole === 'jefe_operaciones')) {
+      alcanceSnap = await transaction.get(db.collection('AlcancesOperativos').doc(actorUid));
+    }
+
+    // Búsqueda de sesión posterior (para forceLogout condicional)
+    const posteriorQuery = db.collection('Asistencia')
+      .where('employeeId', '==', checkInData.employeeId)
+      .where('type', '==', 'check_in')
+      .where('estado', '==', 'ABIERTO')
+      .where('timestamp', '>', checkInData.timestamp);
+    const posteriorSnap = await transaction.get(posteriorQuery);
+
+    // --- 2. VALIDACIONES E IDEMPOTENCIA ---
+    if (tokenDoc.exists) {
+      const tData = tokenDoc.data();
+      if (!isSystemActor && payloadHash && tData.payloadHash !== payloadHash) {
+        throw new HttpsError('already-exists', 'request_id_reused');
+      }
+      if (tData.status === 'success') {
+        return tData.result;
+      }
+    }
+
+    const hasActivePosteriorSession = !posteriorSnap.empty;
+
+    // Si ya estaba cerrado, simplemente retornar (Idempotencia base)
+    if (checkInData.status === 'completed' || checkInData.estado === 'CERRADO') {
+      return { success: true, message: 'La asistencia ya estaba cerrada.', checkOutId: null };
+    }
+
+    // Resolver sucursal autoritativa
+    let resolvedSiteId = null;
+    let resolvedSiteName = null;
+    let sucursalResolution = 'unresolved';
+
+    if (tpSnap && tpSnap.exists && tpSnap.data().sucursalId) {
+      resolvedSiteId = tpSnap.data().sucursalId;
+      sucursalResolution = 'TurnosProgramados';
+    } else if (shiftSnap && shiftSnap.exists && shiftSnap.data().siteId) {
+      resolvedSiteId = shiftSnap.data().siteId;
+      sucursalResolution = 'programacion';
+    } else if (checkInData.siteId) {
+      resolvedSiteId = checkInData.siteId;
+      resolvedSiteName = checkInData.siteName;
+      sucursalResolution = 'Asistencia';
+    } else {
+      resolvedSiteId = 'sucursal_no_determinada';
+      sucursalResolution = 'unresolved';
+    }
+
+    if (!resolvedSiteName && resolvedSiteId) {
+       resolvedSiteName = resolvedSiteId.toString();
+    }
+
+    // Validar Alcances Operativos
+    if (checkPermissions && (actorRole === 'supervisor' || actorRole === 'jefe_operaciones')) {
+      if (resolvedSiteId === 'sucursal_no_determinada') {
+         throw new HttpsError('permission-denied', 'No se puede forzar el cierre de un turno sin sucursal determinada siendo usuario no global.');
+      }
+      if (!alcanceSnap || !alcanceSnap.exists || !alcanceSnap.data().activo) {
+         throw new HttpsError('permission-denied', 'No tiene alcance operativo activo.');
+      }
+      const dataAlcance = alcanceSnap.data();
+      if (dataAlcance.alcanceNacional !== true) {
+         const sucursales = dataAlcance.sucursalesAutorizadas || [];
+         if (!sucursales.includes(resolvedSiteId.toString())) {
+           throw new HttpsError('permission-denied', `Sin alcance en sucursal del turno: ${resolvedSiteId}.`);
+         }
+      }
+    }
+
+    // Corregir fecha operacional (jornadaDate) usando utilidad America/Santiago
+    let jornadaDate = checkInData.localDate || '';
+    if (!jornadaDate) {
+      const startObj = new Date(checkInData.timestamp);
+      const formatter = new Intl.DateTimeFormat('es-CL', {
+        timeZone: 'America/Santiago',
+        year: 'numeric', month: '2-digit', day: '2-digit',
+      });
+      const parts = formatter.formatToParts(startObj);
+      const pMap = {};
+      parts.forEach(p => { pMap[p.type] = p.value; });
+      jornadaDate = `${pMap.year}-${pMap.month}-${pMap.day}`;
+    }
+
+    const now = new Date();
+    const endTimestamp = now.toISOString();
+    
+    // Tipo de cierre y prefijos
+    const tipoCierre = isSystemActor ? 'AUTOMATICO' : 'MANUAL';
+    const detectedClosureType = isSystemActor ? 'cierre forzado' : 'cierre por Admin';
+    const checkOutPrefix = isSystemActor ? 'auto_checkout_' : 'forced_checkout_';
+    const checkOutId = `${checkOutPrefix}${attendanceId}`;
+    
+    // Validar si este checkoutId ya existe (concurrencia extrema)
+    const checkOutRef = db.collection('Asistencia').doc(checkOutId);
+    const checkOutDoc = await transaction.get(checkOutRef);
+    if (checkOutDoc.exists) {
+       return { success: true, message: 'Check-out ya existe.', checkOutId };
+    }
+
+    const finalResult = { success: true, checkOutId };
+
+    // --- 3. ESCRITURAS ---
+    transaction.update(checkInRef, {
+      status: 'completed',
+      endTime: endTimestamp,
+      estado: 'CERRADO',
+      tipoCierre: tipoCierre,
+      horaSalidaReal: endTimestamp,
+      detalle: detectedClosureType,
+    });
+
+    const checkOutLog = {
+      ...checkInData,
+      id: checkOutId,
+      type: 'check_out',
+      timestamp: endTimestamp,
+      status: 'completed',
+      isManual: !isSystemActor,
+      systemNote: motivo || (isSystemActor ? "Cierre automático de sesión" : "Cierre forzado por administrador"),
+      tipoCierre: tipoCierre,
+      estado: 'CERRADO',
+      horaSalidaReal: endTimestamp,
+      detalle: detectedClosureType,
+      closedByAttendanceId: attendanceId
+    };
+    transaction.set(checkOutRef, checkOutLog);
+
+    // asistencia_digital
+    if (cleanupDigitalAttendance) {
+      const siteIdForDig = checkInData.siteId || 'sin_sucursal';
+      const digId = `${siteIdForDig}_${checkInData.employeeId}_${jornadaDate}`;
+      const digRef = db.collection('asistencia_digital').doc(digId);
+      transaction.delete(digRef);
+    }
+
+    // forceLogout condicional
+    if (!hasActivePosteriorSession) {
+      const empRef = db.collection('Colaboradores').doc(checkInData.employeeId);
+      transaction.set(empRef, {
+        forceLogout: true,
+        lastForceLogout: endTimestamp
+      }, { merge: true });
+    }
+
+    // asistencia_manual
+    const manualDocId = `manual_${checkInData.employeeId}_${jornadaDate}`;
+    const manualRef = db.collection('asistencia_manual').doc(manualDocId);
+    let typeManual = isSystemActor ? 'auto_checkout' : 'forced_checkout';
+    
+    transaction.set(manualRef, {
+      employeeId: checkInData.employeeId,
+      date: jornadaDate,
+      status: 'presente',
+      type: typeManual,
+      siteId: resolvedSiteId !== 'sucursal_no_determinada' ? resolvedSiteId : 'all',
+      updatedAt: FieldValue.serverTimestamp()
+    }, { merge: true });
+
+    // AuditoriaAcciones
+    const auditId = isSystemActor ? `auto_close_${attendanceId}` : `attendance_force_closed_${attendanceId}`;
+    const auditRef = db.collection('AuditoriaAcciones').doc(auditId);
+    transaction.set(auditRef, {
+      accion: auditType,
+      actorId: actorUid,
+      actorEmail,
+      actorRol: actorRole,
+      colaboradorId: checkInData.employeeId,
+      attendanceId,
+      checkOutId,
+      turnoProgramadoId: checkInData.turnoProgramadoId || null,
+      shiftId: checkInData.shiftId || null,
+      sucursalId: resolvedSiteId !== 'sucursal_no_determinada' ? resolvedSiteId : null,
+      sucursalResolution,
+      fechaOperacional: jornadaDate,
+      estadoAnterior: checkInData.status || 'open',
+      estadoNuevo: 'completed',
+      tipoCierre: detectedClosureType,
+      motivo: motivo || null,
+      requestId: requestId,
+      createdAt: FieldValue.serverTimestamp(),
+      origen: origen
+    });
+
+    // Token
+    transaction.set(tokenRef, {
+      operationType: auditType,
+      actorUid,
+      requestId: requestId,
+      attendanceId,
+      payloadHash: payloadHash || null,
+      status: 'success',
+      result: finalResult,
+      createdAt: FieldValue.serverTimestamp(),
+      completedAt: FieldValue.serverTimestamp()
+    });
+
+    return finalResult;
+  });
+}
+
+module.exports = {
+  executeAttendanceClosure
+};

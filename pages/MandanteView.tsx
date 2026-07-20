@@ -23,22 +23,28 @@ const MandanteView: React.FC = () => {
     const [searchTerm, setSearchTerm] = useState('');
     const [notesSearch, setNotesSearch] = useState('');
     const [resultFilter, setResultFilter] = useState<'all' | 'SIN_NOVEDAD' | 'CON_NOVEDAD' | 'SOSPECHA'>('all');
-    const [startDateFilter, setStartDateFilter] = useState('');
-    const [endDateFilter, setEndDateFilter] = useState('');
+    const [startDateFilter, setStartDateFilter] = useState(() => {
+        const d = new Date();
+        d.setDate(d.getDate() - 7);
+        return d.toISOString().split('T')[0];
+    });
+    const [endDateFilter, setEndDateFilter] = useState(() => {
+        return new Date().toISOString().split('T')[0];
+    });
     const [selectedSiteId, setSelectedSiteId] = useState<string | 'all'>('all');
     const [selectedRound, setSelectedRound] = useState<any | null>(null);
 
     // Obtener los assignedSites del Mandante actual
     const currentEmp = employees.find(e => e.id === currentUser?.uid);
-    const assignedSites = currentEmp?.assignedSites || [];
+    const assignedSites = (currentEmp?.assignedSites || []).map(id => String(id));
 
     // Filtrar sucursales permitidas
-    const allowedSites = sites.filter(s => assignedSites.includes(s.id));
+    const allowedSites = sites.filter(s => assignedSites.includes(String(s.id)));
 
     // Filter logic
     const filteredRounds = guardRounds.filter(round => {
         // Filtrar por sucursales asignadas al mandante
-        if (!assignedSites.includes(Number(round.siteId)) && !assignedSites.includes(String(round.siteId) as unknown as number)) {
+        if (!assignedSites.includes(String(round.siteId))) {
             return false;
         }
 
@@ -80,13 +86,7 @@ const MandanteView: React.FC = () => {
                         <RefreshCw size={14} /> <span className="hidden sm:inline">Recargar Datos</span>
                     </button>
                     <button 
-                        onClick={() => {
-                            showConfirmation({
-                                title: "Cerrar Sesión",
-                                message: "¿Estás seguro que deseas cerrar sesión?",
-                                onConfirm: () => logout()
-                            });
-                        }}
+                        onClick={() => logout()}
                         className="flex items-center gap-1.5 text-rose-400 hover:text-rose-300 transition tracking-widest uppercase"
                     >
                         <LogOut size={14} /> <span className="hidden sm:inline">Cerrar Sesión</span>

@@ -99,7 +99,7 @@ service cloud.firestore {
       allow read: if request.auth != null && (
         isAdmin() || 
         isSupervisor() || 
-        (isMandante() && resource.data.siteId in get(/databases/$(database)/documents/Colaboradores/$(request.auth.uid)).data.assignedSites) ||
+        isMandante() ||
         resource.data.workerId == request.auth.uid
       );
       allow create: if request.auth != null && (isAdmin() || isSupervisor() || request.resource.data.workerId == request.auth.uid);

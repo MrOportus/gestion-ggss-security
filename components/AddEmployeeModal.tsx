@@ -14,7 +14,7 @@ const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({ onClose }) => {
     isActive: true,
     nacionalidad: 'Chilena',
     estadoCivil: 'Soltero',
-    cargo: 'Guardia',
+    cargo: 'GUARDIA DE SEGURIDAD',
     role: 'worker',
     tipoContrato: 'Plazo Fijo'
   });

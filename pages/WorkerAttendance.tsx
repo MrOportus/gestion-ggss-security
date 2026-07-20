@@ -100,6 +100,38 @@ const WorkerAttendance: React.FC = () => {
   const [validationError, setValidationError] = useState<string | null>(null);
   const [validationErrorType, setValidationErrorType] = useState<'gps' | 'no_turno' | 'turno_abierto' | null>(null);
   
+  // ── SUCURSAL ASIGNADA DEL DÍA ────────────────────────────────────────
+  const [assignedSiteId, setAssignedSiteId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!employee) return;
+    const fetchAssignedSite = async () => {
+      try {
+        const now = new Date();
+        const isEarlyMorning = now.getHours() < 12;
+        if (isEarlyMorning) {
+          now.setHours(now.getHours() - 12); // Consider yesterday for night shifts if early morning
+        }
+        const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+        
+        const q = query(
+          collection(db, 'TurnosProgramados'),
+          where('employeeId', '==', employee.id),
+          where('fecha', '==', dateStr),
+          limit(1)
+        );
+        const snap = await getDocs(q);
+        if (!snap.empty) {
+          setAssignedSiteId(snap.docs[0].data().sucursalId || null);
+        } else {
+          setAssignedSiteId(null);
+        }
+      } catch (e) {
+        console.warn("Error fetching assigned site:", e);
+      }
+    };
+    fetchAssignedSite();
+  }, [employee]);
   // ── Contador de tiempo transcurrido ──────────────────────────────────
   const [elapsedTime, setElapsedTime] = useState('00h 00m');
   const elapsedIntervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -788,7 +820,8 @@ const WorkerAttendance: React.FC = () => {
     </div>
   );
 
-  const currentSite = sites.find(s => s.id === employee.currentSiteId);
+  const resolvedSiteId = activeLog?.siteId || assignedSiteId || employee?.currentSiteId;
+  const currentSite = sites.find(s => s.id === resolvedSiteId);
   const displayShortName = employee ? `${employee.firstName} ${employee.lastNamePaterno.charAt(0).toUpperCase()}.` : '';
 
   // Horario del turno activo

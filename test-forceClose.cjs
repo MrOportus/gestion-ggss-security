@@ -4,14 +4,16 @@ const assert = require('assert');
 // 1. Mock require for firebase-admin and firebase-functions
 const Module = require('module');
 const originalRequire = Module.prototype.require;
+class HttpsErrorMock extends Error {
+  constructor(code, msg) { super(msg); this.code = code; }
+}
+const functionsMock = {
+  onCall: (opts, cb) => cb,
+  HttpsError: HttpsErrorMock
+};
 Module.prototype.require = function() {
   if (arguments[0] === 'firebase-admin') return adminMock;
-  if (arguments[0] === 'firebase-functions/v2/https') return { 
-    onCall: (opts, cb) => cb,
-    HttpsError: class extends Error {
-      constructor(code, msg) { super(msg); this.code = code; }
-    }
-  };
+  if (arguments[0] === 'firebase-functions/v2/https') return functionsMock;
   return originalRequire.apply(this, arguments);
 };
 
@@ -90,6 +92,7 @@ const adminMock = {
         get: async (ref) => ref.get(),
         set: (ref, data) => { ref.set(data); },
         update: (ref, data) => { ref.update(data); },
+        delete: (ref) => { if (ref.delete) ref.delete(); }
       };
       return cb(transactionMock);
     }
@@ -215,8 +218,8 @@ async function runTests() {
   console.log('✓ 11. Sucursal no determinada manejada correctamente');
 
   // Test 12: Sesión posterior activa evita forceLogout
-  mockDb.Asistencia['att_old'] = { status: 'open', employeeId: 'worker_old', timestamp: '2026-07-19T00:00:00Z' };
-  mockDb.Asistencia['att_new'] = { status: 'open', employeeId: 'worker_old', type: 'check_in', timestamp: '2026-07-20T00:00:00Z' };
+  mockDb.Asistencia['att_old'] = { status: 'open', estado: 'ABIERTO', employeeId: 'worker_old', timestamp: '2026-07-19T00:00:00Z' };
+  mockDb.Asistencia['att_new'] = { status: 'open', estado: 'ABIERTO', employeeId: 'worker_old', type: 'check_in', timestamp: '2026-07-20T00:00:00Z' };
   mockDb.Colaboradores['worker_old'] = { role: 'worker' };
   await forceCloseAttendanceValidated({ ...adminContext, data: { attendanceId: 'att_old', requestId: 'r12' } });
   assert.strictEqual(mockDb.Colaboradores['worker_old'].forceLogout, undefined);
