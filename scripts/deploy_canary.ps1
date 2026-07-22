@@ -96,6 +96,91 @@ if ($Stage -eq "Preflight" -or $Stage -eq "All") {
     Pause-And-Confirm "Preflight validado. ¿Proceder con ETAPA 1 (SECRET)?"
 }
 
+if ($Stage -eq "Secret" -or $Stage -eq "All") {
+    Write-Host "`n[ETAPA 1] SECRET" -ForegroundColor Green
+    
+    $secretCheck = npx firebase functions:secrets:get CURSOR_SIGNING_SECRET --project $ExpectedProjectId 2>&1
+    if ($secretCheck -match "value") {
+        Write-Host "CURSOR_SIGNING_SECRET ya existe." -ForegroundColor Yellow
+        Write-Host "No se realizó ninguna modificación." -ForegroundColor Yellow
+        Write-Host "Rotación no autorizada." -ForegroundColor Yellow
+    } else {
+        Write-Host "Generando nuevo secreto seguro..."
+        $bytes = New-Object byte[] 48
+        $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+        $rng.GetBytes($bytes)
+        $secret = [Convert]::ToBase64String($bytes)
+        
+        Set-Content -Path .tmp\secret.txt -Value $secret -NoNewline
+        npx firebase functions:secrets:set CURSOR_SIGNING_SECRET --data-file .tmp\secret.txt --project $ExpectedProjectId
+        Remove-Item .tmp\secret.txt -ErrorAction SilentlyContinue
+        
+        Write-Host "Secreto creado exitosamente."
+    }
+
+    Write-Host "`nConsultando metadatos del secreto..."
+    npx firebase functions:secrets:get CURSOR_SIGNING_SECRET --project $ExpectedProjectId
+
+    if ($Stage -eq "Secret") {
+        exit 0
+    }
+}
+
+if ($Stage -eq "Indexes" -or $Stage -eq "All") {
+    Write-Host "`n[ETAPA 2] ÍNDICES V2" -ForegroundColor Green
+    
+    # Deploy only indexes
+    npx firebase deploy --only firestore:indexes --project $ExpectedProjectId
+    
+    if ($Stage -eq "Indexes") {
+        exit 0
+    }
+}
+
+if ($Stage -eq "Rules" -or $Stage -eq "All") {
+    Write-Host "`n[ETAPA 3] FIRESTORE RULES" -ForegroundColor Green
+    
+    # Deploy only rules
+    npx firebase deploy --only firestore:rules --project $ExpectedProjectId
+    
+    if ($Stage -eq "Rules") {
+        exit 0
+    }
+}
+
+if ($Stage -eq "Callable" -or $Stage -eq "All") {
+    Write-Host "`n[ETAPA 4A] CALLABLE getAttendanceShadowValidated" -ForegroundColor Green
+    
+    # Deploy only the specific function
+    npx firebase deploy --only functions:getAttendanceShadowValidated --project $ExpectedProjectId
+    
+    if ($Stage -eq "Callable") {
+        exit 0
+    }
+}
+
+if ($Stage -eq "ForceClose" -or $Stage -eq "All") {
+    Write-Host "`n[ETAPA 4B] CALLABLE forceCloseAttendanceValidated" -ForegroundColor Green
+    
+    # Deploy only the specific function
+    npx firebase deploy --only functions:forceCloseAttendanceValidated --project $ExpectedProjectId
+    
+    if ($Stage -eq "ForceClose") {
+        exit 0
+    }
+}
+
+if ($Stage -eq "AutoClose" -or $Stage -eq "All") {
+    Write-Host "`n[ETAPA 4C] SCHEDULER autoCloseShifts" -ForegroundColor Green
+    
+    # Deploy only the specific function
+    npx firebase deploy --only functions:autoCloseShifts --project $ExpectedProjectId
+    
+    if ($Stage -eq "AutoClose") {
+        exit 0
+    }
+}
+
 if ($Stage -eq "All" -or $Stage -match "Deploy") {
     # Etapas posteriores...
     Write-Host "El resto de etapas están bloqueadas por Gate." -ForegroundColor Red

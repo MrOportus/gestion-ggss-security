@@ -46,27 +46,54 @@
       "collectionGroup": "TurnosProgramados",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "colaboradorId", "order": "ASCENDING" },
-        { "fieldPath": "fecha", "order": "ASCENDING" },
-        { "fieldPath": "estado", "order": "ASCENDING" }
+        {
+          "fieldPath": "colaboradorId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "fecha",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "estado",
+          "order": "ASCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "TurnosProgramados",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "sucursalId", "order": "ASCENDING" },
-        { "fieldPath": "fecha", "order": "ASCENDING" },
-        { "fieldPath": "requiereCobertura", "order": "ASCENDING" }
+        {
+          "fieldPath": "sucursalId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "fecha",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "requiereCobertura",
+          "order": "ASCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "TurnosProgramados",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "colaboradorId", "order": "ASCENDING" },
-        { "fieldPath": "estadoContratoVinculado", "order": "ASCENDING" },
-        { "fieldPath": "estado", "order": "ASCENDING" }
+        {
+          "fieldPath": "colaboradorId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "estadoContratoVinculado",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "estado",
+          "order": "ASCENDING"
+        }
       ]
     },
     {
@@ -105,56 +132,218 @@
       "collectionGroup": "Asistencia",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "employeeId", "order": "ASCENDING" },
-        { "fieldPath": "estado", "order": "ASCENDING" },
-        { "fieldPath": "type", "order": "ASCENDING" },
-        { "fieldPath": "timestamp", "order": "ASCENDING" }
+        {
+          "fieldPath": "employeeId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "estado",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "type",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "timestamp",
+          "order": "ASCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "AsistenciasConsolidadas",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "employeeId", "order": "ASCENDING" },
-        { "fieldPath": "jornadaDate", "order": "ASCENDING" },
-        { "fieldPath": "checkInAt", "order": "ASCENDING" }
+        {
+          "fieldPath": "employeeId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "jornadaDate",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "checkInAt",
+          "order": "ASCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "AsistenciasConsolidadas",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "sucursalId", "order": "ASCENDING" },
-        { "fieldPath": "jornadaDate", "order": "ASCENDING" },
-        { "fieldPath": "checkInAt", "order": "ASCENDING" }
+        {
+          "fieldPath": "sucursalId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "jornadaDate",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "checkInAt",
+          "order": "ASCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "AsistenciasConsolidadas",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "sucursalId", "order": "ASCENDING" },
-        { "fieldPath": "status", "order": "ASCENDING" },
-        { "fieldPath": "jornadaDate", "order": "ASCENDING" },
-        { "fieldPath": "checkInAt", "order": "ASCENDING" }
+        {
+          "fieldPath": "sucursalId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "jornadaDate",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "checkInAt",
+          "order": "ASCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "AsistenciasConsolidadas",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "sucursalId", "order": "ASCENDING" },
-        { "fieldPath": "tipoOperacion", "order": "ASCENDING" },
-        { "fieldPath": "jornadaDate", "order": "ASCENDING" },
-        { "fieldPath": "checkInAt", "order": "ASCENDING" }
+        {
+          "fieldPath": "sucursalId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "tipoOperacion",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "jornadaDate",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "checkInAt",
+          "order": "ASCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "AsistenciasConsolidadas",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "turnoProgramadoId", "order": "ASCENDING" },
-        { "fieldPath": "checkInAt", "order": "ASCENDING" }
+        {
+          "fieldPath": "turnoProgramadoId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "checkInAt",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "Asistencia",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "employeeId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "timestamp",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "Asistencia",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "type",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "documents",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "assignedTo",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "createdAt",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "Prestamos",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "employeeId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "createdAt",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "reminders",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "completed",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "dueDate",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "reminders",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "completed",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "userId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "dueDate",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "Rondas",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "workerId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "startTime",
+          "order": "DESCENDING"
+        }
       ]
     }
   ],
