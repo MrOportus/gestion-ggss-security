@@ -57,7 +57,7 @@ describe('Phase 5D.1C Gate Correctivo - Concurrency Tests', () => {
         isSystemActor: false,
         payloadHash,
         FieldValue: admin.firestore.FieldValue
-      }).catch(e => ({ success: false, error: e }))
+      }).catch((e: any) => ({ success: false, error: e }))
     ]);
 
     // Verificar en Asistencia (solo un checkout creado)
@@ -104,7 +104,6 @@ describe('Phase 5D.1C Gate Correctivo - Concurrency Tests', () => {
       siteId: 'site_2',
       date: dateStr
     });
-
     const payload = { attendanceId, note: 'Cierre admin' };
     const payloadHash = crypto.createHash('sha256').update(JSON.stringify(payload)).digest('hex');
 

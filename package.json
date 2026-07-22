@@ -11,6 +11,10 @@
     "publish:version": "node scripts/publish-version.js",
     "publish:apk": "node scripts/publish-apk.cjs",
     "generate:icons": "node scripts/generate-icons.cjs",
+    "verify:backend-contract": "node scripts/verify-backend-contract.js",
+    "build:backend": "npx tsc lib/phase5d2/manualAttendanceV2/index.ts --outDir functions/src/phase5d2/manualAttendanceV2 --module commonjs --target es2020 --declaration false --skipLibCheck",
+    "build:live": "vite build --mode live",
+    "build:canary": "vite build --mode canary",
     "build:update": "npm run build && node scripts/zip-dist.js"
   },
   "dependencies": {
@@ -46,18 +50,30 @@
   "devDependencies": {
     "@capacitor/cli": "^6.2.1",
     "@firebase/rules-unit-testing": "^5.0.1",
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/jest-dom": "^7.0.0",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
+    "@types/jest": "^30.0.0",
     "@types/react": "^18.2.56",
     "@types/react-dom": "^18.2.19",
     "@vitejs/plugin-react": "^4.2.1",
     "autoprefixer": "^10.4.17",
+    "axe-core": "^4.12.1",
     "bestzip": "^3.0.1",
+    "firebase-functions-test": "^3.5.0",
     "firebase-tools": "^13.35.1",
+    "happy-dom": "^20.11.0",
+    "jest-axe": "^10.0.0",
+    "jsdom": "^29.1.1",
     "postcss": "^8.4.35",
+    "puppeteer": "^25.3.0",
     "sharp": "^0.34.5",
     "tailwindcss": "^3.4.1",
     "typescript": "^5.2.2",
     "vite": "^5.1.4",
-    "vitest": "^2.1.9"
+    "vitest": "^2.1.9",
+    "vitest-axe": "^0.1.0"
   },
   "engines": {
     "node": ">=18 <20"

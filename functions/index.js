@@ -16,9 +16,11 @@ const { resolveShadowShift, toAbsoluteMinutes } = require('./shadowResolver');
 const { processAutoCloseShifts } = require('./autoCloseHelper');
 const { saveProgramacionValidated } = require('./src/phase5/saveProgramacionValidated');
 const { forceCloseAttendanceValidated } = require('./src/phase5/forceCloseAttendanceValidated');
+const { getAttendanceShadowValidated } = require('./src/phase5d2/getAttendanceShadowValidated');
 
 exports.saveProgramacionValidated = saveProgramacionValidated;
 exports.forceCloseAttendanceValidated = forceCloseAttendanceValidated;
+exports.getAttendanceShadowValidated = getAttendanceShadowValidated;
 
 // Función para generar contratos (vía Apps Script)
 exports.generarContrato = onRequest(

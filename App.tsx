@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense, ErrorInfo } from 'react';
 import { useAppStore } from './store/useAppStore';
 import { useNetworkStatus } from './hooks/useNetworkStatus';
 import { SyncQueueService } from './lib/SyncQueueService';
@@ -11,6 +11,37 @@ import TasksPage from './pages/TasksPage';
 import SitesPage from './pages/SitesPage';
 import WorkerAttendance from './pages/WorkerAttendance';
 import { LogOut, LayoutDashboard, Users, Clock, MapPin, ClipboardList, RefreshCw, Menu, X, ChevronRight, Loader2, DollarSign } from 'lucide-react';
+
+const attendanceShadowQaEnabled = import.meta.env.VITE_ENABLE_ATTENDANCE_SHADOW_QA === 'true';
+
+const AttendanceShadowQA = attendanceShadowQaEnabled
+  ? React.lazy(() => import('./pages/AttendanceShadowQA'))
+  : () => <div className="p-8 text-center text-red-500">Acceso no autorizado</div>;
+
+class ShadowQAErrorBoundary extends React.Component<{children: React.ReactNode}, {hasError: boolean, error: Error | null}> {
+  constructor(props: {children: React.ReactNode}) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error };
+  }
+  componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+    console.error("Shadow QA Error:", error, errorInfo);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="p-8 border border-red-200 bg-red-50 text-red-800 rounded-xl max-w-2xl mx-auto mt-8">
+          <h2 className="text-xl font-bold mb-2">Error cargando vista QA</h2>
+          <p className="text-sm">Se ha producido un error aislado en el módulo Shadow QA.</p>
+          <pre className="mt-4 p-4 bg-white/50 rounded overflow-auto text-xs">{this.state.error?.message}</pre>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 import { DailyShiftPayment } from './components/DailyShiftPayment';
 import { GlobalOverlay } from './components/GlobalOverlay';
 import SupervisorManagement from './pages/SupervisorManagement';
@@ -35,7 +66,7 @@ import HRContractsDashboard from './pages/HRContractsDashboard';
 
 const App: React.FC = () => {
   const { currentUser, logout, fetchInitialData, isLoading, initializeAuthListener, registerFCMToken, showNotification, processSyncQueue, authInitialized, showConfirmation } = useAppStore();
-  const [currentView, setCurrentView] = useState<'dashboard' | 'employees' | 'tasks' | 'sites' | 'payments' | 'supervisor_mgmt' | 'mandante_mgmt' | 'notes' | 'attendance' | 'rounds' | 'shift_management' | 'loans' | 'documents' | 'solicitudes_turnos_extra' | 'hr_contracts'>('dashboard');
+  const [currentView, setCurrentView] = useState<'dashboard' | 'employees' | 'tasks' | 'sites' | 'payments' | 'supervisor_mgmt' | 'mandante_mgmt' | 'notes' | 'attendance' | 'rounds' | 'shift_management' | 'loans' | 'documents' | 'solicitudes_turnos_extra' | 'hr_contracts' | 'attendance_shadow_qa'>('dashboard');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   
   const { connected } = useNetworkStatus();
@@ -481,6 +512,20 @@ const App: React.FC = () => {
               </button>
             </>
           )}
+
+          {/* QA TOOLS SECTION (Canary Only) */}
+          {attendanceShadowQaEnabled && 
+           (currentUser.role === 'admin' || currentUser.role === 'jefe_operaciones' || currentUser.role === 'supervisor') && (
+            <>
+              <div className="mx-4 my-4 border-t border-slate-100 flex items-center justify-center">
+                <span className="bg-white px-2 -mt-3 text-[10px] font-black text-slate-300 uppercase tracking-[0.2em]">Herramientas QA</span>
+              </div>
+              <button onClick={() => setCurrentView('attendance_shadow_qa')} className={navItemClass('attendance_shadow_qa')}>
+                <ShieldCheck size={20} className="text-indigo-500" />
+                <span className="font-medium">Shadow Attendance</span>
+              </button>
+            </>
+          )}
         </nav>
 
         <div className="p-4 border-t border-slate-100 bg-slate-50/50 space-y-2 mt-auto">
@@ -538,7 +583,8 @@ const App: React.FC = () => {
                                 currentView === 'shift_management' ? 'Gestión de Turnos' :
                                   currentView === 'loans' ? 'Préstamos' :
                                     currentView === 'documents' ? 'Documentos' : 
-                                      currentView === 'solicitudes_turnos_extra' ? 'Solicitudes Turnos Extra' : currentView}
+                                      currentView === 'attendance_shadow_qa' ? 'Shadow QA' :
+                                        currentView === 'solicitudes_turnos_extra' ? 'Solicitudes Turnos Extra' : currentView}
 
 
               </span>
@@ -627,6 +673,15 @@ const App: React.FC = () => {
                 </>
               )}
 
+              {/* MOBILE QA TOOLS SECTION (Canary Only) */}
+              {attendanceShadowQaEnabled && 
+               (currentUser.role === 'admin' || currentUser.role === 'jefe_operaciones' || currentUser.role === 'supervisor') && (
+                <button onClick={() => handleNavChange('attendance_shadow_qa')} className={mobileNavItemClass('attendance_shadow_qa')}>
+                  <div className="flex items-center gap-3"><ShieldCheck size={20} className="text-indigo-500" /> Shadow Attendance</div>
+                  <ChevronRight size={16} className="text-slate-300" />
+                </button>
+              )}
+
               {/* Botones de Acción Móvil */}
               <div className="p-6 grid grid-cols-2 gap-4 mt-4 bg-slate-50/50 border-t border-slate-100">
                 <button
@@ -669,6 +724,19 @@ const App: React.FC = () => {
             {currentView === 'solicitudes_turnos_extra' && currentUser.role === 'admin' && <PanelAdminSolicitudes />}
             {currentView === 'loans' && <LoansPage />}
             {currentView === 'documents' && <DocumentsPage />}
+            {currentView === 'attendance_shadow_qa' && (
+              isLoading ? (
+                <div className="flex justify-center p-12"><Loader2 className="w-8 h-8 animate-spin text-indigo-500" /></div>
+              ) : (attendanceShadowQaEnabled && currentUser && (currentUser.role === 'admin' || currentUser.role === 'jefe_operaciones' || currentUser.role === 'supervisor')) ? (
+                <ShadowQAErrorBoundary>
+                  <Suspense fallback={<div className="flex justify-center p-12"><Loader2 className="w-8 h-8 animate-spin text-indigo-500" /></div>}>
+                    <AttendanceShadowQA />
+                  </Suspense>
+                </ShadowQAErrorBoundary>
+              ) : (
+                <div className="p-8 text-center text-red-500 font-bold text-lg">Acceso no autorizado</div>
+              )
+            )}
 
 
           </div>

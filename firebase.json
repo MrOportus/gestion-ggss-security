@@ -43,6 +43,9 @@
         {
             "source": "functions",
             "codebase": "default",
+            "predeploy": [
+                "npm --prefix \"$RESOURCE_DIR/..\" run build:backend"
+            ],
             "ignore": [
                 "node_modules",
                 ".git",

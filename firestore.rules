@@ -228,7 +228,78 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // ═══════════════════════════════════════════════════════════════════════
+    // 🔒 COLECCIONES V2 — BACKEND-ONLY (Phase 5D.2)
+    //
+    // Ningún cliente puede leer, listar, crear, modificar ni eliminar
+    // documentos de estas colecciones directamente.
+    //
+    // El acceso legítimo ocurre ÚNICAMENTE a través de:
+    //   - Admin SDK (Cloud Functions backend)
+    //   - Callable getAttendanceShadowValidated (que usa Admin SDK internamente)
+    //
+    // Confundir "lectura via Callable" con "lectura directa" es un error de
+    // arquitectura. Las Rules Emulator deben confirmar que ningún cliente
+    // autenticado puede realizar un get/list directo.
+    // ═══════════════════════════════════════════════════════════════════════
 
+    // AsistenciasConsolidadas (V2 read model — backend-only)
+    match /AsistenciasConsolidadas/{docId} {
+      allow read:   if false; // Ningún cliente — solo Admin SDK
+      allow write:  if false; // Ningún cliente — solo Admin SDK
+      allow list:   if false;
+      allow create: if false;
+      allow update: if false;
+      allow delete: if false;
+    }
+
+    // AttendanceShadowComparisons (resultado de shadow read — backend-only)
+    match /AttendanceShadowComparisons/{docId} {
+      allow read:   if false;
+      allow write:  if false;
+      allow list:   if false;
+      allow create: if false;
+      allow update: if false;
+      allow delete: if false;
+    }
+
+    // AuditoriaAcciones (registro de auditoría — backend-only)
+    match /AuditoriaAcciones/{docId} {
+      allow read:   if false;
+      allow write:  if false;
+      allow list:   if false;
+      allow create: if false;
+      allow update: if false;
+      allow delete: if false;
+    }
+
+    // FeatureFlags — attendanceV2Read solo puede ser leído por backend
+    // El cliente NO debe leer este flag directamente; la Callable lo evalúa internamente.
+    match /FeatureFlags/{docId} {
+      allow read:   if false;
+      allow write:  if false;
+      allow list:   if false;
+      allow create: if false;
+      allow update: if false;
+      allow delete: if false;
+    }
+
+    // AttendanceShadowDiagnostics (diagnósticos — admin read only via Callable)
+    match /AttendanceShadowDiagnostics/{docId} {
+      allow read:  if false; // Previamente isAdmin(), ahora solo Admin SDK
+      allow write: if false;
+    }
+
+    // AlcancesOperativos (scope operativo — solo backend)
+    match /AlcancesOperativos/{docId} {
+      allow read:  if false; // Solo Admin SDK (validado en Callable)
+      allow write: if false;
+    }
+
+    // FeatureFlags (solo lectura/escritura backend)
+    match /FeatureFlags/{document=**} {
+      allow read, write: if false;
+    }
 
     // Reglas por defecto para cualquier otra colección (Denegación estricta)
     match /{document=**} {
