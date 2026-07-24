@@ -37,7 +37,7 @@ const monthArg = getArg('--month=');
 const operatorArg = getArg('--operator=');
 const requestIdArg = getArg('--request-id=');
 const expiresAtArg = getArg('--expires-at=');
-
+const modeArg = getArg('--mode=') || 'shadow';
 async function main() {
   console.log(`\n=== ACTIVAR CONTRACT SHADOW V2 (Project: ${PROJECT_ID}) ===\n`);
   
@@ -75,7 +75,7 @@ async function main() {
 
   const newConfig = {
     enabled: true,
-    mode: "shadow",
+    mode: modeArg,
     canaryBranches,
     canaryMonths: [monthArg],
     engineVersion: 1,
@@ -101,7 +101,7 @@ async function main() {
   console.log(`Placeholders: 0`);
   console.log(`Valores hardcodeados utilizados: NO`);
   console.log(`Estado actual: ${prevState.enabled ? prevState.mode : 'disabled'}`);
-  console.log(`Estado propuesto: shadow`);
+  console.log(`Estado propuesto: ${modeArg}`);
   console.log(`Mes: ${monthArg}`);
   console.log(`Engine version: 1`);
   console.log(`expiresAt futuro: SÍ`);
@@ -111,11 +111,7 @@ async function main() {
     process.exit(0);
   }
 
-  rl.question(`\n¿Confirma activar Shadow Mode hasta ${expiresAtArg}? (Escriba 'CONFIRMAR' para continuar): `, async (answer) => {
-    if (answer !== 'CONFIRMAR') {
-      console.log('Operación abortada por el usuario.');
-      process.exit(0);
-    }
+  const executeTransaction = async () => {
     try {
       await db.runTransaction(async (transaction) => {
         const tSnap = await transaction.get(flagRef);
@@ -138,13 +134,25 @@ async function main() {
       if (isDryRun) {
         console.log("\nEscrituras: 0\nAuditorías: 0\nEstado final real: disabled");
       } else {
-        console.log(`\n✅ Contract Shadow activado correctamente (Request ID: ${requestId})`);
+        console.log(`\n✅ Contract flag activado correctamente en modo ${modeArg} (Request ID: ${requestId})`);
       }
       process.exit(0);
     } catch (e) {
       console.error('\n❌ Error durante la transacción:', e.message);
       process.exit(1);
     }
-  });
+  };
+
+  if (args.includes('--force')) {
+    await executeTransaction();
+  } else {
+    rl.question(`\n¿Confirma activar Shadow Mode hasta ${expiresAtArg}? (Escriba 'CONFIRMAR' para continuar): `, async (answer) => {
+      if (answer !== 'CONFIRMAR') {
+        console.log('Operación abortada por el usuario.');
+        process.exit(0);
+      }
+      await executeTransaction();
+    });
+  }
 }
 main().catch(console.error);
