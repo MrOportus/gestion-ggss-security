@@ -367,4 +367,20 @@ export interface SolicitudTurno {
   fecha_cancelacion?: string;
 }
 
-
+export interface Vacation {
+  id: string;
+  employeeId: string;
+  sucursalId: string | number;
+  startDate: string; // YYYY-MM-DD
+  endDate: string; // YYYY-MM-DD
+  days: number;
+  status: 'pending' | 'approved' | 'rejected' | 'cancelled' | 'completed';
+  notes?: string;
+  createdBy: string;
+  approvedBy?: string;
+  createdAt: string; // ISO String
+  updatedAt: string; // ISO String
+  approvedAt?: string; // ISO String
+  source: string;
+  schemaVersion: 2;
+}

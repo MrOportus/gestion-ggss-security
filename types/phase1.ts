@@ -1,6 +1,36 @@
 export type TipoOperacional = 'contractual' | 'extra' | 'cobertura' | 'emergencia' | 'traslado_temporal';
 export type EstadoContratoVinculado = 'compatible' | 'otra_sucursal' | 'sin_contrato' | 'multiples' | 'pendiente_revision' | 'resuelto_manual';
-export type FeatureFlagState = 'legacy' | 'shadow' | 'new_model' | 'rollback';
+export type FeatureFlagMode = 'disabled' | 'shadow' | 'canary' | 'active';
+
+export interface ContractEligibilityFeatureFlag {
+  mode: FeatureFlagMode;
+  enabled: boolean;
+  canaryBranches: string[];
+  canaryMonths: string[];
+  updatedAt: string;
+  updatedBy: string;
+  requestId?: string;
+  expiresAt?: string;
+  schemaVersion: number;
+}
+
+export interface ContractShadowDiagnostic {
+  id: string; // diagnosticId
+  employeeId: string;
+  sucursalId: string;
+  shiftDate: string; // YYYY-MM-DD
+  legacyStatus: string;
+  canonicalStatus: string;
+  classification: 'match' | 'mismatch';
+  reasonCode: string;
+  legacySource: string;
+  canonicalContractId: string | null;
+  featureMode: FeatureFlagMode;
+  requestId: string;
+  createdAt: string; // serverTimestamp
+  expiresAt: string; // createdAt + 90 days
+  schemaVersion: number;
+}
 
 export interface Contrato {
   id: string; // Document ID en Firestore
@@ -138,6 +168,8 @@ export interface AuditoriaAccion {
   motivo?: string;
   contextoInfo?: Record<string, any>;
 }
+
+export type FeatureFlagState = 'legacy' | 'new_model';
 
 export interface FeatureFlagConfig {
   id: string; // formato: flag_{sucursalId}_{mesYYYYMM}

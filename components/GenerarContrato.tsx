@@ -14,7 +14,7 @@ interface GenerarContratoProps {
 const GenerarContrato: React.FC<GenerarContratoProps> = ({ onBack }) => {
   const {
     employees, sites, contractHistory,
-    saveContractRecord, showNotification
+    saveContractRecord, showNotification, createContrato, currentUser
   } = useAppStore();
 
   const [isProcessing, setIsProcessing] = useState(false);
@@ -129,6 +129,7 @@ const GenerarContrato: React.FC<GenerarContratoProps> = ({ onBack }) => {
       }
 
       if (result.url) {
+        // 1. Guardar historial visual (HistoricoContratos)
         saveContractRecord({
           workerName: `${contratoEmp.firstName} ${contratoEmp.lastNamePaterno}`,
           siteName: contratoSite.name,
@@ -136,6 +137,27 @@ const GenerarContrato: React.FC<GenerarContratoProps> = ({ onBack }) => {
           fechaInicio: contratoData.fechaInicio,
           fechaTermino: contratoData.fechaTermino || 'Indefinido'
         });
+
+        // 2. Crear contrato operativo en colección Contratos (para validación de "Sin Contrato")
+        try {
+          const now = new Date().toISOString();
+          await createContrato({
+            colaboradorId: contratoEmp.id,
+            sucursalId: contratoData.sucursalId,
+            tipo: contratoData.tipoContrato,
+            estado: 'vigente',
+            fechaInicio: contratoData.fechaInicio,
+            fechaTermino: contratoData.fechaTermino || undefined,
+            cargo: contratoEmp.cargo || '',
+            googleDriveUrl: result.url,
+            creadoEn: now,
+            creadoPor: currentUser?.uid || 'sistema',
+          });
+          console.log('[GenerarContrato] Contrato operativo creado en Contratos.');
+        } catch (contratoError) {
+          console.error('[GenerarContrato] Error al crear contrato operativo (no bloquea el flujo):', contratoError);
+        }
+
         showNotification("¡Contrato generado exitosamente!", "success");
         const fileIdMatch = result.url.match(/[\w-]{33,}/);
         const directDownloadUrl = fileIdMatch ? `https://drive.google.com/uc?export=download&id=${fileIdMatch[0]}` : result.url;
@@ -159,8 +181,19 @@ const GenerarContrato: React.FC<GenerarContratoProps> = ({ onBack }) => {
 
   const formatDateForText = (dateStr: string) => {
     if (!dateStr) return '[Día ingresado]';
-    const [year, month, day] = dateStr.split('-');
-    return `${day}-${month}-${year}`;
+    const parts = dateStr.split('-');
+    if (parts.length !== 3) return dateStr;
+    const months = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+    let year = parts[0];
+    let monthStr = parts[1];
+    let day = parts[2];
+    if (parts[0].length === 2 && parts[2].length === 4) {
+      day = parts[0];
+      monthStr = parts[1];
+      year = parts[2];
+    }
+    const monthName = months[parseInt(monthStr, 10) - 1] || monthStr;
+    return `${day.padStart(2, '0')}/${monthName}/${year}`;
   };
 
   return (

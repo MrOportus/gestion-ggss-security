@@ -4,7 +4,7 @@ import { STORAGE_CACHE_METADATA } from '../lib/imageUtils';
 import { Network } from '@capacitor/network';
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
-import { User, Employee, Site, AttendanceLog, Document, DigitalDocument, ComparisonRecord, DailyPayment, AppNotification, AppConfirmation, ContractRecord, Advance, SupervisorTask, ChecklistTemplate, ResignationRequest, RecurringSupervisorTask, SupervisorSubTask, BoardNote, GuardRound, Loan } from '../types';
+import { User, Employee, Site, AttendanceLog, Document, DigitalDocument, ComparisonRecord, DailyPayment, AppNotification, AppConfirmation, ContractRecord, Advance, SupervisorTask, ChecklistTemplate, ResignationRequest, RecurringSupervisorTask, SupervisorSubTask, BoardNote, GuardRound, Loan, Vacation } from '../types';
 import { Contrato } from '../types/phase1';
 import { db, auth, secondaryAuth, storage, functions } from '../lib/firebase';
 import { httpsCallable } from 'firebase/functions';
@@ -59,6 +59,9 @@ interface AppState {
   boardNotes: BoardNote[];
   loans: Loan[];
   digitalDocuments: DigitalDocument[];
+  vacations: Vacation[];
+  preselectedEmployeeForDoc: string | null;
+  setPreselectedEmployeeForDoc: (id: string | null) => void;
   // Auth Actions
   login: (email: string, pass: string) => Promise<void>;
   logout: () => void;
@@ -82,6 +85,7 @@ interface AppState {
   saveContractRecord: (record: Omit<ContractRecord, 'id' | 'timestamp'>) => Promise<void>;
   fetchContractHistory: () => Promise<void>;
   fetchContratos: (filtros?: { colaboradorId?: string; estado?: string; limit?: number }) => Promise<void>;
+  createContrato: (contrato: Omit<Contrato, 'id'>) => Promise<string>;
 
   // Site Actions
   addSite: (site: Omit<Site, 'id'>) => Promise<void>;
@@ -177,6 +181,10 @@ interface AppState {
   signDigitalDocument: (id: string, signedUrl: string, metadata: DigitalDocument['metadata']) => Promise<void>;
   deleteDigitalDocument: (id: string) => Promise<void>;
   unsubDigitalDocuments: () => void;
+  // Vacation Actions
+  fetchVacations: () => Promise<void>;
+  addVacation: (vacation: Omit<Vacation, 'id' | 'createdAt' | 'updatedAt'>) => Promise<void>;
+  updateVacationStatus: (id: string, newStatus: Vacation['status'], actorUid: string) => Promise<void>;
 }
 
 export const useAppStore = create<AppState>()(
@@ -202,7 +210,10 @@ export const useAppStore = create<AppState>()(
       guardRounds: [],
       loans: [],
       digitalDocuments: [],
+      vacations: [],
       notifications: [],
+      preselectedEmployeeForDoc: null,
+      setPreselectedEmployeeForDoc: (id) => set({ preselectedEmployeeForDoc: id }),
 
       confirmation: null,
       isLoading: false,
@@ -449,6 +460,9 @@ export const useAppStore = create<AppState>()(
               get().fetchDailyPayments(),
               get().fetchAdvances(),
               get().fetchContractHistory()
+            ] : []),
+            ...(currentUser.role === 'admin' || currentUser.role === 'rrhh' ? [
+              get().fetchVacations()
             ] : [])
           ]);
           
@@ -902,6 +916,21 @@ export const useAppStore = create<AppState>()(
           set({ contractHistory: history });
         } catch (error) {
           console.error("Error fetching contract history:", error);
+        }
+      },
+
+      createContrato: async (contratoData: Omit<Contrato, 'id'>) => {
+        const id = `contrato_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+        const contrato: Contrato = { ...contratoData, id };
+        try {
+          await setDoc(doc(db, 'Contratos', id), contrato);
+          // Actualizar estado local del store
+          set(state => ({ contratos: [contrato, ...state.contratos] }));
+          console.log('[createContrato] Contrato creado en Firestore:', id);
+          return id;
+        } catch (error) {
+          console.error('[createContrato] Error al crear contrato operativo:', error);
+          throw error;
         }
       },
 
@@ -1811,8 +1840,86 @@ export const useAppStore = create<AppState>()(
         } catch (error) { console.error("Error deleting digital document:", error); }
       },
 
+      // --- VACATION ACTIONS ---
+      fetchVacations: async () => {
+        const { currentUser } = get();
+        if (!currentUser) return;
+        try {
+          const q = query(collection(db, "Vacaciones"), orderBy("createdAt", "desc"));
+          const snapshot = await getDocs(q);
+          const vacs: Vacation[] = [];
+          snapshot.forEach(doc => vacs.push({ ...doc.data(), id: doc.id } as Vacation));
+          set({ vacations: vacs });
+        } catch (error) {
+          console.error("Error fetching vacations:", error);
+        }
+      },
 
+      addVacation: async (vacationData) => {
+        const id = "vac_" + Date.now();
+        const newVacation: Vacation = {
+          ...vacationData,
+          id,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        };
+        try {
+          await setDoc(doc(db, "Vacaciones", id), newVacation);
+          
+          // Auditar creación
+          await setDoc(doc(db, "AuditoriaAcciones", `aud_${Date.now()}_${Math.random().toString(36).substring(7)}`), {
+            actionType: "VACATION_CREATED",
+            vacationId: id,
+            employeeId: vacationData.employeeId,
+            newStatus: vacationData.status,
+            actorUid: vacationData.createdBy,
+            timestamp: new Date().toISOString()
+          });
 
+          set((state) => ({ vacations: [newVacation, ...state.vacations] }));
+        } catch (error) {
+          console.error("Error adding vacation:", error);
+          throw error;
+        }
+      },
+
+      updateVacationStatus: async (id, newStatus, actorUid) => {
+        try {
+          const docRef = doc(db, "Vacaciones", id);
+          const vac = get().vacations.find(v => v.id === id);
+          if (!vac) return;
+          
+          const oldStatus = vac.status;
+          const updateData: Partial<Vacation> = { 
+            status: newStatus,
+            updatedAt: new Date().toISOString()
+          };
+          if (newStatus === 'approved') {
+            updateData.approvedAt = new Date().toISOString();
+            updateData.approvedBy = actorUid;
+          }
+
+          await updateDoc(docRef, updateData);
+
+          // Auditar cambio
+          await setDoc(doc(db, "AuditoriaAcciones", `aud_${Date.now()}_${Math.random().toString(36).substring(7)}`), {
+            actionType: "VACATION_STATUS_CHANGE",
+            vacationId: id,
+            employeeId: vac.employeeId,
+            oldStatus,
+            newStatus,
+            actorUid,
+            timestamp: new Date().toISOString()
+          });
+
+          set((state) => ({
+            vacations: state.vacations.map(v => v.id === id ? { ...v, ...updateData } : v)
+          }));
+        } catch (error) {
+          console.error("Error updating vacation status:", error);
+          throw error;
+        }
+      },
 
     }),
     {

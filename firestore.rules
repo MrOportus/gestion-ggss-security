@@ -18,6 +18,20 @@ service cloud.firestore {
         get(/databases/$(database)/documents/Colaboradores/$(request.auth.uid)).data.role == 'supervisor';
     }
 
+    function isRRHH() {
+      return request.auth != null && 
+        exists(/databases/$(database)/documents/Colaboradores/$(request.auth.uid)) &&
+        'role' in get(/databases/$(database)/documents/Colaboradores/$(request.auth.uid)).data &&
+        get(/databases/$(database)/documents/Colaboradores/$(request.auth.uid)).data.role == 'rrhh';
+    }
+
+    function isJefeOperaciones() {
+      return request.auth != null && 
+        exists(/databases/$(database)/documents/Colaboradores/$(request.auth.uid)) &&
+        'role' in get(/databases/$(database)/documents/Colaboradores/$(request.auth.uid)).data &&
+        get(/databases/$(database)/documents/Colaboradores/$(request.auth.uid)).data.role == 'jefe_operaciones';
+    }
+
     // Función auxiliar para verificar si el usuario es Mandante
     function isMandante() {
       return request.auth != null && 
@@ -275,6 +289,20 @@ service cloud.firestore {
 
     // FeatureFlags — attendanceV2Read solo puede ser leído por backend
     // El cliente NO debe leer este flag directamente; la Callable lo evalúa internamente.
+    // FeatureFlags
+    match /FeatureFlags/contractEligibilityV2 {
+      allow get: if request.auth != null
+        && (
+          isAdmin()
+          || isRRHH()
+          || isJefeOperaciones()
+          || isSupervisor()
+        );
+
+      allow list: if false;
+      allow create, update, delete: if false;
+    }
+
     match /FeatureFlags/{docId} {
       allow read:   if false;
       allow write:  if false;
@@ -282,6 +310,11 @@ service cloud.firestore {
       allow create: if false;
       allow update: if false;
       allow delete: if false;
+    }
+
+    // ContractShadowDiagnostics
+    match /ContractShadowDiagnostics/{diagnosticId} {
+      allow read, write: if false;
     }
 
     // AttendanceShadowDiagnostics (diagnósticos — admin read only via Callable)
@@ -296,10 +329,7 @@ service cloud.firestore {
       allow write: if false;
     }
 
-    // FeatureFlags (solo lectura/escritura backend)
-    match /FeatureFlags/{document=**} {
-      allow read, write: if false;
-    }
+
 
     // Reglas por defecto para cualquier otra colección (Denegación estricta)
     match /{document=**} {

@@ -26,6 +26,7 @@ import ShadowDiagnosticPanel from '../components/ShadowDiagnosticPanel';
 import { ContractStatusBadge } from '../components/phase3/ContractStatusBadge';
 import { MonthContractSummary } from '../components/phase3/MonthContractSummary';
 import { ContractBindingService } from '../lib/phase3/contractBindingService';
+import { useContractShadowBatch } from '../lib/phase3/useContractShadowBatch';
 import ShiftTransferModal from '../components/phase4/ShiftTransferModal';
 import ShiftActionModal from '../components/phase4/ShiftActionModal';
 import AdditionalShiftModal from '../components/phase4/AdditionalShiftModal';
@@ -73,7 +74,7 @@ const formatDateKey = (date: Date) => {
 };
 
 const ShiftManagement: React.FC = () => {
-    const { sites, employees, currentUser, fetchInitialData, showConfirmation, contratos } = useAppStore();
+    const { sites, employees, currentUser, fetchInitialData, showConfirmation, contratos, fetchContratos } = useAppStore();
 
     const filteredSitesForUser = useMemo(() => {
         if (currentUser?.role === 'supervisor') {
@@ -230,6 +231,11 @@ const ShiftManagement: React.FC = () => {
             unsubMan();
         };
     }, [firstDay, lastDay, selectedSiteId]);
+
+    // Refrescar contratos al cambiar de mes o sucursal para que el badge contractual sea preciso
+    useEffect(() => {
+        fetchContratos({ limit: 500 });
+    }, [firstDay, fetchContratos]);
 
     // --- Helpers ---
     const getDaysInMonth = (date: Date) => {
@@ -514,6 +520,17 @@ const ShiftManagement: React.FC = () => {
         return (emp.currentSiteId == selectedSiteId) || extraEmployeeIds.has(emp.id);
     });
 
+    const shadowEmployeeIds = useMemo(() => finalVisibleEmployees.map(e => e.id), [finalVisibleEmployees]);
+    
+    useContractShadowBatch({
+        employeeIds: shadowEmployeeIds,
+        selectedSiteId,
+        firstDay,
+        lastDay,
+        contratos,
+        programmingMap
+    });
+
     // --- PHASE 3: EVALUACION CONTRACTUAL MENSUAL OPTIMIZADA ---
     // 1. Precalcular el estado contractual de cada empleado para cada día del mes (independiente de si tiene turno o no)
     const employeeContractEvaluations = useMemo(() => {
@@ -571,6 +588,19 @@ const ShiftManagement: React.FC = () => {
         return worstState;
     }, [employeeContractEvaluations, days, getCellStatus]);
 
+    // 4. Obtener el contrato activo de un empleado para la sucursal en el mes visible (para mostrar detalle en el badge)
+    const getEmployeeActiveContrato = useCallback((empId: string) => {
+        const empContracts = contratos.filter(c => c.colaboradorId === empId);
+        if (empContracts.length === 0) return undefined;
+        // Buscar contrato vigente para la sucursal seleccionada en el mes actual
+        const today = formatDateKey(new Date());
+        return empContracts.find(c =>
+            (c.estado === 'vigente' || c.estado === 'pendiente_firma') &&
+            today >= c.fechaInicio &&
+            (!c.fechaTermino || today <= c.fechaTermino) &&
+            c.sucursalId.toString() === selectedSiteId.toString()
+        );
+    }, [contratos, selectedSiteId]);
 
     return (
         <div className="p-6 max-w-[100vw] overflow-x-hidden space-y-6 h-screen flex flex-col bg-slate-50 select-none">
@@ -771,7 +801,10 @@ const ShiftManagement: React.FC = () => {
                                                         <UserMinus size={16} />
                                                     </button>
                                                 )}
-                                                <ContractStatusBadge estado={getEmployeeWorstContractState(emp.id)} />
+                                                <ContractStatusBadge
+                                                    estado={getEmployeeWorstContractState(emp.id)}
+                                                    contrato={getEmployeeActiveContrato(emp.id)}
+                                                />
                                             </div>
                                         </div>
                                     </td>

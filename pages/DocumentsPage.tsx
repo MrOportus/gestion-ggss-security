@@ -48,7 +48,9 @@ const DocumentsPage: React.FC = () => {
         deleteDigitalDocument,
         uploadFile,
         isLoading,
-        showNotification
+        showNotification,
+        preselectedEmployeeForDoc,
+        setPreselectedEmployeeForDoc
     } = useAppStore();
 
     const [activeTab, setActiveTab] = useState<'pending' | 'signed' | 'all'>('pending');
@@ -86,6 +88,17 @@ const DocumentsPage: React.FC = () => {
         setCurrentPage(1);
         setEmployeeDocsPages({});
     }, [searchTerm, activeTab]);
+
+    // Interceptar pre-selección para asignar contrato (desde Panel RRHH)
+    useEffect(() => {
+        if (preselectedEmployeeForDoc) {
+            setShowUploadModal(true);
+            setWizardStep('docs');
+            setAssigneeType('colaboradores');
+            setSelectedEmployees([preselectedEmployeeForDoc]);
+            setPreselectedEmployeeForDoc(null);
+        }
+    }, [preselectedEmployeeForDoc, setPreselectedEmployeeForDoc]);
 
     // Opciones del Asistente Masivo (Wizard)
     const [wizardStep, setWizardStep] = useState<'docs' | 'destinatarios' | 'confirmacion' | 'resultado'>('docs');

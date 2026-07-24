@@ -469,7 +469,7 @@ const App: React.FC = () => {
             <span className="font-medium">Documentos</span>
           </button>
 
-          {currentUser.role === 'admin' && (
+          {(currentUser.role === 'admin' || currentUser.role === 'rrhh') && (
             <button onClick={() => setCurrentView('hr_contracts')} className={navItemClass('hr_contracts')}>
               <ClipboardList size={20} />
               <span className="font-medium">Panel RRHH</span>
@@ -583,7 +583,8 @@ const App: React.FC = () => {
                                 currentView === 'shift_management' ? 'Gestión de Turnos' :
                                   currentView === 'loans' ? 'Préstamos' :
                                     currentView === 'documents' ? 'Documentos' : 
-                                      currentView === 'attendance_shadow_qa' ? 'Shadow QA' :
+                                      currentView === 'hr_contracts' ? 'Panel RRHH' :
+                                        currentView === 'attendance_shadow_qa' ? 'Shadow QA' :
                                         currentView === 'solicitudes_turnos_extra' ? 'Solicitudes Turnos Extra' : currentView}
 
 
@@ -642,6 +643,12 @@ const App: React.FC = () => {
                 <div className="flex items-center gap-3"><ShieldCheck size={20} /> Documentos</div>
                 <ChevronRight size={16} className="text-slate-300" />
               </button>
+              {(currentUser.role === 'admin' || currentUser.role === 'rrhh') && (
+                <button onClick={() => handleNavChange('hr_contracts')} className={mobileNavItemClass('hr_contracts')}>
+                  <div className="flex items-center gap-3"><ClipboardList size={20} /> Panel RRHH</div>
+                  <ChevronRight size={16} className="text-slate-300" />
+                </button>
+              )}
 
               <button onClick={() => handleNavChange('notes')} className={mobileNavItemClass('notes')}>
                 <div className="flex items-center gap-3"><StickyNote size={20} /> Notas y Tareas</div>
@@ -724,6 +731,7 @@ const App: React.FC = () => {
             {currentView === 'solicitudes_turnos_extra' && currentUser.role === 'admin' && <PanelAdminSolicitudes />}
             {currentView === 'loans' && <LoansPage />}
             {currentView === 'documents' && <DocumentsPage />}
+            {currentView === 'hr_contracts' && (currentUser.role === 'admin' || currentUser.role === 'rrhh') && <HRContractsDashboard />}
             {currentView === 'attendance_shadow_qa' && (
               isLoading ? (
                 <div className="flex justify-center p-12"><Loader2 className="w-8 h-8 animate-spin text-indigo-500" /></div>

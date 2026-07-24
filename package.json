@@ -15,7 +15,11 @@
     "build:backend": "npx tsc lib/phase5d2/manualAttendanceV2/index.ts --outDir functions/src/phase5d2/manualAttendanceV2 --module commonjs --target es2020 --declaration false --skipLibCheck",
     "build:live": "vite build --mode live",
     "build:canary": "vite build --mode canary",
-    "build:update": "npm run build && node scripts/zip-dist.js"
+    "build:update": "npm run build && node scripts/zip-dist.js",
+    "test:contract-engine": "vitest run lib/phase3/__tests__",
+    "test:contract-callables": "vitest run functions/src/phase3/__tests__",
+    "test:contract-rules": "vitest run tests/rules/contractEligibility.rules.test.ts",
+    "test:contract-c2": "vitest run lib/phase3/__tests__ functions/src/phase3/__tests__ tests/rules/contractEligibility.rules.test.ts"
   },
   "dependencies": {
     "@capacitor-community/background-geolocation": "^1.2.26",
