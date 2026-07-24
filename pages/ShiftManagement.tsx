@@ -63,6 +63,7 @@ interface AsistenciaManualDoc {
     status: 'presente' | 'ausente';
     editorId?: string;
     updatedAt?: Timestamp;
+    siteId?: string | number;
 }
 
 // Helper to format date YYYY-MM-DD
@@ -219,7 +220,9 @@ const ShiftManagement: React.FC = () => {
             const map: Record<string, AsistenciaManualDoc> = {};
             snapshot.docs.forEach(doc => {
                 const data = doc.data() as AsistenciaManualDoc;
-                const key = `${data.employeeId}_${data.date}`;
+                // Soporte para registros antiguos sin siteId, y nuevos con siteId
+                const sitePart = data.siteId ? `${data.siteId}_` : '';
+                const key = `${sitePart}${data.employeeId}_${data.date}`;
                 map[key] = { ...data, id: doc.id };
             });
             setManualAttendanceMap(map);
@@ -282,14 +285,14 @@ const ShiftManagement: React.FC = () => {
             if (pendingChanges[key] === null) return { type: 'empty' };
         }
 
-        const manualKey = `${empId}_${dateKey}`;
-        if (manualAttendanceMap[manualKey]) {
-            const doc = manualAttendanceMap[manualKey];
-            if (doc.status === 'presente') {
-                return { type: 'manual_present', details: doc, programmedStatus: progStatus };
-            }
-            if (doc.status === 'ausente') return { type: 'manual_absent', details: doc };
+        const manualKeyFull = `${selectedSiteId}_${empId}_${dateKey}`;
+        const manualDoc = manualAttendanceMap[manualKeyFull];
+        const manualStatus = manualDoc?.status;
+
+        if (manualStatus === 'presente') {
+            return { type: 'manual_present', details: manualDoc, programmedStatus: progStatus };
         }
+        if (manualStatus === 'ausente') return { type: 'manual_absent', details: manualDoc };
 
         if (digitalAttendanceMap[key]) {
             return { type: 'digital', details: digitalAttendanceMap[key], programmedStatus: progStatus };
@@ -403,11 +406,50 @@ const ShiftManagement: React.FC = () => {
     const [summaryModalState, setSummaryModalState] = useState<{
         isOpen: boolean;
         result?: import('../lib/phase2/useShiftManagementFacade').SaveChangesResult;
+        contractAlerts?: string[];
     }>({ isOpen: false });
     const [savedTokens, setSavedTokens] = useState<Record<string, string>>({});
 
     const saveChanges = async (overrideConflicts: boolean = false) => {
         setConflictError(null);
+
+        // ------------------------------------------------------------------
+        // FASE D (CANARY): VALIDACIÓN DE CONTRATOS PRE-GUARDADO
+        // ------------------------------------------------------------------
+        let currentContractAlerts: string[] = [];
+        if (featureFlag?.mode === 'canary' && featureFlag?.enabled && !overrideConflicts) {
+            // Validar solo los "nuevos" turnos a asignar
+            Object.keys(pendingChanges).forEach(key => {
+                const parts = key.split('_');
+                const empId = parts.slice(1, -1).join('_');
+                const dateKey = parts[parts.length - 1];
+                const newStatus = pendingChanges[key];
+                
+                if (newStatus && ['programado', 'noche', 'digital', 'descanso'].includes(newStatus)) {
+                    const evalResult = employeeContractEvaluations[empId]?.[dateKey];
+                    if (evalResult && evalResult.estado !== 'compatible') {
+                        const emp = employees.find(e => e.id === empId);
+                        const empName = emp ? `${emp.firstName} ${emp.lastNamePaterno}` : empId;
+                        let reason = 'Sin contrato que cubra esta fecha';
+                        if (evalResult.estado === 'otra_sucursal') reason = 'Contrato vigente pertenece a otra sucursal';
+                        else if (evalResult.estado === 'multiples') reason = 'Existen múltiples contratos vigentes';
+                        
+                        currentContractAlerts.push(`${empName} el día ${dateKey}: ${reason}`);
+                    }
+                }
+            });
+
+            if (currentContractAlerts.length > 0) {
+                // Interceptamos el guardado para mostrar las alertas contractuales
+                setSummaryModalState({
+                    isOpen: true,
+                    result: { success: 0, conflicts: [], technicalErrors: [], newTokens: {}, failedColabIds: [] },
+                    contractAlerts: currentContractAlerts
+                });
+                return;
+            }
+        }
+
         const result = await facadeSaveChanges({
             pendingChanges,
             programmingMap,
@@ -432,7 +474,7 @@ const ShiftManagement: React.FC = () => {
         setPendingChanges(newPending);
         
         if (result.conflicts.length > 0 || result.technicalErrors.length > 0) {
-            setSummaryModalState({ isOpen: true, result });
+            setSummaryModalState({ isOpen: true, result, contractAlerts: [] });
         } else {
             setIsEditMode(false);
             setConflictError(null);
@@ -485,7 +527,7 @@ const ShiftManagement: React.FC = () => {
             }
 
             await Promise.all(batchPromises);
-            await fetchInitialData();
+            await fetchInitialData(true);
 
         } catch (e) {
             console.error("Error updating staff:", e);
@@ -500,7 +542,7 @@ const ShiftManagement: React.FC = () => {
                 try {
                     const ref = doc(db, 'Colaboradores', empId);
                     await updateDoc(ref, { currentSiteId: 0 });
-                    await fetchInitialData();
+                    await fetchInitialData(true);
                 } catch (e) {
                     console.error("Error removing employee:", e);
                 }
@@ -522,7 +564,7 @@ const ShiftManagement: React.FC = () => {
 
     const shadowEmployeeIds = useMemo(() => finalVisibleEmployees.map(e => e.id), [finalVisibleEmployees]);
     
-    useContractShadowBatch({
+    const { featureFlag } = useContractShadowBatch({
         employeeIds: shadowEmployeeIds,
         selectedSiteId,
         firstDay,
@@ -571,36 +613,66 @@ const ShiftManagement: React.FC = () => {
         return summary;
     }, [finalVisibleEmployees, days, getCellStatus, employeeContractEvaluations]);
 
-    // 3. Obtener el peor estado contractual de un empleado en el mes visible
-    const getEmployeeWorstContractState = useCallback((empId: string) => {
-        const evals = employeeContractEvaluations[empId];
-        let worstState: 'compatible' | 'otra_sucursal' | 'sin_contrato' | 'multiples' | 'pendiente_revision' | 'resuelto_manual' = 'compatible';
-
-        for (const day of days) {
-            const status = getCellStatus(empId, day);
-            if (status.type === 'programado' || status.type === 'noche' || status.type === 'digital' || status.type === 'manual_present') {
-                const evalRes = evals[formatDateKey(day)];
-                if (evalRes?.estado === 'sin_contrato') return 'sin_contrato'; // Peor caso
-                if (evalRes?.estado === 'multiples') worstState = 'multiples';
-                if (evalRes?.estado === 'otra_sucursal' && worstState !== 'multiples') worstState = 'otra_sucursal';
-            }
-        }
-        return worstState;
-    }, [employeeContractEvaluations, days, getCellStatus]);
-
-    // 4. Obtener el contrato activo de un empleado para la sucursal en el mes visible (para mostrar detalle en el badge)
+    // 3. Obtener el contrato activo de un empleado para la sucursal en el mes visible (para mostrar detalle en el badge)
     const getEmployeeActiveContrato = useCallback((empId: string) => {
         const empContracts = contratos.filter(c => c.colaboradorId === empId);
         if (empContracts.length === 0) return undefined;
-        // Buscar contrato vigente para la sucursal seleccionada en el mes actual
-        const today = formatDateKey(new Date());
-        return empContracts.find(c =>
-            (c.estado === 'vigente' || c.estado === 'pendiente_firma') &&
-            today >= c.fechaInicio &&
-            (!c.fechaTermino || today <= c.fechaTermino) &&
-            c.sucursalId.toString() === selectedSiteId.toString()
-        );
-    }, [contratos, selectedSiteId]);
+        
+        // Buscar contratos aplicables dentro de los días del mes visible
+        const validContracts = empContracts.filter(c => {
+            return days.some(day => {
+                const dateKey = formatDateKey(day);
+                return (c.estado === 'vigente' || c.estado === 'pendiente_firma') &&
+                       dateKey >= c.fechaInicio &&
+                       (!c.fechaTermino || dateKey <= c.fechaTermino) &&
+                       c.sucursalId.toString() === selectedSiteId.toString();
+            });
+        });
+
+        if (validContracts.length === 0) return undefined;
+        // Retornar el contrato que tenga la fecha de término más lejana (el "último")
+        return validContracts.sort((a, b) => {
+            if (!a.fechaTermino) return -1; // indefinido gana
+            if (!b.fechaTermino) return 1;
+            return b.fechaTermino.localeCompare(a.fechaTermino); // más futuro primero
+        })[0];
+    }, [contratos, selectedSiteId, days]);
+
+    // 4. Obtener el peor estado contractual de un empleado en el mes visible
+    const getEmployeeWorstContractState = useCallback((empId: string) => {
+        const evals = employeeContractEvaluations[empId];
+        if (!evals) return 'sin_contrato';
+        
+        let lastShiftDate = '';
+        let hasOtraSucursal = false;
+
+        // Determinar el último día con turno y si hay conflictos con otras sucursales
+        for (const day of days) {
+            const status = getCellStatus(empId, day);
+            if (status.type === 'programado' || status.type === 'noche' || status.type === 'digital' || status.type === 'manual_present') {
+                lastShiftDate = formatDateKey(day);
+                const evalRes = evals[lastShiftDate];
+                if (evalRes?.estado === 'otra_sucursal') hasOtraSucursal = true;
+            }
+        }
+
+        if (!lastShiftDate) return 'compatible'; // Sin turnos, todo OK.
+
+        const ultimoContrato = getEmployeeActiveContrato(empId);
+        
+        // Regla simplificada de RRHH: Si el último contrato del mes tiene una fecha de término
+        // mayor o igual a la del último turno trabajado, entonces está "Al día" (compatible)
+        if (ultimoContrato) {
+            if (!ultimoContrato.fechaTermino || ultimoContrato.fechaTermino >= lastShiftDate) {
+                return 'compatible';
+            } else {
+                return 'sin_contrato';
+            }
+        }
+
+        if (hasOtraSucursal) return 'otra_sucursal';
+        return 'sin_contrato';
+    }, [employeeContractEvaluations, days, getCellStatus, getEmployeeActiveContrato]);
 
     return (
         <div className="p-6 max-w-[100vw] overflow-x-hidden space-y-6 h-screen flex flex-col bg-slate-50 select-none">
@@ -1203,7 +1275,7 @@ const ShiftManagement: React.FC = () => {
                 />
             )}
 
-            {summaryModalState.isOpen && summaryModalState.result && (
+            {summaryModalState.isOpen && (
                 <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
                     <div className="bg-white w-full max-w-2xl rounded-2xl shadow-2xl flex flex-col max-h-[90vh]">
                         <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50 rounded-t-2xl">
@@ -1215,23 +1287,43 @@ const ShiftManagement: React.FC = () => {
                         <div className="p-6 overflow-y-auto space-y-6 flex-1 custom-scrollbar">
                             <div className="grid grid-cols-3 gap-4">
                                 <div className="bg-green-50 rounded-xl p-4 border border-green-100 text-center">
-                                    <div className="text-3xl font-black text-green-600">{summaryModalState.result.success}</div>
+                                    <div className="text-3xl font-black text-green-600">{summaryModalState.result?.success || 0}</div>
                                     <div className="text-xs font-bold text-green-700 uppercase mt-1">Exitosos</div>
                                 </div>
                                 <div className="bg-orange-50 rounded-xl p-4 border border-orange-100 text-center">
-                                    <div className="text-3xl font-black text-orange-600">{summaryModalState.result.conflicts.length}</div>
+                                    <div className="text-3xl font-black text-orange-600">
+                                        {(summaryModalState.result?.conflicts.length || 0) + (summaryModalState.contractAlerts?.length || 0)}
+                                    </div>
                                     <div className="text-xs font-bold text-orange-700 uppercase mt-1">Conflictos</div>
                                 </div>
                                 <div className="bg-red-50 rounded-xl p-4 border border-red-100 text-center">
-                                    <div className="text-3xl font-black text-red-600">{summaryModalState.result.technicalErrors.length}</div>
+                                    <div className="text-3xl font-black text-red-600">{summaryModalState.result?.technicalErrors.length || 0}</div>
                                     <div className="text-xs font-bold text-red-700 uppercase mt-1">Errores Técnicos</div>
                                 </div>
                             </div>
 
-                            {summaryModalState.result.conflicts.length > 0 && (
+                            {(summaryModalState.contractAlerts && summaryModalState.contractAlerts.length > 0) && (
                                 <div>
                                     <h3 className="text-sm font-black text-slate-800 uppercase mb-3 flex items-center gap-2">
-                                        <AlertTriangle size={16} className="text-orange-500" /> Conflictos Detectados
+                                        <AlertTriangle size={16} className="text-yellow-500" /> Alertas Contractuales (Canary)
+                                    </h3>
+                                    <ul className="space-y-2">
+                                        {summaryModalState.contractAlerts.map((msg: string, idx: number) => (
+                                            <li key={idx} className="bg-yellow-50/50 text-yellow-800 text-sm p-3 rounded-lg border border-yellow-200 font-medium shadow-sm">
+                                                {msg}
+                                            </li>
+                                        ))}
+                                    </ul>
+                                    <p className="mt-3 text-xs text-slate-500 bg-slate-100 p-2 rounded-lg">
+                                        En la etapa actual (Canary) puedes programar de todas formas. RRHH será notificado a través de la bitácora de excepciones de fase Shadow.
+                                    </p>
+                                </div>
+                            )}
+
+                            {summaryModalState.result && summaryModalState.result.conflicts.length > 0 && (
+                                <div>
+                                    <h3 className="text-sm font-black text-slate-800 uppercase mb-3 flex items-center gap-2">
+                                        <AlertTriangle size={16} className="text-orange-500" /> Conflictos de Programación
                                     </h3>
                                     <ul className="space-y-2">
                                         {summaryModalState.result.conflicts.map((msg: string, idx: number) => (
@@ -1241,7 +1333,7 @@ const ShiftManagement: React.FC = () => {
                                 </div>
                             )}
 
-                            {summaryModalState.result.technicalErrors.length > 0 && (
+                            {summaryModalState.result && summaryModalState.result.technicalErrors.length > 0 && (
                                 <div>
                                     <h3 className="text-sm font-black text-slate-800 uppercase mb-3 flex items-center gap-2">
                                         <AlertCircle size={16} className="text-red-500" /> Errores Técnicos
@@ -1259,18 +1351,18 @@ const ShiftManagement: React.FC = () => {
                                 onClick={() => setSummaryModalState({ isOpen: false })}
                                 className="px-6 py-2 bg-white text-slate-600 border border-slate-200 hover:bg-slate-50 font-bold rounded-lg transition-colors shadow-sm"
                             >
-                                Cerrar
+                                Cancelar / Cerrar
                             </button>
-                            {summaryModalState.result.conflicts.length > 0 && (
+                            {((summaryModalState.result && summaryModalState.result.conflicts.length > 0) || (summaryModalState.contractAlerts && summaryModalState.contractAlerts.length > 0)) && (
                                 <button
                                     onClick={handleForceConflicts}
                                     disabled={isSaving}
                                     className="px-6 py-2 bg-orange-600 text-white hover:bg-orange-700 font-bold rounded-lg shadow-md transition-colors flex items-center gap-2 disabled:opacity-50"
                                 >
-                                    {isSaving ? 'Forzando...' : 'Forzar Asignación (Sobrescribir)'}
+                                    {isSaving ? 'Forzando...' : 'Programar de todas formas'}
                                 </button>
                             )}
-                            {summaryModalState.result.technicalErrors.length > 0 && (
+                            {summaryModalState.result && summaryModalState.result.technicalErrors.length > 0 && (
                                 <button
                                     onClick={handleRetryTechnical}
                                     disabled={isSaving}

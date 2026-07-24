@@ -60,7 +60,7 @@ export const useShiftManagementFacade = () => {
         const empId = parts.slice(1, -1).join('_');
         
         const progDocId = `prog_${siteId}_${empId}_${dateStr}`;
-        const manualDocId = `manual_${empId}_${dateStr}`;
+        const manualDocId = `manual_${siteId}_${empId}_${dateStr}`;
         const manualRef = doc(db, 'asistencia_manual', manualDocId);
 
         const site = sites.find(s => s.id.toString() === siteId.toString());
@@ -125,6 +125,7 @@ export const useShiftManagementFacade = () => {
 
         } else if (status === 'asistio_manual' || status === 'asistio_manual_completed') {
           batchPromises.push(setDoc(manualRef, {
+            siteId: siteId,
             employeeId: empId,
             date: dateStr,
             status: 'presente',
@@ -171,6 +172,7 @@ export const useShiftManagementFacade = () => {
           }
         } else if (status === 'ausente') {
           batchPromises.push(setDoc(manualRef, {
+            siteId: siteId,
             employeeId: empId,
             date: dateStr,
             status: 'ausente',

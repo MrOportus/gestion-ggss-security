@@ -34,8 +34,8 @@ const getDaysUntil = (dateStr?: string): number | null => {
 };
 
 export const ContractStatusBadge: React.FC<Props> = ({ estado, contrato }) => {
-  // ─── COMPATIBLE ────────────────────────────────────────────────────────────
-  if (estado === 'compatible') {
+  // ─── COMPATIBLE O CON CONTRATO ACTIVO EN EL MES ──────────────────────────
+  if (estado === 'compatible' || contrato) {
     const fechaTermino = contrato?.fechaTermino;
     const daysLeft = getDaysUntil(fechaTermino);
     const isSoonToExpire = daysLeft !== null && daysLeft <= 30 && daysLeft >= 0;
@@ -45,19 +45,38 @@ export const ContractStatusBadge: React.FC<Props> = ({ estado, contrato }) => {
       subText = `hasta ${formatDateShort(fechaTermino)}`;
     }
 
-    // Color según urgencia
-    const badgeClass = isSoonToExpire
-      ? 'bg-amber-50 text-amber-700 border border-amber-200'
-      : 'bg-green-50 text-green-700 border border-green-200';
+    let badgeClass = 'bg-green-50 text-green-700 border border-green-200';
+    let alertText = '';
+    
+    if (estado === 'sin_contrato') {
+      badgeClass = 'bg-red-50 text-red-900 border border-red-300';
+      alertText = ' (Faltan turnos)';
+    } else if (estado === 'otra_sucursal') {
+      badgeClass = 'bg-orange-50 text-orange-900 border border-orange-300';
+      alertText = ' (Conflicto sucursal)';
+    } else if (estado === 'multiples') {
+      badgeClass = 'bg-purple-50 text-purple-900 border border-purple-300';
+      alertText = ' (Múltiples)';
+    } else if (isSoonToExpire) {
+      badgeClass = 'bg-amber-50 text-amber-700 border border-amber-200';
+    }
 
-    const label = contrato?.tipo ? contrato.tipo : 'Contrato';
+    let label = 'Al día';
+    if (contrato) {
+      const validModalities = ['Plazo Fijo', 'Indefinido', 'Obra y Faena'];
+      if (contrato.tipo && validModalities.some(m => contrato.tipo.toLowerCase().includes(m.toLowerCase()))) {
+        label = contrato.tipo;
+      } else {
+        label = contrato.fechaTermino ? 'Plazo Fijo' : 'Indefinido';
+      }
+    }
 
     return (
       <span
         className={`inline-flex flex-col items-end px-2 py-0.5 rounded text-[10px] font-medium leading-tight ${badgeClass}`}
-        title={`${label} — ${subText}${isSoonToExpire && daysLeft !== null ? ` · vence en ${daysLeft} días` : ''}`}
+        title={`${label} — ${subText}${isSoonToExpire && daysLeft !== null ? ` · vence en ${daysLeft} días` : ''} ${alertText}`}
       >
-        <span className="font-bold">Al día</span>
+        <span className="font-bold">{label}{alertText && <span className="text-[9px] text-red-600 ml-1">{alertText}</span>}</span>
         <span className="opacity-75">{subText}</span>
       </span>
     );
