@@ -591,18 +591,19 @@ const generatePDF = (tipo: string, rounds: any[], novedades: any[], siteName: st
         body = `<div class="stitle">Registro Cronológico (${timeline.length} eventos)</div>${timeline.map((item: any) => { const dc = item.res === 'SIN_NOVEDAD' ? 'g' : item.res === 'CON_NOVEDAD' ? 'r' : item.tipo !== 'ronda' && item.tipo !== 'Ronda' ? 'a' : ''; const bc = item.tipo === 'Ronda' || item.tipo === 'ronda' ? 'rnd' : item.res === 'CON_NOVEDAD' ? 'con' : item.res === 'SIN_NOVEDAD' ? 'sin' : 'otr'; return `<div class="ti"><div class="td">${fD(item.ts)}<br/>${fT(item.ts)}</div><div class="dot ${dc}"></div><div style="flex:1"><div style="display:flex;gap:6px;align-items:center;margin-bottom:2px"><span class="badge ${bc}">${item.tipo}</span><strong style="font-size:10px">${item.guard}</strong><span style="color:#94a3b8;font-size:9px">· ${item.site}</span>${item.res ? `<span class="badge ${item.res === 'SIN_NOVEDAD' ? 'sin' : item.res === 'CON_NOVEDAD' ? 'con' : 'sos'}">${item.res.replace('_', ' ')}</span>` : ''}</div><div style="color:#475569;font-size:10px">${item.desc}</div></div></div>`; }).join('')}`;
     }
 
-    const html = `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><title>Reporte GGSS Security</title><style>${css}</style></head><body><div class="hdr"><div><h1>GGSS Security</h1><p>${tipo === 'resumen_ejecutivo' ? 'Resumen Ejecutivo' : 'Libro de Novedades'}</p><p style="margin-top:6px;font-size:11px;opacity:.9">${siteName}</p></div><div class="meta"><div>Período: ${fD(startDate + 'T12:00')} — ${fD(endDate + 'T12:00')}</div><div>Generado: ${now}</div><div>Total rondas incluidas: ${rounds.length}</div></div></div>${body}<div class="ftr"><span>GGSS Security — Portal Mandante</span><span>Generado automáticamente · ${now}</span></div></body></html>`;
+    const html = `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><title>Reporte Aspro - ${fD(new Date().toISOString())}</title><style>${css}</style></head><body><div class="hdr"><div><h1>REPORTE ASPRO</h1><p>${tipo === 'resumen_ejecutivo' ? 'Resumen Ejecutivo' : 'Libro de Novedades'}</p><p style="margin-top:6px;font-size:11px;opacity:.9">${siteName}</p></div><div class="meta"><div>Período: ${fD(startDate + 'T12:00')} — ${fD(endDate + 'T12:00')}</div><div>Generado: ${now}</div><div>Total rondas incluidas: ${rounds.length}</div></div></div>${body}<div class="ftr"><span>Reporte Aspro</span><span>Generado automáticamente · ${now}</span></div></body></html>`;
 
     const win = window.open('', '_blank', 'width=900,height=700');
     if (!win) { alert('Permite ventanas emergentes para generar el PDF'); return; }
     win.document.write(html);
     win.document.close();
+    win.document.title = `Reporte Aspro - ${fD(new Date().toISOString())}`;
     setTimeout(() => win.print(), 600);
 };
 
 // ─── Reportes ─────────────────────────────────────────────────────────────────
 const Reportes = ({ allowedSites, guardRounds, novedades }: any) => {
-    const [startDate, setStartDate] = useState(() => { const d = new Date(); d.setMonth(d.getMonth() - 1); return d.toISOString().split('T')[0]; });
+    const [startDate, setStartDate] = useState(() => { const d = new Date(); d.setDate(d.getDate() - 7); return d.toISOString().split('T')[0]; });
     const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
     const [tipoReporte, setTipoReporte] = useState('resumen_ejecutivo');
     const [siteFilter, setSiteFilter] = useState('all');
