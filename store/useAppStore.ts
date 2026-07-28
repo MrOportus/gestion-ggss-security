@@ -618,6 +618,13 @@ export const useAppStore = create<AppState>()(
                 date: jornadaDate
               });
               console.log("[SYNC TURNOS] ✅ asistencia_digital creado con éxito:", digId);
+              
+              // Actualizar ficha del colaborador para que pueda hacer rondas
+              if (log.employeeId && siteId !== 'sin_sucursal') {
+                await updateDoc(doc(db, 'Colaboradores', log.employeeId), {
+                  currentSiteId: isNaN(Number(siteId)) ? siteId : Number(siteId)
+                });
+              }
             } catch (syncError) {
               console.error("[SYNC TURNOS] ❌ Error escribiendo asistencia_digital:", digId, syncError);
             }
@@ -657,6 +664,13 @@ export const useAppStore = create<AppState>()(
                 updatedAt: Timestamp.fromDate(new Date())
               }, { merge: true });
               console.log("[SYNC TURNOS] ✅ asistencia_manual creado con éxito:", manualDocId);
+              
+              // Limpiar sucursal actual del colaborador
+              if (log.employeeId) {
+                await updateDoc(doc(db, 'Colaboradores', log.employeeId), {
+                  currentSiteId: 0
+                });
+              }
             } catch (syncError) {
               console.error("[SYNC TURNOS] ❌ Error en sincronización check_out:", digId, syncError);
             }

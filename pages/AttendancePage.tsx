@@ -108,10 +108,8 @@ const AttendancePage: React.FC = () => {
             const [y, m] = startDate.split('-').map(Number);
             matchesDate = logDate.getFullYear() === y && (logDate.getMonth() + 1) === m;
         } else if (filterType === 'range') {
-            const start = new Date(startDate);
-            start.setHours(0, 0, 0, 0);
-            const end = new Date(endDate);
-            end.setHours(23, 59, 59, 999);
+            const start = new Date(startDate + 'T00:00:00');
+            const end = new Date(endDate + 'T23:59:59.999');
             matchesDate = logDate >= start && logDate <= end;
         }
 
