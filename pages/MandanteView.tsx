@@ -6,7 +6,7 @@ import {
     Navigation, Search, MapPin, ExternalLink, Loader2, Camera,
     ShieldCheck, AlertCircle, ShieldAlert, LogOut, RefreshCw,
     LayoutDashboard, BookOpen, FileText, BarChart3, Building2,
-    Activity, TrendingUp, Download, ChevronRight, AlertTriangle, Info,
+    Activity, TrendingUp, Download, ChevronRight, AlertTriangle, Info, Users, Clock, Award,
 } from 'lucide-react';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -53,13 +53,16 @@ const KPICard = ({ icon, label, value, sub, color }: { icon: React.ReactNode; la
 // ─── Estado del Servicio ──────────────────────────────────────────────────────
 const EstadoServicio = ({ allowedSites, guardRounds, novedades, selectedSiteId, setSelectedSiteId, fetchNovedades }: any) => {
     const today = new Date().toISOString().split('T')[0];
+    const sevenDaysAgo = new Date(); sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    const weekStart = sevenDaysAgo.toISOString().split('T')[0];
+
     const filteredRounds = guardRounds.filter((r: any) => {
         const inSite = allowedSites.some((s: any) => String(s.id) === String(r.siteId));
         const siteMatch = selectedSiteId === 'all' || String(r.siteId) === selectedSiteId;
         return inSite && siteMatch;
     });
+    const weekRounds = filteredRounds.filter((r: any) => r.startTime.substring(0, 10) >= weekStart);
     const todayRounds = filteredRounds.filter((r: any) => r.startTime.startsWith(today));
-    const conNovedad = filteredRounds.filter((r: any) => r.result === 'CON_NOVEDAD' || r.result === 'SOSPECHA');
     const lastRound = [...filteredRounds].sort((a: any, b: any) => b.startTime.localeCompare(a.startTime))[0];
     const activeRounds = filteredRounds.filter((r: any) => !r.endTime);
     const filteredNovedades = novedades.filter((n: any) => {
@@ -68,14 +71,36 @@ const EstadoServicio = ({ allowedSites, guardRounds, novedades, selectedSiteId, 
         return inSite && siteMatch;
     });
     const todayNovedades = filteredNovedades.filter((n: any) => n.timestamp.startsWith(today));
-    const novedadesAlerta = filteredNovedades.filter((n: any) => n.resultado === 'CON_NOVEDAD' || n.resultado === 'SOSPECHA' || n.tipo === 'incidente' || n.tipo === 'alerta');
+
+    // Calcular métricas por guardia (últimos 7 días)
+    const guardStats = useMemo(() => {
+        const map: Record<string, { name: string; total: number; sinNovedad: number; conNovedad: number; totalDurMin: number; completadas: number; lastRound: string }> = {};
+        weekRounds.forEach((r: any) => {
+            const key = r.workerId || r.workerName;
+            if (!map[key]) map[key] = { name: r.workerName, total: 0, sinNovedad: 0, conNovedad: 0, totalDurMin: 0, completadas: 0, lastRound: r.startTime };
+            map[key].total++;
+            if (r.result === 'SIN_NOVEDAD') map[key].sinNovedad++;
+            if (r.result === 'CON_NOVEDAD' || r.result === 'SOSPECHA') map[key].conNovedad++;
+            if (r.endTime) {
+                map[key].totalDurMin += (new Date(r.endTime).getTime() - new Date(r.startTime).getTime()) / 60000;
+                map[key].completadas++;
+            }
+            if (r.startTime > map[key].lastRound) map[key].lastRound = r.startTime;
+        });
+        return Object.values(map).sort((a, b) => b.total - a.total);
+    }, [weekRounds]);
+
+    const avgDurMin = guardStats.filter(g => g.completadas > 0).length > 0
+        ? Math.round(guardStats.filter(g => g.completadas > 0).reduce((acc, g) => acc + g.totalDurMin / g.completadas, 0) / guardStats.filter(g => g.completadas > 0).length) || 0
+        : 0;
 
     return (
         <div className="space-y-6">
+            {/* Header + filtros */}
             <div className="flex items-center justify-between flex-wrap gap-3">
                 <div>
                     <h3 className="text-xl font-black text-slate-800">Estado del Servicio</h3>
-                    <p className="text-sm text-slate-400 mt-0.5">Resumen ejecutivo actualizado en tiempo real</p>
+                    <p className="text-sm text-slate-400 mt-0.5">Métricas operacionales — últimos 7 días</p>
                 </div>
                 <div className="flex items-center gap-3">
                     <select value={selectedSiteId} onChange={(e) => setSelectedSiteId(e.target.value)}
@@ -90,87 +115,119 @@ const EstadoServicio = ({ allowedSites, guardRounds, novedades, selectedSiteId, 
                 </div>
             </div>
 
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                <KPICard icon={<Activity size={20} />} label="Rondas Hoy" value={todayRounds.length}
-                    sub={activeRounds.length > 0 ? `${activeRounds.length} en curso` : 'Todas completadas'} color="bg-blue-500" />
-                <KPICard icon={<ShieldCheck size={20} />} label="Sin Novedad"
-                    value={filteredRounds.filter((r: any) => r.result === 'SIN_NOVEDAD').length} sub="Total historial" color="bg-emerald-500" />
-                <KPICard icon={<AlertTriangle size={20} />} label="Con Novedad" value={conNovedad.length} sub="Requieren atención" color="bg-rose-500" />
-                <KPICard icon={<BookOpen size={20} />} label="Novedades Hoy" value={todayNovedades.length}
-                    sub={`${novedadesAlerta.length} alertas activas`} color="bg-amber-500" />
+            {/* Resumen rápido - 3 mini stats */}
+            <div className="grid grid-cols-3 gap-4">
+                <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm text-center">
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Rondas Esta Semana</p>
+                    <p className="text-4xl font-black text-slate-800 mt-1 leading-none">{weekRounds.length}</p>
+                    <p className="text-xs text-slate-400 mt-2">{todayRounds.length} hoy {activeRounds.length > 0 ? `· ${activeRounds.length} en curso` : ''}</p>
+                </div>
+                <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm text-center">
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Duración Promedio</p>
+                    <p className="text-4xl font-black text-slate-800 mt-1 leading-none">{avgDurMin}<span className="text-xl font-bold text-slate-400"> min</span></p>
+                    <p className="text-xs text-slate-400 mt-2">por ronda completada</p>
+                </div>
+                <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm text-center">
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Incidencias Semana</p>
+                    <p className="text-4xl font-black text-rose-600 mt-1 leading-none">{weekRounds.filter((r: any) => r.result === 'CON_NOVEDAD' || r.result === 'SOSPECHA').length}</p>
+                    <p className="text-xs text-slate-400 mt-2">{todayNovedades.length} novedades hoy</p>
+                </div>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
-                    <div className="flex items-center gap-2 mb-4">
-                        <Navigation size={16} className="text-blue-500" />
-                        <h4 className="font-bold text-slate-700 text-sm">Última Ronda Registrada</h4>
+            {/* Tabla rendimiento por guardia */}
+            <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+                <div className="flex items-center gap-2 px-5 py-4 border-b border-slate-100">
+                    <Users size={16} className="text-blue-500" />
+                    <h4 className="font-bold text-slate-700 text-sm">Rendimiento por Guardia — Últimos 7 días</h4>
+                    <span className="ml-auto text-[10px] font-black text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">{guardStats.length} guardias</span>
+                </div>
+                {guardStats.length === 0 ? (
+                    <div className="p-10 text-center text-slate-300">
+                        <Users size={32} className="mx-auto mb-2" />
+                        <p className="font-bold text-sm">Sin datos de rondas en la última semana</p>
                     </div>
-                    {lastRound ? (
-                        <div className="space-y-3">
-                            <div className="flex items-center justify-between">
-                                <div>
-                                    <p className="font-black text-slate-800">{lastRound.workerName}</p>
-                                    <p className="text-xs text-slate-400 flex items-center gap-1 mt-0.5">
-                                        <MapPin size={10} className="text-blue-400" />{lastRound.siteName}
-                                    </p>
-                                </div>
-                                <ResultBadge result={lastRound.result} />
-                            </div>
-                            <div className="flex items-center gap-4 pt-3 border-t border-slate-50">
-                                <div>
-                                    <p className="text-[10px] font-bold text-slate-400 uppercase">Inicio</p>
-                                    <p className="text-sm font-bold text-slate-700">{fmtDateTime(lastRound.startTime)}</p>
-                                </div>
-                                {lastRound.endTime ? (
-                                    <div>
-                                        <p className="text-[10px] font-bold text-slate-400 uppercase">Fin</p>
-                                        <p className="text-sm font-bold text-slate-700">{fmtTime(lastRound.endTime)}</p>
-                                    </div>
-                                ) : (
-                                    <div className="flex items-center gap-1.5 text-rose-500 text-xs font-bold">
-                                        <Loader2 size={12} className="animate-spin" /> En Curso
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-                    ) : (
-                        <div className="flex flex-col items-center justify-center py-6 text-slate-300">
-                            <Navigation size={32} className="mb-2" />
-                            <p className="text-sm font-bold">Sin rondas registradas</p>
+                ) : (
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                            <thead>
+                                <tr className="bg-slate-50 text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                                    <th className="text-left px-5 py-3">Guardia</th>
+                                    <th className="text-center px-4 py-3">Rondas</th>
+                                    <th className="text-center px-4 py-3">Dur. Prom.</th>
+                                    <th className="text-center px-4 py-3">Sin Novedad</th>
+                                    <th className="text-center px-4 py-3">Con Novedad</th>
+                                    <th className="text-left px-5 py-3">Última Ronda</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-50">
+                                {guardStats.map((g, idx) => {
+                                    const avgDur = g.completadas > 0 ? Math.round(g.totalDurMin / g.completadas) : null;
+                                    const pctOk = g.total > 0 ? Math.round((g.sinNovedad / g.total) * 100) : 0;
+                                    return (
+                                        <tr key={idx} className="hover:bg-slate-50/60 transition-colors">
+                                            <td className="px-5 py-3">
+                                                <div className="flex items-center gap-2.5">
+                                                    <div className="w-7 h-7 rounded-lg bg-slate-100 flex items-center justify-center text-slate-500">
+                                                        <Users size={13} />
+                                                    </div>
+                                                    <span className="font-bold text-slate-800 text-sm">{g.name}</span>
+                                                    {idx === 0 && <Award size={13} className="text-amber-400" title="Mayor actividad" />}
+                                                </div>
+                                            </td>
+                                            <td className="px-4 py-3 text-center">
+                                                <span className="text-xl font-black text-slate-800">{g.total}</span>
+                                            </td>
+                                            <td className="px-4 py-3 text-center">
+                                                {avgDur != null
+                                                    ? <span className="inline-flex items-center gap-1 text-slate-700 font-bold"><Clock size={11} className="text-slate-400" />{avgDur} min</span>
+                                                    : <span className="text-slate-300 text-xs">—</span>}
+                                            </td>
+                                            <td className="px-4 py-3 text-center">
+                                                <div className="inline-flex flex-col items-center gap-0.5">
+                                                    <span className="font-black text-emerald-600">{g.sinNovedad}</span>
+                                                    <div className="w-16 bg-slate-100 rounded-full h-1">
+                                                        <div className="bg-emerald-400 h-1 rounded-full" style={{ width: pctOk + '%' }} />
+                                                    </div>
+                                                    <span className="text-[9px] text-slate-400">{pctOk}%</span>
+                                                </div>
+                                            </td>
+                                            <td className="px-4 py-3 text-center">
+                                                <span className={`font-black ${g.conNovedad > 0 ? 'text-rose-500' : 'text-slate-300'}`}>{g.conNovedad}</span>
+                                            </td>
+                                            <td className="px-5 py-3">
+                                                <p className="text-xs font-bold text-slate-600">{fmtDate(g.lastRound)}</p>
+                                                <p className="text-[10px] text-slate-400">{fmtTime(g.lastRound)}</p>
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                    </div>
+                )}
+            </div>
+
+            {/* Última ronda */}
+            {lastRound && (
+                <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4 flex items-center gap-4">
+                    <div className="w-10 h-10 bg-blue-50 rounded-xl flex items-center justify-center shrink-0">
+                        <Navigation size={18} className="text-blue-500" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Última ronda registrada</p>
+                        <p className="font-black text-slate-800">{lastRound.workerName}</p>
+                        <p className="text-xs text-slate-400 flex items-center gap-1 mt-0.5">
+                            <MapPin size={9} className="text-blue-400" />{lastRound.siteName} · {fmtDateTime(lastRound.startTime)}
+                        </p>
+                    </div>
+                    <ResultBadge result={lastRound.result} />
+                    {!lastRound.endTime && (
+                        <div className="flex items-center gap-1 text-rose-500 text-xs font-bold">
+                            <Loader2 size={12} className="animate-spin" /> En Curso
                         </div>
                     )}
                 </div>
-
-                <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
-                    <div className="flex items-center gap-2 mb-4">
-                        <Building2 size={16} className="text-indigo-500" />
-                        <h4 className="font-bold text-slate-700 text-sm">Mis Instalaciones ({allowedSites.length})</h4>
-                    </div>
-                    <div className="space-y-2 max-h-44 overflow-y-auto">
-                        {allowedSites.length === 0 ? (
-                            <p className="text-sm text-slate-400 text-center py-4">Sin instalaciones asignadas</p>
-                        ) : allowedSites.map((site: any) => {
-                            const siteRoundsToday = todayRounds.filter((r: any) => String(r.siteId) === String(site.id));
-                            const hasActive = siteRoundsToday.some((r: any) => !r.endTime);
-                            return (
-                                <div key={site.id} className="flex items-center justify-between p-2.5 rounded-xl hover:bg-slate-50 transition">
-                                    <div className="flex items-center gap-2.5">
-                                        <div className={`w-2 h-2 rounded-full ${hasActive ? 'bg-emerald-400 animate-pulse' : 'bg-slate-200'}`} />
-                                        <div>
-                                            <p className="text-sm font-bold text-slate-700">{site.name}</p>
-                                            <p className="text-[10px] text-slate-400">{site.address || 'Sin dirección'}</p>
-                                        </div>
-                                    </div>
-                                    <span className="text-[10px] font-black text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">
-                                        {siteRoundsToday.length} rondas hoy
-                                    </span>
-                                </div>
-                            );
-                        })}
-                    </div>
-                </div>
-            </div>
+            )}
 
             {todayNovedades.length > 0 && (
                 <div className="bg-amber-50 border border-amber-100 rounded-2xl p-5">
@@ -500,18 +557,78 @@ const RegistroRondas = ({ allowedSites, guardRounds, showConfirmation }: any) =>
     );
 };
 
+// ─── PDF Generator ────────────────────────────────────────────────────────────
+const generatePDF = (tipo: string, rounds: any[], novedades: any[], siteName: string, startDate: string, endDate: string) => {
+    const fD = (iso: string) => new Date(iso).toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    const fT = (iso: string) => new Date(iso).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' });
+    const now = new Date().toLocaleString('es-CL');
+
+    const guardMap: Record<string, any> = {};
+    rounds.forEach((r: any) => {
+        const k = r.workerId || r.workerName;
+        if (!guardMap[k]) guardMap[k] = { name: r.workerName, total: 0, sinNovedad: 0, conNovedad: 0, totalMin: 0, completadas: 0 };
+        guardMap[k].total++;
+        if (r.result === 'SIN_NOVEDAD') guardMap[k].sinNovedad++;
+        if (r.result === 'CON_NOVEDAD' || r.result === 'SOSPECHA') guardMap[k].conNovedad++;
+        if (r.endTime) { guardMap[k].totalMin += (new Date(r.endTime).getTime() - new Date(r.startTime).getTime()) / 60000; guardMap[k].completadas++; }
+    });
+    const gStats = Object.values(guardMap).sort((a: any, b: any) => b.total - a.total);
+    const totalCN = rounds.filter((r: any) => r.result !== 'SIN_NOVEDAD').length;
+    const avgMin = gStats.filter((g: any) => g.completadas > 0).length > 0
+        ? Math.round(gStats.filter((g: any) => g.completadas > 0).reduce((acc: any, g: any) => acc + g.totalMin / g.completadas, 0) / gStats.filter((g: any) => g.completadas > 0).length) : 0;
+
+    const timeline = [
+        ...rounds.map((r: any) => ({ ts: r.startTime, tipo: 'Ronda', guard: r.workerName, site: r.siteName, desc: r.notes || 'Sin observaciones.', res: r.result })),
+        ...novedades.map((n: any) => ({ ts: n.timestamp, tipo: n.tipo, guard: n.guardName, site: n.sucursalName, desc: n.descripcion, res: n.resultado || '' }))
+    ].sort((a, b) => b.ts.localeCompare(a.ts));
+
+    const css = `@page{size:A4;margin:20mm 15mm}*{box-sizing:border-box;margin:0;padding:0}body{font-family:'Helvetica Neue',Arial,sans-serif;font-size:11px;color:#1e293b}.hdr{background:#1e3a5f;color:#fff;padding:20px 24px;border-radius:8px;margin-bottom:20px;display:flex;justify-content:space-between}.hdr h1{font-size:20px;font-weight:900}.hdr p{font-size:10px;opacity:.7;margin-top:2px}.hdr .meta{text-align:right;font-size:10px;opacity:.8;line-height:1.6}.stitle{font-size:12px;font-weight:900;text-transform:uppercase;letter-spacing:1px;color:#64748b;border-bottom:2px solid #e2e8f0;padding-bottom:6px;margin:20px 0 12px}.sg{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:20px}.sb{background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:12px;text-align:center}.sb .n{font-size:28px;font-weight:900;color:#1e293b;line-height:1}.sb .l{font-size:9px;font-weight:700;text-transform:uppercase;color:#94a3b8;margin-top:4px}.sb.g .n{color:#16a34a}.sb.r .n{color:#dc2626}.sb.b .n{color:#2563eb}table{width:100%;border-collapse:collapse;font-size:10px}th{background:#f1f5f9;font-weight:900;text-transform:uppercase;font-size:9px;color:#64748b;padding:8px 10px;text-align:left}td{padding:7px 10px;border-bottom:1px solid #f1f5f9}tr:nth-child(even) td{background:#fafafa}.badge{display:inline-block;padding:2px 6px;border-radius:4px;font-size:8px;font-weight:900;text-transform:uppercase}.sin{background:#dcfce7;color:#15803d}.con{background:#fee2e2;color:#dc2626}.sos{background:#fef3c7;color:#d97706}.rnd{background:#dbeafe;color:#1d4ed8}.otr{background:#f1f5f9;color:#64748b}.ti{display:flex;gap:10px;padding:8px 0;border-bottom:1px solid #f1f5f9}.td{width:80px;font-weight:700;color:#64748b;font-size:9px}.dot{width:8px;height:8px;border-radius:50%;background:#3b82f6;margin-top:4px;flex-shrink:0}.dot.r{background:#ef4444}.dot.g{background:#22c55e}.dot.a{background:#f59e0b}.ftr{margin-top:24px;padding-top:12px;border-top:1px solid #e2e8f0;display:flex;justify-content:space-between;font-size:9px;color:#94a3b8}@media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact}}`;
+
+    let body = '';
+    if (tipo === 'resumen_ejecutivo') {
+        body = `<div class="sg"><div class="sb b"><div class="n">${rounds.length}</div><div class="l">Total Rondas</div></div><div class="sb g"><div class="n">${rounds.length - totalCN}</div><div class="l">Sin Novedad</div></div><div class="sb r"><div class="n">${totalCN}</div><div class="l">Con Novedad</div></div><div class="sb"><div class="n">${avgMin}</div><div class="l">Min. Promedio</div></div></div><div class="stitle">Rendimiento por Guardia</div><table><thead><tr><th>Guardia</th><th style="text-align:center">Rondas</th><th style="text-align:center">Sin Nov.</th><th style="text-align:center">Con Nov.</th><th style="text-align:center">Prom. Duración</th></tr></thead><tbody>${gStats.map((g: any) => `<tr><td><strong>${g.name}</strong></td><td style="text-align:center"><strong>${g.total}</strong></td><td style="text-align:center"><span class="badge sin">${g.sinNovedad}</span></td><td style="text-align:center"><span class="badge con">${g.conNovedad}</span></td><td style="text-align:center">${g.completadas > 0 ? Math.round(g.totalMin / g.completadas) + ' min' : '—'}</td></tr>`).join('')}</tbody></table><div class="stitle" style="margin-top:24px">Últimas Incidencias</div><table><thead><tr><th>Fecha / Hora</th><th>Guardia</th><th>Instalación</th><th>Resultado</th><th>Observación</th></tr></thead><tbody>${rounds.filter((r: any) => r.result !== 'SIN_NOVEDAD').slice(0, 25).map((r: any) => `<tr><td>${fD(r.startTime)} ${fT(r.startTime)}</td><td>${r.workerName}</td><td>${r.siteName}</td><td><span class="badge ${r.result === 'CON_NOVEDAD' ? 'con' : 'sos'}">${r.result.replace('_', ' ')}</span></td><td>${(r.notes || '—').substring(0, 55)}</td></tr>`).join('') || '<tr><td colspan="5" style="text-align:center;color:#94a3b8">Sin incidencias</td></tr>'}</tbody></table>`;
+    } else {
+        body = `<div class="stitle">Registro Cronológico (${timeline.length} eventos)</div>${timeline.map((item: any) => { const dc = item.res === 'SIN_NOVEDAD' ? 'g' : item.res === 'CON_NOVEDAD' ? 'r' : item.tipo !== 'ronda' && item.tipo !== 'Ronda' ? 'a' : ''; const bc = item.tipo === 'Ronda' || item.tipo === 'ronda' ? 'rnd' : item.res === 'CON_NOVEDAD' ? 'con' : item.res === 'SIN_NOVEDAD' ? 'sin' : 'otr'; return `<div class="ti"><div class="td">${fD(item.ts)}<br/>${fT(item.ts)}</div><div class="dot ${dc}"></div><div style="flex:1"><div style="display:flex;gap:6px;align-items:center;margin-bottom:2px"><span class="badge ${bc}">${item.tipo}</span><strong style="font-size:10px">${item.guard}</strong><span style="color:#94a3b8;font-size:9px">· ${item.site}</span>${item.res ? `<span class="badge ${item.res === 'SIN_NOVEDAD' ? 'sin' : item.res === 'CON_NOVEDAD' ? 'con' : 'sos'}">${item.res.replace('_', ' ')}</span>` : ''}</div><div style="color:#475569;font-size:10px">${item.desc}</div></div></div>`; }).join('')}`;
+    }
+
+    const html = `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><title>Reporte GGSS Security</title><style>${css}</style></head><body><div class="hdr"><div><h1>GGSS Security</h1><p>${tipo === 'resumen_ejecutivo' ? 'Resumen Ejecutivo' : 'Libro de Novedades'}</p><p style="margin-top:6px;font-size:11px;opacity:.9">${siteName}</p></div><div class="meta"><div>Período: ${fD(startDate + 'T12:00')} — ${fD(endDate + 'T12:00')}</div><div>Generado: ${now}</div><div>Total rondas incluidas: ${rounds.length}</div></div></div>${body}<div class="ftr"><span>GGSS Security — Portal Mandante</span><span>Generado automáticamente · ${now}</span></div></body></html>`;
+
+    const win = window.open('', '_blank', 'width=900,height=700');
+    if (!win) { alert('Permite ventanas emergentes para generar el PDF'); return; }
+    win.document.write(html);
+    win.document.close();
+    setTimeout(() => win.print(), 600);
+};
+
 // ─── Reportes ─────────────────────────────────────────────────────────────────
-const Reportes = ({ allowedSites }: any) => {
+const Reportes = ({ allowedSites, guardRounds, novedades }: any) => {
     const [startDate, setStartDate] = useState(() => { const d = new Date(); d.setMonth(d.getMonth() - 1); return d.toISOString().split('T')[0]; });
     const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
     const [tipoReporte, setTipoReporte] = useState('resumen_ejecutivo');
     const [siteFilter, setSiteFilter] = useState('all');
 
+    const filteredRounds = useMemo(() => guardRounds.filter((r: any) => {
+        const inSite = allowedSites.some((s: any) => String(s.id) === String(r.siteId));
+        const siteMatch = siteFilter === 'all' || String(r.siteId) === siteFilter;
+        const d = r.startTime.substring(0, 10);
+        return inSite && siteMatch && d >= startDate && d <= endDate;
+    }), [guardRounds, allowedSites, siteFilter, startDate, endDate]);
+
+    const filteredNovedades = useMemo(() => novedades.filter((n: any) => {
+        const inSite = allowedSites.some((s: any) => String(s.id) === String(n.siteId));
+        const siteMatch = siteFilter === 'all' || String(n.siteId) === siteFilter;
+        const d = n.timestamp.substring(0, 10);
+        return inSite && siteMatch && d >= startDate && d <= endDate;
+    }), [novedades, allowedSites, siteFilter, startDate, endDate]);
+
+    const siteName = siteFilter === 'all' ? 'Todas las instalaciones'
+        : (allowedSites.find((s: any) => String(s.id) === siteFilter)?.name || 'Instalación');
+
     return (
         <div className="space-y-5">
             <div>
                 <h3 className="text-xl font-black text-slate-800">Reportes</h3>
-                <p className="text-sm text-slate-400 mt-0.5">Generación y descarga de informes del servicio</p>
+                <p className="text-sm text-slate-400 mt-0.5">Generación y descarga de informes del servicio en PDF</p>
             </div>
             <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6 max-w-2xl">
                 <h4 className="font-bold text-slate-700 mb-5 flex items-center gap-2">
@@ -542,8 +659,8 @@ const Reportes = ({ allowedSites }: any) => {
                         <label className="text-xs font-bold text-slate-500 uppercase tracking-widest block mb-2">Tipo de Reporte</label>
                         <div className="grid grid-cols-2 gap-3">
                             {[
-                                { id: 'resumen_ejecutivo', label: 'Resumen Ejecutivo', icon: <BarChart3 size={18} />, desc: 'KPIs, estadísticas y resumen del período' },
-                                { id: 'libro_novedades', label: 'Libro de Novedades', icon: <BookOpen size={18} />, desc: 'Registro cronológico de todos los eventos' },
+                                { id: 'resumen_ejecutivo', label: 'Resumen Ejecutivo', icon: <BarChart3 size={18} />, desc: 'Métricas por guardia, incidencias y estadísticas del período' },
+                                { id: 'libro_novedades', label: 'Libro de Novedades', icon: <BookOpen size={18} />, desc: 'Registro cronológico completo de rondas y novedades' },
                             ].map(opt => (
                                 <button key={opt.id} onClick={() => setTipoReporte(opt.id)}
                                     className={`p-4 rounded-xl border-2 text-left transition-all ${tipoReporte === opt.id ? 'border-blue-500 bg-blue-50' : 'border-slate-200 hover:border-slate-300 bg-white'}`}>
@@ -555,21 +672,28 @@ const Reportes = ({ allowedSites }: any) => {
                         </div>
                     </div>
                 </div>
-                <div className="mt-6 pt-5 border-t border-slate-100">
-                    <div className="flex items-center gap-3 p-3 bg-amber-50 border border-amber-100 rounded-xl mb-4">
-                        <Info size={14} className="text-amber-500 shrink-0" />
-                        <p className="text-xs text-amber-700">La descarga de PDF estará disponible en la próxima versión.</p>
-                    </div>
-                    <button disabled className="w-full flex items-center justify-center gap-3 py-3.5 bg-slate-200 text-slate-400 rounded-xl font-black text-sm uppercase tracking-widest cursor-not-allowed">
-                        <Download size={18} /> Descargar PDF (Próximamente)
+                <div className="mt-5 p-3 bg-slate-50 border border-slate-200 rounded-xl flex items-center gap-3">
+                    <Activity size={14} className="text-slate-400 shrink-0" />
+                    <p className="text-xs text-slate-600">
+                        <span className="font-bold">{filteredRounds.length} rondas</span> y <span className="font-bold">{filteredNovedades.length} novedades</span> incluidas en el reporte.
+                    </p>
+                </div>
+                <div className="mt-5 pt-5 border-t border-slate-100">
+                    <button
+                        onClick={() => generatePDF(tipoReporte, filteredRounds, filteredNovedades, siteName, startDate, endDate)}
+                        disabled={filteredRounds.length === 0 && filteredNovedades.length === 0}
+                        className="w-full flex items-center justify-center gap-3 py-3.5 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed text-white rounded-xl font-black text-sm uppercase tracking-widest transition-all active:scale-[0.98] shadow-lg shadow-blue-100"
+                    >
+                        <Download size={18} /> Generar y Descargar PDF
                     </button>
+                    <p className="text-center text-[10px] text-slate-400 mt-2">Se abrirá el diálogo de impresión — selecciona "Guardar como PDF"</p>
                 </div>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 max-w-2xl">
                 {[
-                    { label: 'KPIs Mensuales', icon: <TrendingUp size={20} /> },
                     { label: 'Evidencias Fotográficas', icon: <Camera size={20} /> },
-                    { label: 'Comparativas', icon: <BarChart3 size={20} /> },
+                    { label: 'KPIs Mensuales Comparativos', icon: <TrendingUp size={20} /> },
+                    { label: 'Mapa de Rondas', icon: <MapPin size={20} /> },
                 ].map(f => (
                     <div key={f.label} className="bg-slate-50 border border-dashed border-slate-200 rounded-2xl p-4 text-center opacity-60">
                         <div className="text-slate-300 flex justify-center mb-2">{f.icon}</div>
@@ -684,7 +808,7 @@ const MandanteView: React.FC = () => {
                             <RegistroRondas allowedSites={allowedSites} guardRounds={guardRounds} showConfirmation={showConfirmation} />
                         )}
                         {activeSection === 'reportes' && (
-                            <Reportes allowedSites={allowedSites} />
+                            <Reportes allowedSites={allowedSites} guardRounds={guardRounds} novedades={novedades} />
                         )}
                     </div>
                 </main>
