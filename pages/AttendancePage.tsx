@@ -20,14 +20,21 @@ const AttendancePage: React.FC = () => {
     const { attendanceLogs, sites } = useAppStore();
     const [searchTerm, setSearchTerm] = useState('');
     const [selectedSiteId, setSelectedSiteId] = useState<string | number | 'all'>('all');
-    const [filterType, setFilterType] = useState<'all' | 'day' | 'week' | 'month' | 'range'>('day');
+
     const getTodayStr = () => {
         const d = new Date();
         return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     };
 
-    const [startDate, setStartDate] = useState(getTodayStr());
+    const getDaysAgoStr = (daysAgo: number) => {
+        const d = new Date();
+        d.setDate(d.getDate() - daysAgo);
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    };
+
+    const [startDate, setStartDate] = useState(getDaysAgoStr(2));
     const [endDate, setEndDate] = useState(getTodayStr());
+    const [filterType, setFilterType] = useState<'all' | 'day' | 'week' | 'month' | 'range'>('range');
     const [selectedPhoto, setSelectedPhoto] = useState<string | null>(null);
 
     // Helpers for Date logic
@@ -45,6 +52,12 @@ const AttendancePage: React.FC = () => {
 
     const handleFilterTypeChange = (type: 'all' | 'day' | 'week' | 'month' | 'range') => {
         setFilterType(type);
+        if (type === 'day') {
+            setStartDate(getTodayStr());
+        } else if (type === 'range') {
+            setStartDate(getDaysAgoStr(2));
+            setEndDate(getTodayStr());
+        }
     };
 
     // Helper to calculate duration for Check Out events

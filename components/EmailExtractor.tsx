@@ -35,32 +35,33 @@ interface ParsedRow {
     nombreGuardia: string;
     fechaNacimiento: string;
     sexo: string;
+    extraData: string[];
 }
 
 // ─── Columnas de salida ───────────────────────────────────────────────────────
 const OUTPUT_HEADERS: { key: keyof Omit<ParsedRow, 'id'>; label: string }[] = [
-    { key: 'supervisorSolicitante',  label: 'Supervisor Solicitante' },
-    { key: 'fechaSolicitud',         label: 'Fecha de solicitud de servicio' },
-    { key: 'motivoSolicitud',        label: 'Motivo Solicitud' },
-    { key: 'sucursal',               label: 'Sucursal' },
-    { key: 'direccionSucursal',      label: 'Dirección Sucursal' },
-    { key: 'cantDias',               label: 'Cant Días' },
-    { key: 'fechaInicioServicio',    label: 'Fecha Inicio Servicio' },
-    { key: 'fechaTerminoServicio',   label: 'Fecha Termino Servicio' },
-    { key: 'horaInicioServicio',     label: 'Hora Inicio Servicio' },
-    { key: 'horaTerminoServicio',    label: 'Hora Termino Servicio' },
-    { key: 'dia',                    label: 'Día' },
-    { key: 'noche',                  label: 'Noche' },
-    { key: 'horasDia',               label: 'Horas Día' },
-    { key: 'horasNoche',             label: 'Horas Noche' },
-    { key: 'calculoHoras',           label: 'Cálculo Horas' },
-    { key: 'horasEfectivas',         label: 'Horas Efectivas Trabajadas' },
-    { key: 'valorHora',              label: 'Valor Hora' },
-    { key: 'costoTotal',             label: 'Costo Total Horas' },
-    { key: 'rutGuardia',             label: 'Rut Guardia Seguridad' },
-    { key: 'nombreGuardia',          label: 'Nombre Guardia Seguridad' },
-    { key: 'fechaNacimiento',        label: 'Fecha de Nacimiento' },
-    { key: 'sexo',                   label: 'Sexo' },
+    { key: 'supervisorSolicitante', label: 'Supervisor Solicitante' },
+    { key: 'fechaSolicitud', label: 'Fecha de solicitud de servicio' },
+    { key: 'motivoSolicitud', label: 'Motivo Solicitud' },
+    { key: 'sucursal', label: 'Sucursal' },
+    { key: 'direccionSucursal', label: 'Dirección Sucursal' },
+    { key: 'cantDias', label: 'Cant Días' },
+    { key: 'fechaInicioServicio', label: 'Fecha Inicio Servicio' },
+    { key: 'fechaTerminoServicio', label: 'Fecha Termino Servicio' },
+    { key: 'horaInicioServicio', label: 'Hora Inicio Servicio' },
+    { key: 'horaTerminoServicio', label: 'Hora Termino Servicio' },
+    { key: 'dia', label: 'Día' },
+    { key: 'noche', label: 'Noche' },
+    { key: 'horasDia', label: 'Horas Día' },
+    { key: 'horasNoche', label: 'Horas Noche' },
+    { key: 'calculoHoras', label: 'Cálculo Horas' },
+    { key: 'horasEfectivas', label: 'Horas Efectivas Trabajadas' },
+    { key: 'valorHora', label: 'Valor Hora' },
+    { key: 'costoTotal', label: 'Costo Total Horas' },
+    { key: 'rutGuardia', label: 'Rut Guardia Seguridad' },
+    { key: 'nombreGuardia', label: 'Nombre Guardia Seguridad' },
+    { key: 'fechaNacimiento', label: 'Fecha de Nacimiento' },
+    { key: 'sexo', label: 'Sexo' },
 ];
 
 // ─── Normalización de encabezados para mapeo ─────────────────────────────────
@@ -118,6 +119,7 @@ const emptyRow = (): ParsedRow => ({
     nombreGuardia: '',
     fechaNacimiento: '',
     sexo: '',
+    extraData: [],
 });
 
 // ─── Parser principal ─────────────────────────────────────────────────────────
@@ -155,10 +157,17 @@ function parseHorizontalFormat(lines: string[]): ParsedRow[] {
         const cells = lines[i].split('\t').map(c => c.trim());
         if (cells.every(c => c === '')) continue;
         const row = emptyRow();
-        headers.forEach((hdr, idx) => {
-            const key = mapHeaderToKey(hdr);
-            if (key && cells[idx] !== undefined) {
-                (row as any)[key] = cells[idx];
+        cells.forEach((cell, idx) => {
+            const hdr = headers[idx];
+            if (hdr) {
+                const key = mapHeaderToKey(hdr);
+                if (key) {
+                    (row as any)[key] = cell;
+                } else {
+                    row.extraData.push(cell);
+                }
+            } else {
+                row.extraData.push(cell);
             }
         });
         results.push(row);
@@ -273,9 +282,15 @@ const EmailExtractor: React.FC<EmailExtractorProps> = ({ onBack }) => {
     // ── Copiar para Excel (TSV) ──────────────────────────────────────────────
     const handleCopyTable = async () => {
         if (results.length === 0) return;
-        const rows = results.map(r =>
-            OUTPUT_HEADERS.map(h => (r as any)[h.key] ?? '')
-        );
+
+        const maxExtra = results.reduce((max, row) => Math.max(max, row.extraData.length), 0);
+
+        const rows = results.map(r => {
+            const base = OUTPUT_HEADERS.map(h => (r as any)[h.key] ?? '');
+            const extras = Array.from({ length: maxExtra }, (_, i) => r.extraData[i] ?? '');
+            return [...base, ...extras];
+        });
+
         const tsv = rows.map(row => row.join('\t')).join('\n');
         try {
             await navigator.clipboard.writeText(tsv);
@@ -302,8 +317,8 @@ const EmailExtractor: React.FC<EmailExtractorProps> = ({ onBack }) => {
         <div className="animate-in slide-in-from-bottom-4 duration-300 space-y-6 max-w-[1600px] mx-auto">
 
             {/* ── Header ─────────────────────────────────────────────────── */}
-            <div className="flex items-center justify-between">
-                <div className="flex items-center gap-4">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div className="flex items-center gap-4 shrink-0">
                     <button
                         onClick={onBack}
                         className="p-3 bg-white rounded-2xl border border-slate-100 shadow-sm hover:bg-slate-50 text-slate-500 transition-all hover:scale-105"
@@ -318,6 +333,15 @@ const EmailExtractor: React.FC<EmailExtractorProps> = ({ onBack }) => {
                             <h2 className="text-xl font-bold text-slate-800">Extractor de Correos a Planilla</h2>
                             <p className="text-sm text-slate-500">Convierte tablas de correo Gmail al formato Excel</p>
                         </div>
+                    </div>
+                </div>
+
+                <div className="bg-yellow-50 border border-yellow-200/60 rounded-xl p-3 max-w-2xl shadow-sm">
+                    <div className="flex gap-2.5">
+                        <Info className="text-yellow-500 shrink-0 mt-0.5" size={18} />
+                        <p className="text-sm text-yellow-800 leading-relaxed font-medium">
+                            Esta herramienta ayuda a obtener extraer los datos de los servicios solicitados en correos, se deben revisar sus resultados prestando atencion a : <strong className="font-bold">Días Feriados, Fin de Semanas, Nocturnos</strong> para evitar errores o duplicidad de informacion.
+                        </p>
                     </div>
                 </div>
             </div>
@@ -345,9 +369,9 @@ const EmailExtractor: React.FC<EmailExtractorProps> = ({ onBack }) => {
                             <div className="flex items-start gap-2">
                                 <Info size={15} className="text-indigo-400 mt-0.5 shrink-0" />
                                 <div className="text-xs text-indigo-600 font-medium leading-relaxed">
-                                    <p className="font-bold mb-1">Formatos soportados:</p>
-                                    <p>• <strong>Vertical:</strong> Etiqueta sobre valor (correo Gmail vista vertical)</p>
-                                    <p>• <strong>Horizontal:</strong> Tabla con encabezados separados por Tab</p>
+                                    <p className="font-bold mb-1">Instrucciones:</p>
+                                    <p>• <strong>Copiar</strong> copiar la tabla del correo Gmail completa de inicio a fin del servicio solicitado</p>
+                                    <p>• <strong>Pegar:</strong>  Pegarla en el cuadro de texto y darle al boton Extraer a planilla.</p>
                                     <p className="mt-1 text-indigo-500">Soporta 1 o múltiples registros.</p>
                                 </div>
                             </div>
@@ -473,6 +497,14 @@ const EmailExtractor: React.FC<EmailExtractorProps> = ({ onBack }) => {
                                                         {h.label}
                                                     </th>
                                                 ))}
+                                                {Array.from({ length: results.reduce((max, r) => Math.max(max, r.extraData.length), 0) }).map((_, i) => (
+                                                    <th
+                                                        key={`extra-h-${i}`}
+                                                        className="px-4 py-3 text-left text-[10px] font-bold text-slate-400 uppercase tracking-widest whitespace-nowrap"
+                                                    >
+                                                        Vacío {i + 1}
+                                                    </th>
+                                                ))}
                                                 <th className="px-4 py-3 text-center text-[10px] font-bold text-slate-400 uppercase tracking-widest">
                                                     ×
                                                 </th>
@@ -490,6 +522,18 @@ const EmailExtractor: React.FC<EmailExtractorProps> = ({ onBack }) => {
                                                         return (
                                                             <td
                                                                 key={h.key}
+                                                                className={`px-4 py-3 whitespace-nowrap text-sm ${isEmpty ? 'text-slate-300 italic' : 'text-slate-700 font-medium'}`}
+                                                            >
+                                                                {isEmpty ? '—' : val}
+                                                            </td>
+                                                        );
+                                                    })}
+                                                    {Array.from({ length: results.reduce((max, r) => Math.max(max, r.extraData.length), 0) }).map((_, i) => {
+                                                        const val = row.extraData[i];
+                                                        const isEmpty = !val;
+                                                        return (
+                                                            <td
+                                                                key={`extra-d-${i}`}
                                                                 className={`px-4 py-3 whitespace-nowrap text-sm ${isEmpty ? 'text-slate-300 italic' : 'text-slate-700 font-medium'}`}
                                                             >
                                                                 {isEmpty ? '—' : val}

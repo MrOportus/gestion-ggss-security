@@ -12,7 +12,7 @@ const FormalizarServicio: React.FC<FormalizarServicioProps> = ({ onBack }) => {
   const { employees, sites, showNotification } = useAppStore();
 
   const [formalizarData, setFormalizarData] = useState({
-    supervisor: 'Andres Castro',
+    supervisor: '',
     proveedor: 'Aspro',
     sucursalId: '',
     motivo: '',
@@ -26,18 +26,30 @@ const FormalizarServicio: React.FC<FormalizarServicioProps> = ({ onBack }) => {
   const [formalizarEmpSearch, setFormalizarEmpSearch] = useState('');
   const [showFormalizarSiteList, setShowFormalizarSiteList] = useState(false);
   const [showFormalizarEmpList, setShowFormalizarEmpList] = useState(false);
+  const [showSupervisorList, setShowSupervisorList] = useState(false);
+  
   const formalizarSiteRef = useRef<HTMLDivElement>(null);
   const formalizarEmpRef = useRef<HTMLDivElement>(null);
+  const supervisorRef = useRef<HTMLDivElement>(null);
+  
   const [formalizarRows, setFormalizarRows] = useState<any[]>([]);
+
+  const SUPERVISORES = ["Juan Retamal", "Jaime Soto", "Cristina Toro"];
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (formalizarSiteRef.current && !formalizarSiteRef.current.contains(event.target as Node)) setShowFormalizarSiteList(false);
       if (formalizarEmpRef.current && !formalizarEmpRef.current.contains(event.target as Node)) setShowFormalizarEmpList(false);
+      if (supervisorRef.current && !supervisorRef.current.contains(event.target as Node)) setShowSupervisorList(false);
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  const filteredSupervisors = useMemo(() => {
+    const lower = normalizeText(formalizarData.supervisor);
+    return SUPERVISORES.filter(s => normalizeText(s).includes(lower));
+  }, [formalizarData.supervisor]);
 
   const filteredFormalizarSites = useMemo(() => {
     const lower = normalizeText(formalizarSiteSearch);
@@ -152,16 +164,44 @@ const FormalizarServicio: React.FC<FormalizarServicioProps> = ({ onBack }) => {
 
           {/* Supervisor y Proveedor */}
           <div className="space-y-4">
-            <div className="flex flex-col space-y-1">
+            <div className="flex flex-col space-y-1 relative" ref={supervisorRef}>
               <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Supervisor</label>
-              <select
-                className="w-full px-4 py-2 text-sm border-b-2 border-slate-100 focus:border-blue-500 outline-none bg-slate-50 rounded-t-lg transition-colors"
-                value={formalizarData.supervisor}
-                onChange={(e) => setFormalizarData({ ...formalizarData, supervisor: e.target.value })}
-              >
-                <option value="Andres Castro">Andres Castro</option>
-                <option value="Patricia Yevenes">Patricia Yevenes</option>
-              </select>
+              <div className="relative">
+                <Search className="absolute left-3 top-2.5 text-slate-400" size={14} />
+                <input
+                  type="text"
+                  placeholder="Escriba o seleccione..."
+                  className="w-full pl-9 pr-4 py-2 text-sm border-b-2 border-slate-100 focus:border-blue-500 outline-none bg-slate-50 rounded-t-lg transition-colors cursor-pointer"
+                  value={formalizarData.supervisor}
+                  onFocus={() => setShowSupervisorList(true)}
+                  onChange={(e) => {
+                    setFormalizarData({ ...formalizarData, supervisor: e.target.value });
+                    setShowSupervisorList(true);
+                  }}
+                  onBlur={() => setTimeout(() => setShowSupervisorList(false), 200)}
+                />
+              </div>
+              {showSupervisorList && (
+                <div className="absolute top-full left-0 w-full bg-white border border-slate-200 rounded-b-lg shadow-2xl max-h-60 overflow-auto z-[110]">
+                  {filteredSupervisors.map(s => (
+                    <div
+                      key={s}
+                      className="px-4 py-2 hover:bg-blue-50 cursor-pointer border-b border-slate-50 text-sm font-bold text-slate-700"
+                      onClick={() => {
+                        setFormalizarData({ ...formalizarData, supervisor: s });
+                        setShowSupervisorList(false);
+                      }}
+                    >
+                      {s}
+                    </div>
+                  ))}
+                  {filteredSupervisors.length === 0 && (
+                    <div className="p-4 text-xs text-slate-400 italic text-center">
+                      Usar "{formalizarData.supervisor}"
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
             <div className="flex flex-col space-y-1">
               <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Proveedor</label>

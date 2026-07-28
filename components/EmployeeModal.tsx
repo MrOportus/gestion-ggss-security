@@ -11,12 +11,13 @@ interface EmployeeModalProps {
 }
 
 // Helper para renderizar campos - Movido fuera del componente para evitar recreación y pérdida de foco
-const DataField = ({ label, value, name, type = "text", options = null, prefix = "", isEditing, onChange, displayValue: customDisplayValue }: {
+const DataField = ({ label, value, name, type = "text", options = null, searchable = false, prefix = "", isEditing, onChange, displayValue: customDisplayValue }: {
   label: string,
   value: any,
   name: string,
   type?: string,
   options?: any,
+  searchable?: boolean,
   prefix?: string,
   isEditing: boolean,
   onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => void,
@@ -32,7 +33,7 @@ const DataField = ({ label, value, name, type = "text", options = null, prefix =
     <div className="flex flex-col space-y-1">
       <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{label}</span>
       {isEditing ? (
-        options ? (
+        options && !searchable ? (
           <select
             name={name}
             value={value || ''}
@@ -41,6 +42,26 @@ const DataField = ({ label, value, name, type = "text", options = null, prefix =
           >
             {options.map((opt: any) => <option key={opt.val} value={opt.val}>{opt.label}</option>)}
           </select>
+        ) : options && searchable ? (
+          <div className="relative">
+            <input
+              list={`list-${name}`}
+              name={name}
+              defaultValue={options.find((o: any) => String(o.val) === String(value))?.label || ''}
+              onChange={(e) => {
+                const matched = options.find((o: any) => o.label === e.target.value);
+                if (matched) {
+                  onChange({ target: { name, value: matched.val } } as any);
+                } else {
+                  onChange({ target: { name, value: '' } } as any);
+                }
+              }}
+              className="w-full bg-blue-50/50 border-b-2 border-blue-200 p-1.5 text-sm font-medium focus:border-blue-500 outline-none transition-colors"
+            />
+            <datalist id={`list-${name}`}>
+              {options.map((opt: any) => <option key={opt.val} value={opt.label} />)}
+            </datalist>
+          </div>
         ) : (
           <div className="relative">
             {prefix && <span className="absolute left-2 top-1.5 text-slate-500 text-sm font-bold">{prefix}</span>}
@@ -307,6 +328,7 @@ const EmployeeModal: React.FC<EmployeeModalProps> = ({ employee, onClose }) => {
                   value={editData.currentSiteId}
                   name="currentSiteId"
                   isEditing={isEditing}
+                  searchable={true}
                   onChange={handleInputChange}
                   options={[{ val: '', label: 'Sin Asignar' }, ...sites.map(s => ({ val: s.id, label: s.name }))]}
                 />

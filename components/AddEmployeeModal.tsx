@@ -19,6 +19,7 @@ const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({ onClose }) => {
     tipoContrato: 'Plazo Fijo'
   });
   const [password, setPassword] = useState('');
+  const [siteInputValue, setSiteInputValue] = useState('');
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
@@ -192,10 +193,24 @@ const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({ onClose }) => {
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">Sucursal Asignada</label>
-                  <select name="currentSiteId" onChange={(e) => setFormData(p => ({ ...p, currentSiteId: Number(e.target.value) }))} className={inputClass}>
-                    <option value="">Seleccione Sucursal</option>
-                    {sites.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                  </select>
+                  <input
+                    list="sites-list-add"
+                    className={inputClass}
+                    placeholder="Buscar sucursal..."
+                    value={siteInputValue}
+                    onChange={(e) => {
+                      setSiteInputValue(e.target.value);
+                      const selectedSite = sites.find(s => s.name === e.target.value);
+                      if (selectedSite) {
+                        setFormData(p => ({ ...p, currentSiteId: Number(selectedSite.id) }));
+                      } else {
+                        setFormData(p => ({ ...p, currentSiteId: undefined }));
+                      }
+                    }}
+                  />
+                  <datalist id="sites-list-add">
+                    {sites.map(s => <option key={s.id} value={s.name} />)}
+                  </datalist>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">Sueldo Líquido</label>

@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useAppStore } from '../store/useAppStore';
 import { normalizeText, matchesEmployeeSearch } from '../lib/textUtils';
 
@@ -18,12 +18,22 @@ const AdminDashboard: React.FC = () => {
   const [activeFilter, setActiveFilter] = useState<DashboardFilter>('active_total');
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedSiteId, setSelectedSiteId] = useState<string | number>('all');
+  const [siteInputValue, setSiteInputValue] = useState('');
+
+  useEffect(() => {
+    if (selectedSiteId === 'all') {
+      setSiteInputValue('');
+    } else {
+      const site = sites.find(s => String(s.id) === String(selectedSiteId));
+      if (site) setSiteInputValue(site.name);
+    }
+  }, [selectedSiteId, sites]);
 
   const [programming, setProgramming] = React.useState<{ employeeId: string; siteId: string | number; isManualPresent?: boolean }[]>([]);
   const [localAttendanceLogs, setLocalAttendanceLogs] = React.useState(attendanceLogs);
   const [reminders, setReminders] = useState<BoardNote[]>([]);
 
-  const [closingLogInfo, setClosingLogInfo] = useState<{id: string, name: string, timestamp: string} | null>(null);
+  const [closingLogInfo, setClosingLogInfo] = useState<{ id: string, name: string, timestamp: string } | null>(null);
   const [exitTime, setExitTime] = useState<string>('');
   const [isClosing, setIsClosing] = useState(false);
 
@@ -69,10 +79,10 @@ const AdminDashboard: React.FC = () => {
     if (parts.length !== 3) return null;
     const birthMonth = parseInt(parts[1], 10) - 1; // 0-indexed
     const birthDay = parseInt(parts[2], 10);
-    
+
     const bdayThisYear = new Date(today.getFullYear(), birthMonth, birthDay);
     bdayThisYear.setHours(0, 0, 0, 0);
-    
+
     if (bdayThisYear < today) {
       const bdayNextYear = new Date(today.getFullYear() + 1, birthMonth, birthDay);
       bdayNextYear.setHours(0, 0, 0, 0);
@@ -87,16 +97,16 @@ const AdminDashboard: React.FC = () => {
     if (parts.length !== 3) return false;
     const birthMonth = parseInt(parts[1], 10) - 1; // 0-indexed
     const birthDay = parseInt(parts[2], 10);
-    
+
     const years = [today.getFullYear() - 1, today.getFullYear(), today.getFullYear() + 1];
-    
+
     for (const yr of years) {
       const bday = new Date(yr, birthMonth, birthDay);
       bday.setHours(0, 0, 0, 0);
-      
+
       const diffTime = bday.getTime() - today.getTime();
       const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
-      
+
       if (diffDays >= -7 && diffDays <= 30) {
         return true;
       }
@@ -110,17 +120,17 @@ const AdminDashboard: React.FC = () => {
     if (parts.length !== 3) return Infinity;
     const birthMonth = parseInt(parts[1], 10) - 1; // 0-indexed
     const birthDay = parseInt(parts[2], 10);
-    
+
     const years = [today.getFullYear() - 1, today.getFullYear(), today.getFullYear() + 1];
     let closestDiff = Infinity;
-    
+
     for (const yr of years) {
       const bday = new Date(yr, birthMonth, birthDay);
       bday.setHours(0, 0, 0, 0);
-      
+
       const diffTime = bday.getTime() - today.getTime();
       const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
-      
+
       if (diffDays >= -7 && diffDays <= 30) {
         return diffDays;
       }
@@ -133,7 +143,7 @@ const AdminDashboard: React.FC = () => {
 
   // 1.1 Obtener datos del usuario actual para filtrado
   const currentEmp = employees.find(e => e.id === currentUser?.uid);
-  
+
   // Listas de Empleados según criterio (Filtrado por rol para Supervisores)
   const activeEmployees = employees.filter(e => {
     if (!e.isActive) return false;
@@ -211,7 +221,7 @@ const AdminDashboard: React.FC = () => {
         return getBirthdayProximityDays(a.fechaNacimiento) - getBirthdayProximityDays(b.fechaNacimiento);
       });
       viewTitle = "Cumpleaños Próximos y Recientes";
-      viewDescription = "Listado de personal activo con cumpleaños en los próximos 30 días o hace menos de 1 semana.";
+      viewDescription = "Listado de personal activo con cumpleaños en los próximos 30 días o hace menos de 1 semana.\n(Informacion referencial siempre verificar documentacion en fotografia)";
       dateColumnHeader = "Cumpleaños";
       break;
     case 'reminders_all':
@@ -238,7 +248,7 @@ const AdminDashboard: React.FC = () => {
     // Usamos localAttendanceLogs que contiene todos los logs (sin limite de 200)
     const empLogs = localAttendanceLogs.filter(log => log.employeeId === emp.id);
     if (empLogs.length === 0) return null;
-    
+
     // El onSnapshot ya nos da los logs ordenados por timestamp desc, 
     // pero nos aseguramos por si acaso
     const sortedLogs = [...empLogs].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
@@ -335,7 +345,7 @@ const AdminDashboard: React.FC = () => {
     const unsubReminders = onSnapshot(qReminders, (snapshot) => {
       const list = snapshot.docs
         .map(doc => ({ ...doc.data(), id: doc.id } as BoardNote))
-        .filter(n => !!n.dueDate && !n.completed) 
+        .filter(n => !!n.dueDate && !n.completed)
         .sort((a, b) => new Date(a.dueDate!).getTime() - new Date(b.dueDate!).getTime());
       setReminders(list);
     }, (error) => {
@@ -455,20 +465,18 @@ const AdminDashboard: React.FC = () => {
       return <span className={`font-bold ${textColor}`}>{date}</span>;
     }
     if (activeFilter === 'birthdays_all') {
-      const nextBday = getNextBirthday(emp.fechaNacimiento);
-      const date = emp.fechaNacimiento ? new Date(emp.fechaNacimiento) : null;
-      if (!date || !nextBday) return <span className="text-slate-400">N/A</span>;
-      
-      const diffTime = nextBday.getTime() - today.getTime();
-      const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
-      
+      const diffDays = getBirthdayProximityDays(emp.fechaNacimiento);
+      if (diffDays === Infinity) return <span className="text-slate-400">N/A</span>;
+
       let dayStr = "";
       if (diffDays === 0) dayStr = "¡Hoy!";
       else if (diffDays === 1) dayStr = "Mañana";
+      else if (diffDays < 0) dayStr = `Pasó hace ${Math.abs(diffDays)} días`;
       else dayStr = `En ${diffDays} días`;
 
-      const formattedBday = `${date.getDate().toString().padStart(2, '0')}/${(date.getMonth() + 1).toString().padStart(2, '0')}`;
-      
+      const parts = emp.fechaNacimiento!.split('T')[0].split('-');
+      const formattedBday = `${parts[2]}/${parts[1]}`;
+
       return (
         <div className="text-center">
           <span className="font-bold text-slate-800">{formattedBday}</span>
@@ -625,18 +633,30 @@ const AdminDashboard: React.FC = () => {
                   />
                 </div>
 
-                <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2">
+                <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 relative">
                   <MapPin size={14} className="text-slate-400 shrink-0" />
-                  <select
-                    className="bg-transparent text-sm font-bold text-slate-700 outline-none w-full cursor-pointer"
-                    value={selectedSiteId}
-                    onChange={(e) => setSelectedSiteId(e.target.value === 'all' ? 'all' : Number(e.target.value))}
-                  >
-                    <option value="all">Todas las sucursales</option>
+                  <input
+                    list="admin-sites-list"
+                    className="bg-transparent text-sm font-bold text-slate-700 outline-none w-full min-w-[180px]"
+                    placeholder="Todas las sucursales"
+                    value={siteInputValue}
+                    onChange={(e) => {
+                      setSiteInputValue(e.target.value);
+                      if (e.target.value.trim() === '') {
+                        setSelectedSiteId('all');
+                      } else {
+                        const selectedSite = sites.find(s => s.active && s.name !== 'Administración' && s.name === e.target.value);
+                        if (selectedSite) {
+                          setSelectedSiteId(Number(selectedSite.id));
+                        }
+                      }
+                    }}
+                  />
+                  <datalist id="admin-sites-list">
                     {sites.filter(s => s.active && s.name !== 'Administración').map(s => (
-                      <option key={s.id} value={s.id}>{s.name}</option>
+                      <option key={s.id} value={s.name} />
                     ))}
-                  </select>
+                  </datalist>
                 </div>
               </div>
 
@@ -842,81 +862,81 @@ const AdminDashboard: React.FC = () => {
                     </tr>
                   ) : (
                     (() => {
-                        const now = new Date();
-                        now.setHours(0, 0, 0, 0);
-                        
-                        const endOfWeek = new Date(now);
-                        endOfWeek.setDate(now.getDate() + (7 - now.getDay()));
-                        endOfWeek.setHours(23, 59, 59, 999);
-                        
-                        const endOfNextWeek = new Date(endOfWeek);
-                        endOfNextWeek.setDate(endOfNextWeek.getDate() + 7);
-                        
-                        const grouped = reminders.reduce((acc, rem) => {
-                            if (!rem.dueDate) return acc;
-                            const date = new Date(rem.dueDate);
-                            if (date < now) acc.overdue.push(rem);
-                            else if (date <= endOfWeek) acc.thisWeek.push(rem);
-                            else if (date <= endOfNextWeek) acc.nextWeek.push(rem);
-                            else acc.later.push(rem);
-                            return acc;
-                        }, { overdue: [] as BoardNote[], thisWeek: [] as BoardNote[], nextWeek: [] as BoardNote[], later: [] as BoardNote[] });
+                      const now = new Date();
+                      now.setHours(0, 0, 0, 0);
 
-                        return [
-                            { label: 'TAREAS VENCIDAS', list: grouped.overdue, color: 'text-rose-600', bg: 'bg-rose-50/50', icon: AlertCircle },
-                            { label: 'TAREAS PARA ESTA SEMANA', list: grouped.thisWeek, color: 'text-red-600', bg: 'bg-red-50/50', icon: Clock },
-                            { label: 'TAREAS PRÓXIMA SEMANA', list: grouped.nextWeek, color: 'text-orange-600', bg: 'bg-orange-50/50', icon: Calendar },
-                            { label: 'RESTO DE TAREAS PENDIENTES', list: grouped.later, color: 'text-slate-500', bg: 'bg-slate-50/50', icon: Bell }
-                        ].map((group, groupIdx) => (
-                            group.list.length > 0 && (
-                                <React.Fragment key={groupIdx}>
-                                    <tr className={`${group.bg} border-y border-slate-100`}>
-                                        <td colSpan={4} className="px-6 py-2">
-                                            <div className={`flex items-center gap-2 text-[10px] font-black tracking-widest ${group.color}`}>
-                                                <group.icon size={12} />
-                                                {group.label} ({group.list.length})
-                                            </div>
-                                        </td>
-                                    </tr>
-                                    {group.list.map(reminder => (
-                                        <tr key={reminder.id} className="hover:bg-slate-50 transition-colors">
-                                            <td className="px-6 py-4">
-                                                <p className="font-bold text-slate-900 leading-tight">{reminder.title || 'Nota sin título'}</p>
-                                                <p className="text-[10px] text-slate-400 font-medium mt-1">Por: {reminder.createdByName}</p>
-                                            </td>
-                                            <td className="px-6 py-4">
-                                                <div 
-                                                    className="text-xs text-slate-600 italic line-clamp-2"
-                                                    dangerouslySetInnerHTML={{ __html: reminder.content || 'Sin contenido adicional' }}
-                                                />
-                                            </td>
-                                            <td className="px-6 py-4 text-center">
-                                                <div className="inline-flex items-center gap-2 text-slate-700 bg-slate-100 px-3 py-1 rounded-lg">
-                                                    <Clock size={12} className="text-slate-400" />
-                                                    <span className="font-bold text-xs">{reminder.dueDate ? new Date(reminder.dueDate).toLocaleDateString() : 'N/A'}</span>
-                                                </div>
-                                            </td>
-                                            <td className="px-6 py-4 text-right">
-                                                <div className="flex items-center justify-end gap-2">
-                                                    {reminder.dueDate && new Date(reminder.dueDate) < now ? (
-                                                        <span className="px-2 py-1 bg-red-100 text-red-700 text-[10px] font-bold rounded-full uppercase">Vencido</span>
-                                                    ) : (
-                                                        <span className="px-2 py-1 bg-amber-100 text-amber-700 text-[10px] font-bold rounded-full uppercase">Pendiente</span>
-                                                    )}
-                                                    <button
-                                                        onClick={() => updateDoc(doc(db, 'BoardNotes', reminder.id), { completed: true })}
-                                                        className="p-1.5 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-all border border-transparent hover:border-emerald-100"
-                                                        title="Marcar como completado"
-                                                    >
-                                                        <CheckCircle size={18} />
-                                                    </button>
-                                                </div>
-                                            </td>
-                                        </tr>
-                                    ))}
-                                </React.Fragment>
-                            )
-                        ));
+                      const endOfWeek = new Date(now);
+                      endOfWeek.setDate(now.getDate() + (7 - now.getDay()));
+                      endOfWeek.setHours(23, 59, 59, 999);
+
+                      const endOfNextWeek = new Date(endOfWeek);
+                      endOfNextWeek.setDate(endOfNextWeek.getDate() + 7);
+
+                      const grouped = reminders.reduce((acc, rem) => {
+                        if (!rem.dueDate) return acc;
+                        const date = new Date(rem.dueDate);
+                        if (date < now) acc.overdue.push(rem);
+                        else if (date <= endOfWeek) acc.thisWeek.push(rem);
+                        else if (date <= endOfNextWeek) acc.nextWeek.push(rem);
+                        else acc.later.push(rem);
+                        return acc;
+                      }, { overdue: [] as BoardNote[], thisWeek: [] as BoardNote[], nextWeek: [] as BoardNote[], later: [] as BoardNote[] });
+
+                      return [
+                        { label: 'TAREAS VENCIDAS', list: grouped.overdue, color: 'text-rose-600', bg: 'bg-rose-50/50', icon: AlertCircle },
+                        { label: 'TAREAS PARA ESTA SEMANA', list: grouped.thisWeek, color: 'text-red-600', bg: 'bg-red-50/50', icon: Clock },
+                        { label: 'TAREAS PRÓXIMA SEMANA', list: grouped.nextWeek, color: 'text-orange-600', bg: 'bg-orange-50/50', icon: Calendar },
+                        { label: 'RESTO DE TAREAS PENDIENTES', list: grouped.later, color: 'text-slate-500', bg: 'bg-slate-50/50', icon: Bell }
+                      ].map((group, groupIdx) => (
+                        group.list.length > 0 && (
+                          <React.Fragment key={groupIdx}>
+                            <tr className={`${group.bg} border-y border-slate-100`}>
+                              <td colSpan={4} className="px-6 py-2">
+                                <div className={`flex items-center gap-2 text-[10px] font-black tracking-widest ${group.color}`}>
+                                  <group.icon size={12} />
+                                  {group.label} ({group.list.length})
+                                </div>
+                              </td>
+                            </tr>
+                            {group.list.map(reminder => (
+                              <tr key={reminder.id} className="hover:bg-slate-50 transition-colors">
+                                <td className="px-6 py-4">
+                                  <p className="font-bold text-slate-900 leading-tight">{reminder.title || 'Nota sin título'}</p>
+                                  <p className="text-[10px] text-slate-400 font-medium mt-1">Por: {reminder.createdByName}</p>
+                                </td>
+                                <td className="px-6 py-4">
+                                  <div
+                                    className="text-xs text-slate-600 italic line-clamp-2"
+                                    dangerouslySetInnerHTML={{ __html: reminder.content || 'Sin contenido adicional' }}
+                                  />
+                                </td>
+                                <td className="px-6 py-4 text-center">
+                                  <div className="inline-flex items-center gap-2 text-slate-700 bg-slate-100 px-3 py-1 rounded-lg">
+                                    <Clock size={12} className="text-slate-400" />
+                                    <span className="font-bold text-xs">{reminder.dueDate ? new Date(reminder.dueDate).toLocaleDateString() : 'N/A'}</span>
+                                  </div>
+                                </td>
+                                <td className="px-6 py-4 text-right">
+                                  <div className="flex items-center justify-end gap-2">
+                                    {reminder.dueDate && new Date(reminder.dueDate) < now ? (
+                                      <span className="px-2 py-1 bg-red-100 text-red-700 text-[10px] font-bold rounded-full uppercase">Vencido</span>
+                                    ) : (
+                                      <span className="px-2 py-1 bg-amber-100 text-amber-700 text-[10px] font-bold rounded-full uppercase">Pendiente</span>
+                                    )}
+                                    <button
+                                      onClick={() => updateDoc(doc(db, 'BoardNotes', reminder.id), { completed: true })}
+                                      className="p-1.5 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-all border border-transparent hover:border-emerald-100"
+                                      title="Marcar como completado"
+                                    >
+                                      <CheckCircle size={18} />
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            ))}
+                          </React.Fragment>
+                        )
+                      ));
                     })()
                   )}
                 </tbody>
@@ -971,15 +991,15 @@ const AdminDashboard: React.FC = () => {
                       const isOS10 = activeFilter === 'os10_all';
 
                       const urgencyGroups = isOS10 ? [
-                        { label: 'CRÍTICO: YA VENCIDOS',            list: filteredList.filter(e => isBefore(e.fechaVencimientoOS10, today)),                                            color: 'text-red-600',    bg: 'bg-red-50/60',     icon: AlertCircle },
-                        { label: 'URGENTE: VENCE < 30 DÍAS',        list: filteredList.filter(e => isBetween(e.fechaVencimientoOS10, today, thirtyDaysFromNow)),                       color: 'text-orange-600', bg: 'bg-orange-50/60',  icon: ShieldAlert },
-                        { label: 'AVISO: VENCE 30-60 DÍAS',         list: filteredList.filter(e => { if (!e.fechaVencimientoOS10) return false; const d = new Date(e.fechaVencimientoOS10); d.setHours(0,0,0,0); return d > thirtyDaysFromNow && d <= sixtyDaysFromNow; }), color: 'text-orange-400', bg: 'bg-slate-50/40', icon: ShieldAlert },
-                        { label: 'PLANIFICACIÓN: VENCE 60-90 DÍAS', list: filteredList.filter(e => { if (!e.fechaVencimientoOS10) return false; const d = new Date(e.fechaVencimientoOS10); d.setHours(0,0,0,0); return d > sixtyDaysFromNow && d <= ninetyDaysFromNow; }), color: 'text-yellow-600', bg: 'bg-slate-50/20', icon: ShieldAlert },
+                        { label: 'CRÍTICO: YA VENCIDOS', list: filteredList.filter(e => isBefore(e.fechaVencimientoOS10, today)), color: 'text-red-600', bg: 'bg-red-50/60', icon: AlertCircle },
+                        { label: 'URGENTE: VENCE < 30 DÍAS', list: filteredList.filter(e => isBetween(e.fechaVencimientoOS10, today, thirtyDaysFromNow)), color: 'text-orange-600', bg: 'bg-orange-50/60', icon: ShieldAlert },
+                        { label: 'AVISO: VENCE 30-60 DÍAS', list: filteredList.filter(e => { if (!e.fechaVencimientoOS10) return false; const d = new Date(e.fechaVencimientoOS10); d.setHours(0, 0, 0, 0); return d > thirtyDaysFromNow && d <= sixtyDaysFromNow; }), color: 'text-orange-400', bg: 'bg-slate-50/40', icon: ShieldAlert },
+                        { label: 'PLANIFICACIÓN: VENCE 60-90 DÍAS', list: filteredList.filter(e => { if (!e.fechaVencimientoOS10) return false; const d = new Date(e.fechaVencimientoOS10); d.setHours(0, 0, 0, 0); return d > sixtyDaysFromNow && d <= ninetyDaysFromNow; }), color: 'text-yellow-600', bg: 'bg-slate-50/20', icon: ShieldAlert },
                       ] : activeFilter === 'contracts_all' ? [
-                        { label: 'CRÍTICO: CONTRATO VENCIDO',       list: filteredList.filter(e => isBefore(e.fechaTerminoContrato, today)),                                            color: 'text-red-600',    bg: 'bg-red-50/60',     icon: AlertCircle },
-                        { label: 'URGENTE: VENCE < 30 DÍAS',        list: filteredList.filter(e => isBetween(e.fechaTerminoContrato, today, thirtyDaysFromNow)),                       color: 'text-orange-600', bg: 'bg-orange-50/60',  icon: FileWarning },
-                        { label: 'AVISO: VENCE 30-60 DÍAS',         list: filteredList.filter(e => { if (!e.fechaTerminoContrato) return false; const d = new Date(e.fechaTerminoContrato); d.setHours(0,0,0,0); return d > thirtyDaysFromNow && d <= sixtyDaysFromNow; }), color: 'text-blue-600', bg: 'bg-blue-50/30', icon: FileCheck },
-                        { label: 'PLANIFICACIÓN: VENCE 60-90 DÍAS', list: filteredList.filter(e => { if (!e.fechaTerminoContrato) return false; const d = new Date(e.fechaTerminoContrato); d.setHours(0,0,0,0); return d > sixtyDaysFromNow && d <= ninetyDaysFromNow; }), color: 'text-slate-600', bg: 'bg-slate-50/10', icon: FileCheck },
+                        { label: 'CRÍTICO: CONTRATO VENCIDO', list: filteredList.filter(e => isBefore(e.fechaTerminoContrato, today)), color: 'text-red-600', bg: 'bg-red-50/60', icon: AlertCircle },
+                        { label: 'URGENTE: VENCE < 30 DÍAS', list: filteredList.filter(e => isBetween(e.fechaTerminoContrato, today, thirtyDaysFromNow)), color: 'text-orange-600', bg: 'bg-orange-50/60', icon: FileWarning },
+                        { label: 'AVISO: VENCE 30-60 DÍAS', list: filteredList.filter(e => { if (!e.fechaTerminoContrato) return false; const d = new Date(e.fechaTerminoContrato); d.setHours(0, 0, 0, 0); return d > thirtyDaysFromNow && d <= sixtyDaysFromNow; }), color: 'text-blue-600', bg: 'bg-blue-50/30', icon: FileCheck },
+                        { label: 'PLANIFICACIÓN: VENCE 60-90 DÍAS', list: filteredList.filter(e => { if (!e.fechaTerminoContrato) return false; const d = new Date(e.fechaTerminoContrato); d.setHours(0, 0, 0, 0); return d > sixtyDaysFromNow && d <= ninetyDaysFromNow; }), color: 'text-slate-600', bg: 'bg-slate-50/10', icon: FileCheck },
                       ] : [
                         {
                           label: 'CUMPLEAÑOS PRÓXIMOS (30 DÍAS)',
@@ -1047,7 +1067,7 @@ const AdminDashboard: React.FC = () => {
                                         const siteName = sites.find(s => s.id === emp.currentSiteId)?.name || 'Sin Asignar';
                                         const diffDays = activeFilter === 'birthdays_all' ? getBirthdayProximityDays(emp.fechaNacimiento) : null;
                                         const isHighlight = activeFilter === 'birthdays_all' && (diffDays === 0 || diffDays === 1);
-                                        const rowClass = isHighlight 
+                                        const rowClass = isHighlight
                                           ? "bg-yellow-50 border-l-4 border-yellow-400 hover:bg-yellow-100/60 transition-colors"
                                           : "hover:bg-blue-50/50 transition-colors group";
                                         return (
@@ -1186,7 +1206,7 @@ const AdminDashboard: React.FC = () => {
                         title: "Error al Cerrar",
                         message: e.message || "No se pudo cerrar el turno. Intente nuevamente.",
                         type: 'alert',
-                        onConfirm: () => {}
+                        onConfirm: () => { }
                       });
                     } finally {
                       setIsClosing(false);

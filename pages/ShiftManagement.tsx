@@ -1,5 +1,6 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useAppStore } from '../store/useAppStore';
+import { normalizeText } from '../lib/textUtils';
 import { db } from '../lib/firebase';
 import { collection, query, where, onSnapshot, doc, updateDoc, Timestamp } from 'firebase/firestore';
 import {
@@ -7,6 +8,8 @@ import {
     MapPin,
     ChevronLeft,
     ChevronRight,
+    ChevronUp,
+    ChevronDown,
     Save,
     Edit3,
     CheckCircle2,
@@ -88,6 +91,9 @@ const ShiftManagement: React.FC = () => {
     // --- State ---
     const [currentDate, setCurrentDate] = useState(new Date());
     const [selectedSiteId, setSelectedSiteId] = useState<string | number>('');
+    const [siteInputValue, setSiteInputValue] = useState('');
+    const [showSiteList, setShowSiteList] = useState(false);
+    const siteSearchRef = useRef<HTMLDivElement>(null);
     const [isEditMode, setIsEditMode] = useState(false);
     const [isManageStaffOpen, setIsManageStaffOpen] = useState(false);
 
@@ -157,6 +163,27 @@ const ShiftManagement: React.FC = () => {
             setSelectedSiteId(filteredSitesForUser[0].id);
         }
     }, [filteredSitesForUser, selectedSiteId]);
+
+    useEffect(() => {
+        if (selectedSiteId) {
+            const site = sites.find(s => String(s.id) === String(selectedSiteId));
+            if (site) setSiteInputValue(site.name);
+        }
+    }, [selectedSiteId, sites]);
+
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            if (siteSearchRef.current && !siteSearchRef.current.contains(event.target as Node)) {
+                setShowSiteList(false);
+                if (selectedSiteId) {
+                    const site = filteredSitesForUser.find(s => String(s.id) === String(selectedSiteId));
+                    if (site) setSiteInputValue(site.name);
+                }
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, [selectedSiteId, filteredSitesForUser]);
 
     // --- Global Mouse Up Listener for Dragging ---
     useEffect(() => {
@@ -674,6 +701,26 @@ const ShiftManagement: React.FC = () => {
         return 'sin_contrato';
     }, [employeeContractEvaluations, days, getCellStatus, getEmployeeActiveContrato]);
 
+    const handlePrevSite = () => {
+        if (!selectedSiteId || filteredSitesForUser.length === 0) return;
+        const currentIndex = filteredSitesForUser.findIndex(s => s.id === selectedSiteId);
+        if (currentIndex > 0) {
+            setSelectedSiteId(filteredSitesForUser[currentIndex - 1].id);
+        } else {
+            setSelectedSiteId(filteredSitesForUser[filteredSitesForUser.length - 1].id);
+        }
+    };
+
+    const handleNextSite = () => {
+        if (!selectedSiteId || filteredSitesForUser.length === 0) return;
+        const currentIndex = filteredSitesForUser.findIndex(s => s.id === selectedSiteId);
+        if (currentIndex < filteredSitesForUser.length - 1) {
+            setSelectedSiteId(filteredSitesForUser[currentIndex + 1].id);
+        } else {
+            setSelectedSiteId(filteredSitesForUser[0].id);
+        }
+    };
+
     return (
         <div className="p-6 max-w-[100vw] overflow-x-hidden space-y-6 h-screen flex flex-col bg-slate-50 select-none">
             
@@ -787,19 +834,70 @@ const ShiftManagement: React.FC = () => {
                         </button>
                     )}
 
+                    <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-lg border border-slate-200">
+                        <button
+                            onClick={handlePrevSite}
+                            className="p-1 hover:bg-white hover:text-blue-600 rounded text-slate-600 transition shadow-sm"
+                            title="Sucursal Anterior"
+                        >
+                            <ChevronUp size={18} />
+                        </button>
+                        <button
+                            onClick={handleNextSite}
+                            className="p-1 hover:bg-white hover:text-blue-600 rounded text-slate-600 transition shadow-sm"
+                            title="Sucursal Siguiente"
+                        >
+                            <ChevronDown size={18} />
+                        </button>
+                    </div>
+
                     <div className="h-10 w-px bg-slate-200 mx-2 hidden md:block"></div>
 
-                    <div className="relative">
-                        <select
-                            value={selectedSiteId}
-                            onChange={(e) => setSelectedSiteId(Number(e.target.value))}
-                            className="pl-9 pr-4 py-2 border border-slate-200 rounded-lg text-sm w-48 focus:ring-2 focus:ring-blue-500 outline-none bg-white text-slate-800 font-medium appearance-none"
-                        >
-                            {filteredSitesForUser.map(site => (
-                                <option key={site.id} value={site.id}>{site.name}</option>
-                            ))}
-                        </select>
-                        <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
+                    <div className="relative flex items-center" ref={siteSearchRef}>
+                        <MapPin className="absolute left-3 text-slate-400 w-4 h-4 z-10" />
+                        <input
+                            type="text"
+                            className="pl-9 pr-4 py-2 border border-slate-200 rounded-lg text-sm w-64 focus:ring-2 focus:ring-blue-500 outline-none bg-white text-slate-800 font-medium cursor-pointer"
+                            placeholder="Buscar sucursal..."
+                            value={siteInputValue}
+                            onFocus={() => {
+                                setSiteInputValue('');
+                                setShowSiteList(true);
+                            }}
+                            onChange={(e) => {
+                                setSiteInputValue(e.target.value);
+                                setShowSiteList(true);
+                                const selectedSite = filteredSitesForUser.find(s => s.name === e.target.value);
+                                if (selectedSite) {
+                                    setSelectedSiteId(selectedSite.id);
+                                }
+                            }}
+                        />
+                        {showSiteList && (
+                            <div className="absolute top-full left-0 w-full mt-1 bg-white border border-slate-200 rounded-lg shadow-2xl max-h-[400px] overflow-y-auto z-[120]">
+                                {filteredSitesForUser
+                                    .filter(s => normalizeText(s.name).includes(normalizeText(siteInputValue)))
+                                    .map(site => (
+                                    <div
+                                        key={site.id}
+                                        className="px-4 py-2 hover:bg-blue-50 cursor-pointer border-b border-slate-50 last:border-0"
+                                        onClick={() => {
+                                            setSelectedSiteId(site.id);
+                                            setSiteInputValue(site.name);
+                                            setShowSiteList(false);
+                                        }}
+                                    >
+                                        <div className="text-sm font-bold text-slate-700">{site.name}</div>
+                                        <div className="text-[10px] text-slate-400">{site.address}</div>
+                                    </div>
+                                ))}
+                                {filteredSitesForUser.filter(s => normalizeText(s.name).includes(normalizeText(siteInputValue))).length === 0 && (
+                                    <div className="p-4 text-xs text-slate-400 italic text-center">
+                                        No hay sucursales que coincidan
+                                    </div>
+                                )}
+                            </div>
+                        )}
                     </div>
 
                     <div className="flex items-center bg-white border border-slate-200 rounded-lg p-1">

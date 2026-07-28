@@ -3,7 +3,7 @@ import {
     ArrowLeft, Brain, Trash2, Copy, Trash,
     Layout, Calendar, FileText, Send,
     Loader2, Table as TableIcon, CheckCircle, ClipboardList,
-    Search, ChevronDown, Users
+    Search, ChevronDown, Users, Info
 } from 'lucide-react';
 import { GoogleGenAI } from "@google/genai";
 import { useAppStore } from '../store/useAppStore';
@@ -319,8 +319,8 @@ Responde ÚNICAMENTE el JSON sin markdown.`;
     return (
         <div className="animate-in slide-in-from-bottom-4 duration-300 space-y-6 max-w-[1400px] mx-auto">
             {/* Header */}
-            <div className="flex items-center justify-between">
-                <div className="flex items-center gap-4">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div className="flex items-center gap-4 shrink-0">
                     <button
                         onClick={onBack}
                         className="p-3 bg-white rounded-2xl border border-slate-100 shadow-sm hover:bg-slate-50 text-slate-500 transition-all hover:scale-105"
@@ -335,6 +335,15 @@ Responde ÚNICAMENTE el JSON sin markdown.`;
                             <h2 className="text-xl font-bold text-slate-800">Extractor de Turnos Galileo</h2>
                             <p className="text-sm text-slate-500">Procesamiento inteligente para Excel</p>
                         </div>
+                    </div>
+                </div>
+
+                <div className="bg-yellow-50 border border-yellow-200/60 rounded-xl p-3 max-w-2xl shadow-sm">
+                    <div className="flex gap-2.5">
+                        <Info className="text-yellow-500 shrink-0 mt-0.5" size={18} />
+                        <p className="text-sm text-yellow-800 leading-relaxed font-medium">
+                            Esta herramienta ayuda a extraer los turnos de correos Galileo, se deben revisar sus resultados prestando atencion a : <strong className="font-bold">Días Feriados, Fin de Semanas, Nocturnos</strong> para evitar errores o duplicidad de informacion.
+                        </p>
                     </div>
                 </div>
             </div>
