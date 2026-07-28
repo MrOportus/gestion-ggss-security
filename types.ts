@@ -384,3 +384,25 @@ export interface Vacation {
   source: string;
   schemaVersion: 2;
 }
+
+// ─── Novedades (Libro de Novedades) ──────────────────────────────────────────
+export type NovedadTipo = 'ronda' | 'incidente' | 'alerta' | 'novedad' | 'otro';
+export type NovedadEstado = 'activo' | 'resuelto' | 'pendiente';
+export type NovedadResultado = 'SIN_NOVEDAD' | 'CON_NOVEDAD' | 'SOSPECHA';
+
+export interface Novedad {
+  id: string;
+  siteId: number | string;
+  sucursalName: string;
+  tipo: NovedadTipo;
+  descripcion: string;
+  guardId: string;
+  guardName: string;
+  timestamp: string; // ISO string
+  estado: NovedadEstado;
+  resultado?: NovedadResultado;
+  roundId?: string; // Reference to guardRound if auto-generated from round
+  evidencias?: string[]; // URLs of photos if any
+  createdAt: string; // ISO string
+}
+

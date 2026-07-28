@@ -4,7 +4,7 @@ import { STORAGE_CACHE_METADATA } from '../lib/imageUtils';
 import { Network } from '@capacitor/network';
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
-import { User, Employee, Site, AttendanceLog, Document, DigitalDocument, ComparisonRecord, DailyPayment, AppNotification, AppConfirmation, ContractRecord, Advance, SupervisorTask, ChecklistTemplate, ResignationRequest, RecurringSupervisorTask, SupervisorSubTask, BoardNote, GuardRound, Loan, Vacation } from '../types';
+import { User, Employee, Site, AttendanceLog, Document, DigitalDocument, ComparisonRecord, DailyPayment, AppNotification, AppConfirmation, ContractRecord, Advance, SupervisorTask, ChecklistTemplate, ResignationRequest, RecurringSupervisorTask, SupervisorSubTask, BoardNote, GuardRound, Loan, Vacation, Novedad } from '../types';
 import { Contrato } from '../types/phase1';
 import { db, auth, secondaryAuth, storage, functions } from '../lib/firebase';
 import { httpsCallable } from 'firebase/functions';
@@ -60,6 +60,7 @@ interface AppState {
   loans: Loan[];
   digitalDocuments: DigitalDocument[];
   vacations: Vacation[];
+  novedades: Novedad[];
   preselectedEmployeeForDoc: string | null;
   setPreselectedEmployeeForDoc: (id: string | null) => void;
   // Auth Actions
@@ -185,6 +186,9 @@ interface AppState {
   fetchVacations: () => Promise<void>;
   addVacation: (vacation: Omit<Vacation, 'id' | 'createdAt' | 'updatedAt'>) => Promise<void>;
   updateVacationStatus: (id: string, newStatus: Vacation['status'], actorUid: string) => Promise<void>;
+  // Novedades Actions
+  fetchNovedades: (siteIds?: string[]) => Promise<void>;
+  addNovedad: (novedad: Omit<Novedad, 'id' | 'createdAt'>) => Promise<string>;
 }
 
 export const useAppStore = create<AppState>()(
@@ -211,6 +215,7 @@ export const useAppStore = create<AppState>()(
       loans: [],
       digitalDocuments: [],
       vacations: [],
+      novedades: [],
       notifications: [],
       preselectedEmployeeForDoc: null,
       setPreselectedEmployeeForDoc: (id) => set({ preselectedEmployeeForDoc: id }),
@@ -1921,7 +1926,52 @@ export const useAppStore = create<AppState>()(
         }
       },
 
+      // ── Novedades ─────────────────────────────────────────────────────────
+      fetchNovedades: async (siteIds?: string[]) => {
+        try {
+          let q;
+          if (siteIds && siteIds.length > 0) {
+            q = query(
+              collection(db, 'novedades'),
+              orderBy('timestamp', 'desc'),
+              limit(200)
+            );
+          } else {
+            q = query(collection(db, 'novedades'), orderBy('timestamp', 'desc'), limit(200));
+          }
+          const snapshot = await getDocs(q);
+          const novedades: Novedad[] = [];
+          snapshot.forEach(d => novedades.push({ ...d.data(), id: d.id } as Novedad));
+          // Filter client-side if siteIds provided
+          const filtered = siteIds && siteIds.length > 0
+            ? novedades.filter(n => siteIds.includes(String(n.siteId)))
+            : novedades;
+          set({ novedades: filtered });
+        } catch (error) {
+          console.error('Error fetching novedades:', error);
+        }
+      },
+
+      addNovedad: async (novedadData) => {
+        const id = `nov_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+        const now = new Date().toISOString();
+        const newNovedad: Novedad = {
+          ...novedadData,
+          id,
+          createdAt: now,
+        };
+        try {
+          await setDoc(doc(db, 'novedades', id), newNovedad);
+          set((state) => ({ novedades: [newNovedad, ...state.novedades] }));
+          return id;
+        } catch (error) {
+          console.error('Error adding novedad:', error);
+          throw error;
+        }
+      },
+
     }),
+
     {
       name: 'ggss-storage-v2',
       storage: createJSONStorage(() => localStorage),
