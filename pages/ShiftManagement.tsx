@@ -25,7 +25,7 @@ import {
 } from 'lucide-react';
 import ManageStaffModal from '../components/ManageStaffModal';
 import { useShiftManagementFacade } from '../lib/phase2/useShiftManagementFacade';
-import ShadowDiagnosticPanel from '../components/ShadowDiagnosticPanel';
+
 import { ContractStatusBadge } from '../components/phase3/ContractStatusBadge';
 import { MonthContractSummary } from '../components/phase3/MonthContractSummary';
 import { ContractBindingService } from '../lib/phase3/contractBindingService';
@@ -1112,14 +1112,6 @@ const ShiftManagement: React.FC = () => {
                     </button>
                 </div>
             </div>
-
-            {/* Administrador: Panel Shadow Mode */}
-            {currentUser?.role === 'admin' && (
-                <ShadowDiagnosticPanel
-                    siteId={selectedSiteId}
-                    monthKey={formatDateKey(currentDate).substring(0, 7)}
-                />
-            )}
 
             {/* Detail Modal (Read Mode) */}
             {detailModal.isOpen && detailModal.data && (
