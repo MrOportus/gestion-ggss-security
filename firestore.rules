@@ -331,6 +331,27 @@ service cloud.firestore {
 
 
 
+
+
+    // ─── Incidencias y Novedades (Libro de Novedades — GG.SS.) ──────────────
+    // Colección `novedades` — compartida por guardias de la misma sucursal.
+    // Lectura: cualquier colaborador autenticado (la restricción por sucursal
+    //          se hace vía query cliente: where('sucursalId', '==', miSucursal))
+    // Creación: solo el propio guardia, con su UID validado
+    // Edición:  solo Admin/Supervisor (para cambiar estado)
+    // Borrado:  nunca — trazabilidad absoluta
+    match /novedades/{docId} {
+      allow read: if request.auth != null && isColaborador();
+      allow create: if request.auth != null &&
+        isColaborador() &&
+        request.resource.data.autorUid == request.auth.uid &&
+        request.resource.data.colaboradorId == request.auth.uid;
+      allow update: if isAdmin() || isSupervisor();
+      allow delete: if false;
+    }
+
+
+
     // Reglas por defecto para cualquier otra colección (Denegación estricta)
     match /{document=**} {
       allow read, write: if false;

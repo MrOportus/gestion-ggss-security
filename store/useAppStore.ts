@@ -4,7 +4,7 @@ import { STORAGE_CACHE_METADATA } from '../lib/imageUtils';
 import { Network } from '@capacitor/network';
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
-import { User, Employee, Site, AttendanceLog, Document, DigitalDocument, ComparisonRecord, DailyPayment, AppNotification, AppConfirmation, ContractRecord, Advance, SupervisorTask, ChecklistTemplate, ResignationRequest, RecurringSupervisorTask, SupervisorSubTask, BoardNote, GuardRound, Loan, Vacation, Novedad } from '../types';
+import { User, Employee, Site, AttendanceLog, Document, DigitalDocument, ComparisonRecord, DailyPayment, AppNotification, AppConfirmation, ContractRecord, Advance, SupervisorTask, ChecklistTemplate, ResignationRequest, RecurringSupervisorTask, SupervisorSubTask, BoardNote, GuardRound, Loan, Vacation, Novedad, RegistroNovedad } from '../types';
 import { Contrato } from '../types/phase1';
 import { db, auth, secondaryAuth, storage, functions } from '../lib/firebase';
 import { httpsCallable } from 'firebase/functions';
@@ -189,6 +189,8 @@ interface AppState {
   // Novedades Actions
   fetchNovedades: (siteIds?: string[]) => Promise<void>;
   addNovedad: (novedad: Omit<Novedad, 'id' | 'createdAt'>) => Promise<string>;
+  // Registro enriquecido de Incidencias y Novedades (GG.SS.)
+  addRegistroNovedad: (data: Omit<RegistroNovedad, 'id' | 'creadoEn' | 'fechaHoraServidor'>) => Promise<string>;
 }
 
 export const useAppStore = create<AppState>()(
@@ -689,8 +691,8 @@ export const useAppStore = create<AppState>()(
 
         try {
           let q;
-          if (currentUser.role === 'admin' || currentUser.role === 'supervisor') {
-            // Admin: Últimos 200 logs globales
+          if (currentUser.role === 'admin' || currentUser.role === 'supervisor' || currentUser.role === 'mandante') {
+            // Admin/Mandante: Últimos 200 logs globales
             q = query(collection(db, "Asistencia"), orderBy("timestamp", "desc"), limit(200));
           } else {
             // Worker: Solo sus propios logs, últimos 50
@@ -1958,7 +1960,7 @@ export const useAppStore = create<AppState>()(
           snapshot.forEach(d => novedades.push({ ...d.data(), id: d.id } as Novedad));
           // Filter client-side if siteIds provided
           const filtered = siteIds && siteIds.length > 0
-            ? novedades.filter(n => siteIds.includes(String(n.siteId)))
+            ? novedades.filter(n => siteIds.includes(String(n.siteId)) || siteIds.includes(String((n as any).sucursalId)))
             : novedades;
           set({ novedades: filtered });
         } catch (error) {
@@ -1980,6 +1982,27 @@ export const useAppStore = create<AppState>()(
           return id;
         } catch (error) {
           console.error('Error adding novedad:', error);
+          throw error;
+        }
+      },
+
+      addRegistroNovedad: async (data) => {
+        const id = `reg_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+        const { serverTimestamp } = await import('firebase/firestore');
+        const ts = serverTimestamp();
+        const newRegistro: RegistroNovedad & { timestamp?: string; siteId?: string | number } = {
+          ...data,
+          id,
+          fechaHoraServidor: ts,
+          creadoEn: ts,
+          timestamp: data.fechaHoraDispositivo, // Compatibilidad con modelo antiguo
+          siteId: data.sucursalId,              // Compatibilidad con modelo antiguo
+        };
+        try {
+          await setDoc(doc(db, 'novedades', id), newRegistro);
+          return id;
+        } catch (error) {
+          console.error('Error adding registro novedad:', error);
           throw error;
         }
       },

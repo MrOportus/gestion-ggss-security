@@ -35,5 +35,12 @@ service firebase.storage {
     match /loans/{allPaths=**} {
       allow read, write: if request.auth != null;
     }
+
+    // Evidencias de Incidencias y Novedades (GG.SS.)
+    // El guardia solo puede escribir en su propio UID-folder; admins/supervisors pueden leer todo.
+    match /novedades/{userId}/{allPaths=**} {
+      allow write: if request.auth != null && request.auth.uid == userId;
+      allow read: if request.auth != null;
+    }
   }
 }

@@ -217,6 +217,10 @@ const App: React.FC = () => {
         console.warn('[PUSH] VITE_FIREBASE_VAPID_KEY no configurada, notificaciones push deshabilitadas.');
         return;
       }
+      if (vapidKey.length < 80) {
+        console.warn('[PUSH] La VAPID KEY configurada parece ser inválida (muy corta). Verifica tu .env.local con la clave correcta de Firebase Console.');
+        return;
+      }
       try {
         // Importar dinámicamente firebase/messaging — solo en contexto web
         const { getToken, onMessage } = await import('firebase/messaging');

@@ -50,8 +50,155 @@ const KPICard = ({ icon, label, value, sub, color }: { icon: React.ReactNode; la
     </div>
 );
 
+const ActiveGuardBanner = ({ attendanceLogs, employees, weekRounds, selectedSiteId, allowedSites, fetchInitialData }: any) => {
+    const [isRefreshing, setIsRefreshing] = useState(false);
+    const [lastUpdate, setLastUpdate] = useState(new Date());
+
+    const handleRefresh = async () => {
+        setIsRefreshing(true);
+        if (fetchInitialData) await fetchInitialData(true);
+        setLastUpdate(new Date());
+        setIsRefreshing(false);
+    };
+
+    const activeGuards = useMemo(() => {
+        if (!attendanceLogs) return [];
+        const logsByUser: Record<string, any[]> = {};
+        attendanceLogs.forEach((log: any) => {
+            if (!logsByUser[log.employeeId]) logsByUser[log.employeeId] = [];
+            logsByUser[log.employeeId].push(log);
+        });
+
+        const active: any[] = [];
+        Object.values(logsByUser).forEach(logs => {
+            logs.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+            const latest = logs[0];
+            
+            const isLive = latest.type === 'check_in' && latest.status !== 'completed';
+            
+            if (isLive) {
+                let sid = latest.siteId ? String(latest.siteId) : null;
+                // Fallback to employee's current site if log doesn't have it (same as AdminDashboard)
+                if (!sid && employees) {
+                    const emp = employees.find((e: any) => e.id === latest.employeeId);
+                    if (emp && emp.currentSiteId) {
+                        sid = String(emp.currentSiteId);
+                    }
+                }
+                
+                if (sid) {
+                    const isSelected = selectedSiteId === 'all' 
+                        ? allowedSites.some((s:any) => String(s.id) === sid)
+                        : sid === selectedSiteId;
+                    
+                    if (isSelected) {
+                        const roundsThisWeek = weekRounds.filter((r: any) => (r.workerId || r.workerName) === (latest.employeeId || latest.employeeName) && String(r.siteId) === sid).length;
+                        
+                        active.push({
+                            id: latest.employeeId,
+                            name: latest.employeeName,
+                            siteName: latest.siteName || allowedSites.find((s:any) => String(s.id) === sid)?.name || 'Instalación',
+                            checkInTime: new Date(latest.timestamp).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' }),
+                            scheduledEnd: latest.turnoProgramadoTermino || '--:--',
+                            roundsThisWeek
+                        });
+                    }
+                }
+            }
+        });
+        
+        return active.sort((a, b) => a.name.localeCompare(b.name));
+    }, [attendanceLogs, employees, selectedSiteId, allowedSites, weekRounds]);
+
+    const siteName = selectedSiteId === 'all' 
+        ? 'Todas mis instalaciones' 
+        : allowedSites.find((s:any) => String(s.id) === selectedSiteId)?.name || 'Instalación seleccionada';
+
+    return (
+        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden mb-6 relative">
+            {isRefreshing && (
+                <div className="absolute inset-0 bg-white/50 backdrop-blur-sm z-10 flex items-center justify-center">
+                    <div className="flex items-center gap-2 text-blue-600 font-bold bg-white px-4 py-2 rounded-full shadow-lg">
+                        <RefreshCw size={16} className="animate-spin" />
+                        <span>Consultando estado actual...</span>
+                    </div>
+                </div>
+            )}
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 p-5 border-b border-slate-100 bg-slate-50/50">
+                <div className="flex items-center gap-3">
+                    {activeGuards.length > 0 ? (
+                        <div className="flex items-center justify-center w-8 h-8 rounded-full bg-emerald-100">
+                            <div className="w-3 h-3 bg-emerald-500 rounded-full animate-pulse" />
+                        </div>
+                    ) : (
+                        <div className="flex items-center justify-center w-8 h-8 rounded-full bg-slate-100">
+                            <div className="w-3 h-3 bg-slate-400 rounded-full" />
+                        </div>
+                    )}
+                    <div>
+                        <h3 className="font-black text-slate-800 text-lg leading-tight uppercase tracking-tight">
+                            {activeGuards.length > 0 ? 'Servicio Operativo' : 'Sin servicio activo'}
+                        </h3>
+                        <p className="text-xs font-bold text-slate-500 mt-0.5">{siteName}</p>
+                    </div>
+                </div>
+                
+                <div className="flex items-center justify-between md:justify-end gap-4 text-xs font-bold text-slate-400">
+                    <p>Última actualización: {lastUpdate.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })}</p>
+                    <button onClick={handleRefresh} className="px-3 py-1.5 rounded-lg bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-blue-600 transition-colors shadow-sm active:scale-95">
+                        Actualizar
+                    </button>
+                </div>
+            </div>
+
+            {activeGuards.length > 0 ? (
+                <div className="p-5">
+                    {activeGuards.length > 1 && (
+                        <p className="text-sm font-black text-blue-600 mb-4 bg-blue-50 px-3 py-1.5 rounded-lg inline-block">
+                            {activeGuards.length} guardias activos
+                        </p>
+                    )}
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        {activeGuards.map((guard, i) => (
+                            <div key={guard.id + i} className="bg-white border border-slate-100 rounded-xl p-4 shadow-sm hover:border-blue-200 transition-colors">
+                                <div className="flex items-center gap-3 mb-4">
+                                    <div className="w-10 h-10 bg-slate-100 rounded-full flex items-center justify-center text-slate-500 font-black shrink-0">
+                                        {guard.name.substring(0, 2).toUpperCase()}
+                                    </div>
+                                    <div className="min-w-0">
+                                        <p className="font-black text-slate-800 truncate">{guard.name}</p>
+                                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Guardia de Seguridad</p>
+                                    </div>
+                                </div>
+                                <div className="grid grid-cols-3 gap-2 bg-slate-50 rounded-lg p-3">
+                                    <div>
+                                        <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-0.5">Ingreso</p>
+                                        <p className="font-bold text-slate-700">{guard.checkInTime}</p>
+                                    </div>
+                                    <div className="border-l border-slate-200 pl-2">
+                                        <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-0.5">Salida</p>
+                                        <p className="font-bold text-slate-700">{guard.scheduledEnd}</p>
+                                    </div>
+                                    <div className="border-l border-slate-200 pl-2">
+                                        <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-0.5" title="Rondas esta semana">Rondas (Sem)</p>
+                                        <p className="font-bold text-slate-700">{guard.roundsThisWeek}</p>
+                                    </div>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            ) : (
+                <div className="p-8 text-center bg-slate-50/30">
+                    <p className="text-sm font-bold text-slate-500">No hay guardias prestando servicio en este momento en esta instalación.</p>
+                </div>
+            )}
+        </div>
+    );
+};
+
 // ─── Estado del Servicio ──────────────────────────────────────────────────────
-const EstadoServicio = ({ allowedSites, guardRounds, novedades, selectedSiteId, setSelectedSiteId, fetchNovedades }: any) => {
+const EstadoServicio = ({ allowedSites, guardRounds, novedades, attendanceLogs, employees, selectedSiteId, setSelectedSiteId, fetchNovedades, fetchInitialData }: any) => {
     const today = new Date().toISOString().split('T')[0];
     const sevenDaysAgo = new Date(); sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
     const weekStart = sevenDaysAgo.toISOString().split('T')[0];
@@ -66,11 +213,12 @@ const EstadoServicio = ({ allowedSites, guardRounds, novedades, selectedSiteId, 
     const lastRound = [...filteredRounds].sort((a: any, b: any) => b.startTime.localeCompare(a.startTime))[0];
     const activeRounds = filteredRounds.filter((r: any) => !r.endTime);
     const filteredNovedades = novedades.filter((n: any) => {
-        const inSite = allowedSites.some((s: any) => String(s.id) === String(n.siteId));
-        const siteMatch = selectedSiteId === 'all' || String(n.siteId) === selectedSiteId;
+        const sid = n.siteId || n.sucursalId;
+        const inSite = allowedSites.some((s: any) => String(s.id) === String(sid));
+        const siteMatch = selectedSiteId === 'all' || String(sid) === selectedSiteId;
         return inSite && siteMatch;
     });
-    const todayNovedades = filteredNovedades.filter((n: any) => n.timestamp.startsWith(today));
+    const todayNovedades = filteredNovedades.filter((n: any) => (n.timestamp || n.fechaHoraDispositivo || '').startsWith(today));
 
     // Calcular métricas por guardia (últimos 7 días)
     const guardStats = useMemo(() => {
@@ -114,6 +262,15 @@ const EstadoServicio = ({ allowedSites, guardRounds, novedades, selectedSiteId, 
                     </button>
                 </div>
             </div>
+
+            <ActiveGuardBanner 
+                attendanceLogs={attendanceLogs} 
+                employees={employees}
+                weekRounds={weekRounds} 
+                selectedSiteId={selectedSiteId} 
+                allowedSites={allowedSites} 
+                fetchInitialData={fetchInitialData} 
+            />
 
             {/* Resumen rápido - 3 mini stats */}
             <div className="grid grid-cols-3 gap-4">
@@ -270,6 +427,7 @@ const LibroNovedades = ({ allowedSites, guardRounds, novedades }: any) => {
     const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
     const [tipoFilter, setTipoFilter] = useState('all');
     const [siteFilter, setSiteFilter] = useState('all');
+    const [selectedImage, setSelectedImage] = useState<string | null>(null);
 
     const timelineItems = useMemo(() => {
         const roundItems = guardRounds
@@ -287,8 +445,19 @@ const LibroNovedades = ({ allowedSites, guardRounds, novedades }: any) => {
             }));
 
         const novedadItems = novedades
-            .filter((n: any) => allowedSites.some((s: any) => String(s.id) === String(n.siteId)))
-            .map((n: any) => ({ ...n }));
+            .filter((n: any) => allowedSites.some((s: any) => String(s.id) === String(n.siteId || n.sucursalId)))
+            .map((n: any) => ({
+                id: n.id,
+                siteId: String(n.siteId || n.sucursalId),
+                sucursalName: n.siteName || n.sucursalNombre,
+                tipo: n.tipoRegistro || n.tipo,
+                descripcion: n.descripcion,
+                guardName: n.autorNombre || n.guardName,
+                timestamp: n.fechaHoraDispositivo || n.timestamp || n.createdAt || '',
+                resultado: n.estado || n.resultado,
+                evidencias: n.evidencias || (n.evidenciaUrl ? [n.evidenciaUrl] : []),
+                original: n // Guardar referencia al doc original por si acaso
+            }));
 
         return [...roundItems, ...novedadItems].sort((a: any, b: any) => b.timestamp.localeCompare(a.timestamp));
     }, [guardRounds, novedades, allowedSites]);
@@ -395,11 +564,31 @@ const LibroNovedades = ({ allowedSites, guardRounds, novedades }: any) => {
                                             </span>
                                         </div>
                                         <p className="text-sm text-slate-600 mt-1 leading-relaxed">{item.descripcion}</p>
+                                        {item.evidencias && item.evidencias.length > 0 && (
+                                            <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
+                                                {item.evidencias.map((url: string, eIdx: number) => (
+                                                    <div key={eIdx} onClick={() => setSelectedImage(url)} className="shrink-0 w-16 h-16 rounded-xl border border-slate-200 overflow-hidden cursor-pointer hover:border-blue-400 hover:shadow-sm transition">
+                                                        <ThumbnailImage photoUrl={url} alt={`Evidencia ${eIdx + 1}`} className="w-full h-full object-cover" />
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
                                     </div>
                                 </div>
                             </React.Fragment>
                         );
                     })}
+                </div>
+            )}
+
+            {selectedImage && (
+                <div className="fixed inset-0 z-[100] bg-slate-900/90 backdrop-blur-sm flex items-center justify-center p-4">
+                    <div className="relative max-w-4xl max-h-[90vh] w-full flex items-center justify-center">
+                        <button onClick={() => setSelectedImage(null)} className="absolute -top-12 right-0 text-white hover:text-slate-200 text-3xl font-bold leading-none">
+                            &times;
+                        </button>
+                        <ThumbnailImage photoUrl={selectedImage} alt="Fullscreen Evidence" className="max-w-full max-h-[90vh] object-contain rounded-xl" />
+                    </div>
                 </div>
             )}
         </div>
@@ -579,19 +768,27 @@ const generatePDF = (tipo: string, rounds: any[], novedades: any[], siteName: st
 
     const timeline = [
         ...rounds.map((r: any) => ({ ts: r.startTime, tipo: 'Ronda', guard: r.workerName, site: r.siteName, desc: r.notes || 'Sin observaciones.', res: r.result })),
-        ...novedades.map((n: any) => ({ ts: n.timestamp, tipo: n.tipo, guard: n.guardName, site: n.sucursalName, desc: n.descripcion, res: n.resultado || '' }))
+        ...novedades.map((n: any) => ({ 
+            ts: n.fechaHoraDispositivo || n.timestamp || n.createdAt || '', 
+            tipo: n.tipoRegistro || n.tipo || 'N/A', 
+            guard: n.autorNombre || n.guardName || 'Sistema', 
+            site: n.siteName || n.sucursalNombre || n.sucursalName || 'Instalación', 
+            desc: n.descripcion || n.detalles || 'Sin descripción', 
+            res: n.estado || n.resultado || '' 
+        }))
     ].sort((a, b) => b.ts.localeCompare(a.ts));
 
     const css = `@page{size:A4;margin:20mm 15mm}*{box-sizing:border-box;margin:0;padding:0}body{font-family:'Helvetica Neue',Arial,sans-serif;font-size:11px;color:#1e293b}.hdr{background:#1e3a5f;color:#fff;padding:20px 24px;border-radius:8px;margin-bottom:20px;display:flex;justify-content:space-between}.hdr h1{font-size:20px;font-weight:900}.hdr p{font-size:10px;opacity:.7;margin-top:2px}.hdr .meta{text-align:right;font-size:10px;opacity:.8;line-height:1.6}.stitle{font-size:12px;font-weight:900;text-transform:uppercase;letter-spacing:1px;color:#64748b;border-bottom:2px solid #e2e8f0;padding-bottom:6px;margin:20px 0 12px}.sg{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:20px}.sb{background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:12px;text-align:center}.sb .n{font-size:28px;font-weight:900;color:#1e293b;line-height:1}.sb .l{font-size:9px;font-weight:700;text-transform:uppercase;color:#94a3b8;margin-top:4px}.sb.g .n{color:#16a34a}.sb.r .n{color:#dc2626}.sb.b .n{color:#2563eb}table{width:100%;border-collapse:collapse;font-size:10px}th{background:#f1f5f9;font-weight:900;text-transform:uppercase;font-size:9px;color:#64748b;padding:8px 10px;text-align:left}td{padding:7px 10px;border-bottom:1px solid #f1f5f9}tr:nth-child(even) td{background:#fafafa}.badge{display:inline-block;padding:2px 6px;border-radius:4px;font-size:8px;font-weight:900;text-transform:uppercase}.sin{background:#dcfce7;color:#15803d}.con{background:#fee2e2;color:#dc2626}.sos{background:#fef3c7;color:#d97706}.rnd{background:#dbeafe;color:#1d4ed8}.otr{background:#f1f5f9;color:#64748b}.ti{display:flex;gap:10px;padding:8px 0;border-bottom:1px solid #f1f5f9}.td{width:80px;font-weight:700;color:#64748b;font-size:9px}.dot{width:8px;height:8px;border-radius:50%;background:#3b82f6;margin-top:4px;flex-shrink:0}.dot.r{background:#ef4444}.dot.g{background:#22c55e}.dot.a{background:#f59e0b}.ftr{margin-top:24px;padding-top:12px;border-top:1px solid #e2e8f0;display:flex;justify-content:space-between;font-size:9px;color:#94a3b8}@media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact}}`;
 
     let body = '';
     if (tipo === 'resumen_ejecutivo') {
-        body = `<div class="sg"><div class="sb b"><div class="n">${rounds.length}</div><div class="l">Total Rondas</div></div><div class="sb g"><div class="n">${rounds.length - totalCN}</div><div class="l">Sin Novedad</div></div><div class="sb r"><div class="n">${totalCN}</div><div class="l">Con Novedad</div></div><div class="sb"><div class="n">${avgMin}</div><div class="l">Min. Promedio</div></div></div><div class="stitle">Rendimiento por Guardia</div><table><thead><tr><th>Guardia</th><th style="text-align:center">Rondas</th><th style="text-align:center">Sin Nov.</th><th style="text-align:center">Con Nov.</th><th style="text-align:center">Prom. Duración</th></tr></thead><tbody>${gStats.map((g: any) => `<tr><td><strong>${g.name}</strong></td><td style="text-align:center"><strong>${g.total}</strong></td><td style="text-align:center"><span class="badge sin">${g.sinNovedad}</span></td><td style="text-align:center"><span class="badge con">${g.conNovedad}</span></td><td style="text-align:center">${g.completadas > 0 ? Math.round(g.totalMin / g.completadas) + ' min' : '—'}</td></tr>`).join('')}</tbody></table><div class="stitle" style="margin-top:24px">Últimas Incidencias</div><table><thead><tr><th>Fecha / Hora</th><th>Guardia</th><th>Instalación</th><th>Resultado</th><th>Observación</th></tr></thead><tbody>${rounds.filter((r: any) => r.result !== 'SIN_NOVEDAD').slice(0, 25).map((r: any) => `<tr><td>${fD(r.startTime)} ${fT(r.startTime)}</td><td>${r.workerName}</td><td>${r.siteName}</td><td><span class="badge ${r.result === 'CON_NOVEDAD' ? 'con' : 'sos'}">${r.result.replace('_', ' ')}</span></td><td>${(r.notes || '—').substring(0, 55)}</td></tr>`).join('') || '<tr><td colspan="5" style="text-align:center;color:#94a3b8">Sin incidencias</td></tr>'}</tbody></table>`;
+        const incidenciasTimeline = timeline.filter((item: any) => item.res !== 'SIN_NOVEDAD' && item.res !== 'RESUELTO').slice(0, 25);
+        body = `<div class="sg"><div class="sb b"><div class="n">${rounds.length}</div><div class="l">Total Rondas</div></div><div class="sb g"><div class="n">${rounds.length - totalCN}</div><div class="l">Sin Novedad</div></div><div class="sb r"><div class="n">${totalCN + novedades.length}</div><div class="l">Con Novedad</div></div><div class="sb"><div class="n">${avgMin}</div><div class="l">Min. Promedio</div></div></div><div class="stitle">Rendimiento por Guardia</div><table><thead><tr><th>Guardia</th><th style="text-align:center">Rondas</th><th style="text-align:center">Sin Nov.</th><th style="text-align:center">Con Nov.</th><th style="text-align:center">Prom. Duración</th></tr></thead><tbody>${gStats.map((g: any) => `<tr><td><strong>${g.name}</strong></td><td style="text-align:center"><strong>${g.total}</strong></td><td style="text-align:center"><span class="badge sin">${g.sinNovedad}</span></td><td style="text-align:center"><span class="badge con">${g.conNovedad}</span></td><td style="text-align:center">${g.completadas > 0 ? Math.round(g.totalMin / g.completadas) + ' min' : '—'}</td></tr>`).join('')}</tbody></table><div class="stitle" style="margin-top:24px">Últimas Incidencias y Novedades</div><table><thead><tr><th>Fecha / Hora</th><th>Guardia</th><th>Instalación</th><th>Resultado / Tipo</th><th>Observación</th></tr></thead><tbody>${incidenciasTimeline.map((item: any) => `<tr><td>${fD(item.ts)} ${fT(item.ts)}</td><td>${item.guard}</td><td>${item.site}</td><td><span class="badge ${item.res === 'CON_NOVEDAD' || !item.res ? 'con' : 'sos'}">${item.res ? item.res.replace('_', ' ') : item.tipo}</span></td><td>${(item.desc || '—').substring(0, 55)}</td></tr>`).join('') || '<tr><td colspan="5" style="text-align:center;color:#94a3b8">Sin incidencias</td></tr>'}</tbody></table>`;
     } else {
         body = `<div class="stitle">Registro Cronológico (${timeline.length} eventos)</div>${timeline.map((item: any) => { const dc = item.res === 'SIN_NOVEDAD' ? 'g' : item.res === 'CON_NOVEDAD' ? 'r' : item.tipo !== 'ronda' && item.tipo !== 'Ronda' ? 'a' : ''; const bc = item.tipo === 'Ronda' || item.tipo === 'ronda' ? 'rnd' : item.res === 'CON_NOVEDAD' ? 'con' : item.res === 'SIN_NOVEDAD' ? 'sin' : 'otr'; return `<div class="ti"><div class="td">${fD(item.ts)}<br/>${fT(item.ts)}</div><div class="dot ${dc}"></div><div style="flex:1"><div style="display:flex;gap:6px;align-items:center;margin-bottom:2px"><span class="badge ${bc}">${item.tipo}</span><strong style="font-size:10px">${item.guard}</strong><span style="color:#94a3b8;font-size:9px">· ${item.site}</span>${item.res ? `<span class="badge ${item.res === 'SIN_NOVEDAD' ? 'sin' : item.res === 'CON_NOVEDAD' ? 'con' : 'sos'}">${item.res.replace('_', ' ')}</span>` : ''}</div><div style="color:#475569;font-size:10px">${item.desc}</div></div></div>`; }).join('')}`;
     }
 
-    const html = `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><title>Reporte Aspro - ${fD(new Date().toISOString())}</title><style>${css}</style></head><body><div class="hdr"><div><h1>REPORTE ASPRO</h1><p>${tipo === 'resumen_ejecutivo' ? 'Resumen Ejecutivo' : 'Libro de Novedades'}</p><p style="margin-top:6px;font-size:11px;opacity:.9">${siteName}</p></div><div class="meta"><div>Período: ${fD(startDate + 'T12:00')} — ${fD(endDate + 'T12:00')}</div><div>Generado: ${now}</div><div>Total rondas incluidas: ${rounds.length}</div></div></div>${body}<div class="ftr"><span>Reporte Aspro</span><span>Generado automáticamente · ${now}</span></div></body></html>`;
+    const html = `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><title>Reporte Aspro - ${fD(new Date().toISOString())}</title><style>${css}</style></head><body><div class="hdr"><div><h1>REPORTE ASPRO</h1><p>${tipo === 'resumen_ejecutivo' ? 'Métricas de Rondas, incidencias y estadísticas' : 'Libro de Novedades'}</p><p style="margin-top:6px;font-size:11px;opacity:.9">${siteName}</p></div><div class="meta"><div>Período: ${fD(startDate + 'T12:00')} — ${fD(endDate + 'T12:00')}</div><div>Generado: ${now}</div><div>Total eventos incluidos: ${timeline.length}</div></div></div>${body}<div class="ftr"><span>Reporte Aspro</span><span>Generado automáticamente · ${now}</span></div></body></html>`;
 
     const win = window.open('', '_blank', 'width=900,height=700');
     if (!win) { alert('Permite ventanas emergentes para generar el PDF'); return; }
@@ -709,7 +906,7 @@ const Reportes = ({ allowedSites, guardRounds, novedades }: any) => {
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 const MandanteView: React.FC = () => {
-    const { guardRounds, sites, currentUser, employees, logout, fetchInitialData, showConfirmation, novedades, fetchNovedades } = useAppStore();
+    const { guardRounds, sites, currentUser, employees, logout, fetchInitialData, showConfirmation, novedades, fetchNovedades, attendanceLogs } = useAppStore();
     const [activeSection, setActiveSection] = useState<MandanteSection>('estado');
     const [selectedSiteId, setSelectedSiteId] = useState<string>('all');
 
@@ -798,10 +995,17 @@ const MandanteView: React.FC = () => {
 
                 <main className="flex-1 overflow-y-auto">
                     <div className="max-w-5xl mx-auto px-4 md:px-6 py-6 pb-28 lg:pb-6">
-                        {activeSection === 'estado' && (
-                            <EstadoServicio allowedSites={allowedSites} guardRounds={guardRounds} novedades={novedades}
-                                selectedSiteId={selectedSiteId} setSelectedSiteId={setSelectedSiteId} fetchNovedades={fetchNovedades} />
-                        )}
+                        {activeSection === 'estado' && <EstadoServicio
+                                allowedSites={allowedSites}
+                                guardRounds={guardRounds}
+                                novedades={novedades}
+                                attendanceLogs={attendanceLogs}
+                                employees={employees}
+                                selectedSiteId={selectedSiteId}
+                                setSelectedSiteId={setSelectedSiteId}
+                                fetchNovedades={fetchNovedades}
+                                fetchInitialData={fetchInitialData}
+                            />}
                         {activeSection === 'novedades' && (
                             <LibroNovedades allowedSites={allowedSites} guardRounds={guardRounds} novedades={novedades} />
                         )}

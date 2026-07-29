@@ -30,7 +30,8 @@ import {
   Timer,
   AlertTriangle,
   Play,
-  Square
+  Square,
+  BookOpen,
 } from 'lucide-react';
 
 import SignatureCanvas from 'react-signature-canvas';
@@ -42,6 +43,7 @@ import { collection, query, where, getDocs, getDoc, onSnapshot, doc as firestore
 import { EmailAuthProvider, reauthenticateWithCredential, updatePassword } from 'firebase/auth';
 
 import RoundsControl from '../components/RoundsControl';
+import IncidenciasPage from '../components/IncidenciasPage';
 import MarketTurnos from '../components/MarketTurnos';
 import { evaluateNocturnalClosure } from '../lib/phase5/nocturnalClosure';
 import MyExtraShifts from '../components/MyExtraShifts';
@@ -84,7 +86,7 @@ const WorkerAttendance: React.FC = () => {
     return digitalDocuments.filter(d => d.assignedTo === currentUser?.uid && d.status === 'pending').length;
   }, [digitalDocuments, currentUser]);
 
-  const [step, setStep] = useState<'status' | 'success' | 'rounds' | 'settings' | 'documents' | 'company_docs' | 'market' | 'my_extra_shifts' | 'my_fixed_shifts'>('status');
+  const [step, setStep] = useState<'status' | 'success' | 'rounds' | 'settings' | 'documents' | 'company_docs' | 'market' | 'my_extra_shifts' | 'my_fixed_shifts' | 'incidencias'>('status');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [lastAction, setLastAction] = useState<'check_in' | 'check_out' | null>(null);
 
@@ -1040,14 +1042,14 @@ const WorkerAttendance: React.FC = () => {
                     </button>
                   )}
 
-                  {/* Incidentes — Próximamente */}
+                  {/* Incidentes */}
                   <button
-                    disabled
-                    className="w-full py-6 bg-amber-500/60 text-white rounded-[2rem] shadow-lg flex items-center justify-center gap-3 border-b-8 border-amber-700/40 relative opacity-60 cursor-not-allowed"
+                    onClick={() => setStep('incidencias')}
+                    className="w-full py-6 bg-amber-500 hover:bg-amber-600 text-white rounded-[2rem] shadow-xl shadow-amber-200 flex items-center justify-center gap-3 transition-all active:scale-95 border-b-8 border-amber-700 relative overflow-hidden"
                   >
-                    <AlertTriangle size={28} />
-                    <span className="text-xl font-black tracking-wider uppercase">INCIDENTES</span>
-                    <div className="absolute top-3 right-3 px-2 py-0.5 bg-white/30 rounded-full text-[8px] font-black uppercase tracking-widest">Próximamente</div>
+                    <div className="absolute top-0 right-0 w-24 h-24 bg-white/10 rounded-full -mr-12 -mt-12 blur-xl pointer-events-none" />
+                    <BookOpen size={28} />
+                    <span className="text-xl font-black tracking-wider uppercase">Incidencias</span>
                   </button>
 
                   <button
@@ -1083,6 +1085,16 @@ const WorkerAttendance: React.FC = () => {
         {step === 'rounds' && (
           <RoundsControl onBack={() => setStep('status')} />
         )}
+
+        {step === 'incidencias' && (
+          <IncidenciasPage
+            onBack={() => setStep('status')}
+            activeLog={activeLog ? { id: activeLog.id, timestamp: activeLog.timestamp, siteId: activeLog.siteId ?? undefined, siteName: activeLog.siteName, shiftId: activeLog.shiftId } : undefined}
+            currentSite={currentSite}
+            employee={{ id: employee.id, firstName: employee.firstName, lastNamePaterno: employee.lastNamePaterno, cargo: employee.cargo }}
+          />
+        )}
+
 
         {step === 'market' && (
           <div className="bg-slate-50 min-h-screen pb-20 -mx-6">
@@ -1731,6 +1743,18 @@ const WorkerAttendance: React.FC = () => {
               </div>
               <ChevronRight size={16} className="opacity-30" />
             </button>
+
+            <button
+              onClick={() => { setStep('incidencias'); setIsSidebarOpen(false); }}
+              className={`w-full p-4 rounded-2xl flex items-center justify-between transition-all ${step === 'incidencias' ? 'bg-amber-50 text-amber-700' : 'text-slate-600 hover:bg-slate-50'}`}
+            >
+              <div className="flex items-center gap-3">
+                <BookOpen size={22} className={step === 'incidencias' ? 'text-amber-600' : 'text-slate-400'} />
+                <span className="font-bold">Incidencias y Novedades</span>
+              </div>
+              <ChevronRight size={16} className="opacity-30" />
+            </button>
+
 
             <button
               onClick={() => { setStep('my_extra_shifts'); setIsSidebarOpen(false); }}

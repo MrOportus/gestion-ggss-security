@@ -406,3 +406,78 @@ export interface Novedad {
   createdAt: string; // ISO string
 }
 
+// ─── Registro de Incidencias y Novedades (GG.SS.) ────────────────────────────
+// Interfaz enriquecida para el módulo de registro manual del guardia.
+// Compatible con la colección `novedades` existente — los registros viejos no se alteran.
+
+export type RegistroTipo = 'novedad' | 'incidencia';
+
+export type RegistroCategoria =
+  | 'acceso_personas'
+  | 'acceso_vehiculos'
+  | 'infraestructura'
+  | 'seguridad'
+  | 'alarma'
+  | 'persona_sospechosa'
+  | 'objeto_encontrado'
+  | 'daño_desperfecto'
+  | 'emergencia'
+  | 'entrega_recepcion_turno'
+  | 'otro';
+
+export type RegistroPrioridad = 'informativa' | 'media' | 'alta' | 'critica';
+
+export type RegistroEstado = 'registrada' | 'en_revision' | 'resuelta' | 'rectificada';
+
+export interface RegistroNovedadGPS {
+  lat: number;
+  lng: number;
+  accuracy?: number;
+  capturedAt?: string; // ISO string
+}
+
+export interface RegistroNovedad {
+  id: string;
+
+  // Identificación operacional
+  sucursalId: string | number;
+  sucursalNombre: string;
+  turnoId?: string;           // ID del check_in activo
+  fechaOperacional: string;   // YYYY-MM-DD (respeta turno nocturno)
+
+  // Clasificación del evento
+  tipoRegistro: RegistroTipo;
+  categoria: RegistroCategoria;
+  titulo?: string;
+  descripcion: string;
+  ubicacionInstalacion?: string; // Ej: "Acceso principal", "Bodega"
+  prioridad: RegistroPrioridad;
+
+  // Autor (todos auto-completados desde sesión)
+  autorUid: string;
+  colaboradorId: string;
+  autorNombre: string;
+  autorRol: string;
+
+  // Tiempos
+  fechaHoraServidor: any;       // serverTimestamp() de Firestore
+  fechaHoraDispositivo?: string; // ISO string, referencia de auditoría
+  zonaHoraria: string;           // 'America/Santiago'
+
+  // Evidencias multimedia
+  evidencias?: string[];         // URLs de Firebase Storage (máx. 3)
+
+  // Geolocalización opcional
+  ubicacionGps?: RegistroNovedadGPS;
+
+  // Estado del registro
+  estado: RegistroEstado;
+
+  // Visibilidad para el Mandante (calculada automáticamente)
+  visibleParaMandante: boolean;
+
+  // Metadatos Firestore
+  creadoEn: any;       // serverTimestamp()
+  actualizadoEn?: any; // serverTimestamp() al editar
+}
+
