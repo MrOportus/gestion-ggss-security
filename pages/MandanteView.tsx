@@ -428,6 +428,12 @@ const LibroNovedades = ({ allowedSites, guardRounds, novedades }: any) => {
     const [tipoFilter, setTipoFilter] = useState('all');
     const [siteFilter, setSiteFilter] = useState('all');
     const [selectedImage, setSelectedImage] = useState<string | null>(null);
+    const [page, setPage] = useState(1);
+    const itemsPerPage = 20;
+
+    useEffect(() => {
+        setPage(1);
+    }, [startDate, endDate, tipoFilter, siteFilter]);
 
     const timelineItems = useMemo(() => {
         const roundItems = guardRounds
@@ -479,6 +485,9 @@ const LibroNovedades = ({ allowedSites, guardRounds, novedades }: any) => {
         alerta: 'bg-amber-100 text-amber-700', novedad: 'bg-indigo-100 text-indigo-700', otro: 'bg-slate-100 text-slate-600',
     };
 
+    const totalPages = Math.ceil(filtered.length / itemsPerPage);
+    const paginatedItems = filtered.slice((page - 1) * itemsPerPage, page * itemsPerPage);
+
     return (
         <div className="space-y-5">
             <div>
@@ -526,7 +535,7 @@ const LibroNovedades = ({ allowedSites, guardRounds, novedades }: any) => {
                 </div>
             ) : (
                 <div className="space-y-2">
-                    {filtered.map((item: any, idx: number) => {
+                    {paginatedItems.map((item: any, idx: number) => {
                         const prevDate = idx > 0 ? filtered[idx - 1].timestamp.substring(0, 10) : null;
                         const currDate = item.timestamp.substring(0, 10);
                         const showSep = prevDate !== currDate;
@@ -581,6 +590,26 @@ const LibroNovedades = ({ allowedSites, guardRounds, novedades }: any) => {
                 </div>
             )}
 
+            {totalPages > 1 && (
+                <div className="flex justify-between items-center bg-white p-4 rounded-2xl border border-slate-100 shadow-sm mt-4">
+                    <button 
+                        onClick={() => setPage(p => Math.max(1, p - 1))} 
+                        disabled={page === 1}
+                        className="px-4 py-2 bg-slate-50 text-slate-600 rounded-xl disabled:opacity-50 font-bold text-sm hover:bg-slate-100 transition-colors"
+                    >
+                        Anterior
+                    </button>
+                    <span className="text-sm font-bold text-slate-500">Página {page} de {totalPages}</span>
+                    <button 
+                        onClick={() => setPage(p => Math.min(totalPages, p + 1))} 
+                        disabled={page === totalPages}
+                        className="px-4 py-2 bg-slate-50 text-slate-600 rounded-xl disabled:opacity-50 font-bold text-sm hover:bg-slate-100 transition-colors"
+                    >
+                        Siguiente
+                    </button>
+                </div>
+            )}
+
             {selectedImage && (
                 <div className="fixed inset-0 z-[100] bg-slate-900/90 backdrop-blur-sm flex items-center justify-center p-4">
                     <div className="relative max-w-4xl max-h-[90vh] w-full flex items-center justify-center">
@@ -603,6 +632,12 @@ const RegistroRondas = ({ allowedSites, guardRounds, showConfirmation }: any) =>
     const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
     const [siteFilter, setSiteFilter] = useState('all');
     const [selectedRound, setSelectedRound] = useState<any | null>(null);
+    const [page, setPage] = useState(1);
+    const itemsPerPage = 20;
+
+    useEffect(() => {
+        setPage(1);
+    }, [searchTerm, resultFilter, startDate, endDate, siteFilter]);
 
     const filtered = guardRounds.filter((r: any) => {
         const inSite = allowedSites.some((s: any) => String(s.id) === String(r.siteId));
@@ -614,6 +649,9 @@ const RegistroRondas = ({ allowedSites, guardRounds, showConfirmation }: any) =>
         const matchDate = roundDate >= startDate && roundDate <= endDate;
         return matchSearch && matchResult && matchSite && matchDate;
     }).sort((a: any, b: any) => b.startTime.localeCompare(a.startTime));
+
+    const totalPages = Math.ceil(filtered.length / itemsPerPage);
+    const paginatedItems = filtered.slice((page - 1) * itemsPerPage, page * itemsPerPage);
 
     return (
         <div className="space-y-5">
@@ -652,7 +690,7 @@ const RegistroRondas = ({ allowedSites, guardRounds, showConfirmation }: any) =>
                 </div>
             ) : (
                 <div className="space-y-3">
-                    {filtered.map((round: any) => {
+                    {paginatedItems.map((round: any) => {
                         const duration = round.endTime
                             ? Math.floor((new Date(round.endTime).getTime() - new Date(round.startTime).getTime()) / 60000)
                             : null;
@@ -739,6 +777,26 @@ const RegistroRondas = ({ allowedSites, guardRounds, showConfirmation }: any) =>
                             </div>
                         );
                     })}
+                </div>
+            )}
+
+            {totalPages > 1 && (
+                <div className="flex justify-between items-center bg-white p-4 rounded-2xl border border-slate-100 shadow-sm mt-4">
+                    <button 
+                        onClick={() => setPage(p => Math.max(1, p - 1))} 
+                        disabled={page === 1}
+                        className="px-4 py-2 bg-slate-50 text-slate-600 rounded-xl disabled:opacity-50 font-bold text-sm hover:bg-slate-100 transition-colors"
+                    >
+                        Anterior
+                    </button>
+                    <span className="text-sm font-bold text-slate-500">Página {page} de {totalPages}</span>
+                    <button 
+                        onClick={() => setPage(p => Math.min(totalPages, p + 1))} 
+                        disabled={page === totalPages}
+                        className="px-4 py-2 bg-slate-50 text-slate-600 rounded-xl disabled:opacity-50 font-bold text-sm hover:bg-slate-100 transition-colors"
+                    >
+                        Siguiente
+                    </button>
                 </div>
             )}
             {selectedRound && <RouteMapModal round={selectedRound} onClose={() => setSelectedRound(null)} />}
