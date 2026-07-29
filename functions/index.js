@@ -26,6 +26,9 @@ exports.getAttendanceShadowValidated = getAttendanceShadowValidated;
 exports.regularizeContractValidated = regularizeContractValidated;
 exports.logContractShadowDiagnostic = logContractShadowDiagnostic;
 
+const { loginWithRut } = require('./src/auth/loginWithRut');
+exports.loginWithRut = loginWithRut;
+
 // Función para generar contratos (vía Apps Script)
 exports.generarContrato = onRequest(
     { 

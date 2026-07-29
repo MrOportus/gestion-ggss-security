@@ -23,6 +23,7 @@ export interface Employee {
   lastNamePaterno: string;
   lastNameMaterno?: string;
   rut: string;
+  rutNormalized?: string;
   email: string; // Obligatorio para Auth
   phone?: string;
   cargo: string;

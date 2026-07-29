@@ -27,11 +27,11 @@ const Login: React.FC = () => {
       await login(email, password);
     } catch (err: any) {
       console.error(err);
-      if (err.code === 'auth/invalid-email') setError('El correo electrónico no es válido.');
-      else if (err.code === 'auth/user-not-found') setError('Usuario no encontrado.');
-      else if (err.code === 'auth/wrong-password') setError('Contraseña incorrecta.');
-      else if (err.code === 'auth/too-many-requests') setError('Cuenta bloqueada temporalmente. Intente más tarde.');
-      else setError('Error al iniciar sesión. Verifique sus credenciales.');
+      if (err.code === 'auth/too-many-requests') {
+        setError('Cuenta bloqueada temporalmente. Intente más tarde.');
+      } else {
+        setError('Identificador o contraseña incorrectos.');
+      }
     } finally {
       setLoading(false);
     }
@@ -167,14 +167,14 @@ const Login: React.FC = () => {
 
         <form onSubmit={handleSubmit} className="space-y-6">
           <div>
-            <label className="block text-sm font-bold text-slate-700 mb-2">Correo Electrónico</label>
+            <label className="block text-sm font-bold text-slate-700 mb-2">Correo Electrónico o RUT</label>
             <div className="relative">
               <Mail className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5" />
               <input
-                type="email"
+                type="text"
                 required
                 className="w-full pl-10 pr-4 py-3 rounded-xl border border-slate-200 bg-white text-slate-900 placeholder-slate-400 focus:ring-4 focus:ring-yellow-100 focus:border-yellow-400 outline-none transition font-medium"
-                placeholder="usuario@ggss.cl"
+                placeholder="usuario@ggss.cl o 12345678-9"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
               />

@@ -55,6 +55,11 @@ service cloud.firestore {
       allow update, read: if isAdmin() || (request.auth != null && resource.data.assignedTo == request.auth.uid);
     }
     
+    // Índice para RUTs (Evita duplicados)
+    match /RutIndex/{rut} {
+      allow read, write: if isAdmin();
+    }
+    
     // Colaboradores (Fichas de empleado)
     match /Colaboradores/{userId} {
       allow read: if request.auth != null;

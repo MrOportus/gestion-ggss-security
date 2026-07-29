@@ -13,7 +13,8 @@ import {
   signInWithEmailAndPassword,
   signOut,
   onAuthStateChanged,
-  createUserWithEmailAndPassword
+  createUserWithEmailAndPassword,
+  signInWithCustomToken
 } from 'firebase/auth';
 import {
   collection,
@@ -32,8 +33,11 @@ import {
   Timestamp,
   QuerySnapshot,
   DocumentData,
-  arrayUnion
+  arrayUnion,
+  runTransaction,
+  serverTimestamp
 } from 'firebase/firestore';
+import { normalizeRut } from '../lib/rutUtils';
 
 interface AppState {
   currentUser: User | null;
@@ -344,11 +348,30 @@ export const useAppStore = create<AppState>()(
         });
       },
 
-      login: async (email, pass) => {
+      login: async (identifier, pass) => {
         set({ isLoading: true });
         try {
-          const userCredential = await signInWithEmailAndPassword(auth, email, pass);
-          const uid = userCredential.user.uid;
+          let uid = "";
+          
+          if (identifier.includes('@')) {
+            // Login normal con correo
+            const userCredential = await signInWithEmailAndPassword(auth, identifier, pass);
+            uid = userCredential.user.uid;
+          } else {
+            // Login con RUT
+            const loginWithRutFn = httpsCallable(functions, 'loginWithRut');
+            const apiKey = import.meta.env.VITE_FIREBASE_API_KEY;
+            
+            const result = await loginWithRutFn({ 
+              rut: identifier, 
+              password: pass,
+              apiKey
+            });
+            
+            const data = result.data as { token: string };
+            const userCredential = await signInWithCustomToken(auth, data.token);
+            uid = userCredential.user.uid;
+          }
           
           // Limpiar flag de forceLogout si existe al iniciar sesión
           try {
@@ -485,36 +508,63 @@ export const useAppStore = create<AppState>()(
       addEmployee: async (employeeData, password) => {
         set({ isLoading: true });
         try {
+          const rutNorm = normalizeRut(employeeData.rut);
+          if (!rutNorm) throw new Error("RUT es requerido");
+          
+          // Pre-check para no crear Auth user innecesariamente
+          const indexRef = doc(db, "RutIndex", rutNorm);
+          const indexSnap = await getDoc(indexRef);
+          if (indexSnap.exists()) {
+            throw new Error("RUT_ALREADY_EXISTS");
+          }
+
           // 1. Crear usuario en Firebase Auth usando la instancia secundaria
-          // Esto evita que se cierre la sesión del administrador actual
           const userCredential = await createUserWithEmailAndPassword(secondaryAuth, employeeData.email, password);
           const newUid = userCredential.user.uid;
 
-          // 2. Preparar datos del empleado con el UID como ID
           const newEmployee: Employee = {
             ...employeeData,
             id: newUid,
-            tempPasswordLog: password // Guardar la contraseña temporal ingresada
+            rutNormalized: rutNorm,
+            tempPasswordLog: password
           };
 
-          // 3. Guardar en Firestore usando el UID como ID del documento
-          await setDoc(doc(db, "Colaboradores", newUid), newEmployee);
+          try {
+            await runTransaction(db, async (transaction) => {
+              const txIndexDoc = await transaction.get(indexRef);
+              if (txIndexDoc.exists()) {
+                throw new Error("RUT_ALREADY_EXISTS");
+              }
+              const colRef = doc(db, "Colaboradores", newUid);
+              transaction.set(colRef, newEmployee);
+              transaction.set(indexRef, {
+                uid: newUid,
+                createdAt: serverTimestamp(),
+                updatedAt: serverTimestamp()
+              });
+            });
+          } catch (error: any) {
+             // Rollback Auth user si falla la transacción
+             if (secondaryAuth.currentUser) {
+               await secondaryAuth.currentUser.delete().catch(e => console.error("Failed to cleanup auth", e));
+             }
+             throw error;
+          }
 
-          // 4. Actualizar estado local
           set(state => ({ employees: [...state.employees, newEmployee] }));
-
-          // 5. Opcional: Desconectar la sesión secundaria para limpiar
           await signOut(secondaryAuth);
-
           console.log("Empleado creado exitosamente con UID:", newUid);
 
         } catch (error: any) {
           console.error("Error creando empleado:", error);
-          if (error.code === 'auth/email-already-in-use') {
+          if (error.message === 'RUT_ALREADY_EXISTS') {
+            get().showNotification("El RUT ya está registrado en el sistema.", "warning");
+          } else if (error.code === 'auth/email-already-in-use') {
             get().showNotification("El correo electrónico ya está registrado.", "warning");
           } else {
             get().showNotification("Error al crear el usuario: " + error.message, "error");
           }
+          throw error;
         } finally {
           set({ isLoading: false });
         }
@@ -539,15 +589,51 @@ export const useAppStore = create<AppState>()(
 
       updateEmployee: async (id, data) => {
         try {
-          const docRef = doc(db, 'Colaboradores', id);
-          // @ts-ignore
-          await updateDoc(docRef, data);
+          const emp = get().employees.find(e => e.id === id);
+          if (!emp) throw new Error("Empleado no encontrado");
+
+          let newRutNorm: string | undefined = undefined;
+          if (data.rut && data.rut !== emp.rut) {
+             newRutNorm = normalizeRut(data.rut);
+             (data as any).rutNormalized = newRutNorm;
+          }
+
+          if (newRutNorm) {
+            await runTransaction(db, async (transaction) => {
+               const newIndexRef = doc(db, "RutIndex", newRutNorm!);
+               const checkSnap = await transaction.get(newIndexRef);
+               if (checkSnap.exists()) {
+                 throw new Error("RUT_ALREADY_EXISTS");
+               }
+               
+               const oldRutNorm = emp.rutNormalized || normalizeRut(emp.rut);
+               const oldIndexRef = doc(db, "RutIndex", oldRutNorm);
+               
+               const docRef = doc(db, 'Colaboradores', id);
+               
+               transaction.delete(oldIndexRef);
+               transaction.set(newIndexRef, {
+                 uid: id,
+                 createdAt: serverTimestamp(),
+                 updatedAt: serverTimestamp()
+               });
+               // @ts-ignore
+               transaction.update(docRef, data);
+            });
+          } else {
+             const docRef = doc(db, 'Colaboradores', id);
+             // @ts-ignore
+             await updateDoc(docRef, data);
+          }
 
           set((state) => ({
             employees: state.employees.map(e => e.id === id ? { ...e, ...data } : e)
           }));
-        } catch (error) {
+        } catch (error: any) {
           console.error("Error updating employee:", error);
+          if (error.message === 'RUT_ALREADY_EXISTS') {
+            get().showNotification("El RUT ya está registrado en el sistema.", "warning");
+          }
           throw error;
         }
       },
@@ -865,16 +951,26 @@ export const useAppStore = create<AppState>()(
           } else {
             // AGREGAR NUEVO
             const tempId = "bulk-" + Date.now() + "-" + idx;
+            const rutNorm = normalizeRut(newData.rut);
             const newEmp: Employee = {
               ...newData,
               id: tempId,
               role: 'worker',
               email: newData.email || `temp_${tempId}@ggss.cl`,
-              isActive: newData.isActive
+              isActive: newData.isActive,
+              rutNormalized: rutNorm
             };
             updatedEmployees.push(newEmp);
             const docRef = doc(db, 'Colaboradores', tempId);
             batch.set(docRef, newEmp);
+            if (rutNorm) {
+              const indexRef = doc(db, 'RutIndex', rutNorm);
+              batch.set(indexRef, {
+                uid: tempId,
+                createdAt: serverTimestamp(),
+                updatedAt: serverTimestamp()
+              }, { merge: true });
+            }
             addedCount++;
           }
         });
