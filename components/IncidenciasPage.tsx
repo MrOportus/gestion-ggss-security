@@ -105,7 +105,7 @@ const PRIORIDAD_CONFIG: Record<RegistroPrioridad, { label: string; color: string
 
 // ─── Tipos internos del componente ──────────────────────────────────────────
 
-type VistaInterna = 'lista' | 'formulario' | 'confirmar' | 'detalle';
+type VistaInterna = 'lista' | 'formulario' | 'detalle';
 
 interface FormState {
   tipoRegistro: RegistroTipo;
@@ -565,102 +565,6 @@ const IncidenciasPage: React.FC<IncidenciasPageProps> = ({ onBack, activeLog, cu
     );
   }
 
-  // ─── RENDER: Confirmación ─────────────────────────────────────────────────
-  if (vista === 'confirmar') {
-    const prio = PRIORIDAD_CONFIG[form.prioridad];
-    const catLabel = CATEGORIAS.find(c => c.value === form.categoria)?.label || '';
-    return (
-      <div className="flex flex-col min-h-screen bg-slate-50">
-        <div className="bg-white p-4 flex items-center gap-4 sticky top-0 z-30 shadow-sm border-b">
-          <button onClick={() => setVista('formulario')} className="p-2 text-slate-500 hover:bg-slate-100 rounded-xl transition-all" disabled={submitting}>
-            <ArrowLeft size={24} />
-          </button>
-          <div>
-            <h2 className="font-black text-slate-800 tracking-tight text-lg">Confirmar registro</h2>
-            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Revisa antes de guardar</p>
-          </div>
-        </div>
-
-        <div className="p-6 space-y-5 max-w-lg mx-auto w-full pb-24">
-          {/* Resumen */}
-          <div className="bg-white rounded-[2rem] border border-slate-100 shadow-sm overflow-hidden divide-y divide-slate-100">
-            <div className="p-4 flex justify-between items-center">
-              <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Tipo</span>
-              <span className={`px-3 py-1 rounded-full text-xs font-black uppercase ${form.tipoRegistro === 'incidencia' ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'}`}>
-                {form.tipoRegistro}
-              </span>
-            </div>
-            <div className="p-4 flex justify-between items-center">
-              <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Categoría</span>
-              <span className="font-bold text-slate-700 text-sm text-right">{catLabel}</span>
-            </div>
-            <div className="p-4 flex justify-between items-center">
-              <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Prioridad</span>
-              <span className={`px-3 py-1 rounded-full text-xs font-black ${prio.bg} ${prio.color}`}>{prio.label}</span>
-            </div>
-            <div className="p-4 flex justify-between items-center">
-              <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Sucursal</span>
-              <span className="font-bold text-slate-700 text-sm text-right max-w-[55%]">
-                {activeLog?.siteName || currentSite?.name || 'Sin sucursal'}
-              </span>
-            </div>
-            {form.ubicacionInstalacion && (
-              <div className="p-4 flex justify-between items-center">
-                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Ubicación</span>
-                <span className="font-bold text-slate-700 text-sm text-right">{form.ubicacionInstalacion}</span>
-              </div>
-            )}
-            <div className="p-4">
-              <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Descripción</span>
-              <p className="text-slate-700 font-medium text-sm leading-relaxed">{form.descripcion}</p>
-            </div>
-            {form.fotos.length > 0 && (
-              <div className="p-4">
-                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">
-                  Evidencias ({form.fotos.length} fotografía{form.fotos.length > 1 ? 's' : ''})
-                </span>
-                <div className="flex gap-2">
-                  {form.fotos.map((src, i) => (
-                    <img key={i} src={src} alt="" className="w-16 h-16 object-cover rounded-xl border border-slate-100" />
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Error */}
-          {submitError && (
-            <div className="bg-red-50 border border-red-200 rounded-2xl p-4 flex gap-3">
-              <AlertCircle size={20} className="text-red-500 shrink-0 mt-0.5" />
-              <p className="text-sm font-bold text-red-700">{submitError}</p>
-            </div>
-          )}
-
-          {/* Botones */}
-          <div className="fixed bottom-0 left-0 right-0 p-6 bg-white/95 backdrop-blur-sm border-t border-slate-100 flex gap-3">
-            <button
-              onClick={() => setVista('formulario')}
-              disabled={submitting}
-              className="flex-1 py-4 bg-slate-100 text-slate-500 rounded-2xl font-black uppercase tracking-widest text-xs active:scale-95 transition-all disabled:opacity-50"
-            >
-              Cancelar
-            </button>
-            <button
-              onClick={handleConfirmarRegistro}
-              disabled={submitting}
-              className="flex-[2] py-4 bg-emerald-500 hover:bg-emerald-600 text-white rounded-2xl font-black uppercase tracking-widest text-xs shadow-lg shadow-emerald-200 active:scale-95 transition-all disabled:opacity-60 flex items-center justify-center gap-2"
-            >
-              {submitting ? (
-                <><Loader2 size={18} className="animate-spin" /> Guardando...</>
-              ) : (
-                <><CheckCircle size={18} /> Confirmar y registrar</>
-              )}
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
 
   // ─── RENDER: Formulario de registro ──────────────────────────────────────
   if (vista === 'formulario') {
@@ -819,14 +723,22 @@ const IncidenciasPage: React.FC<IncidenciasPageProps> = ({ onBack, activeLog, cu
 
         {/* ── BARRA INFERIOR FIJA ── */}
         <div className="fixed bottom-0 left-0 right-0 p-6 bg-white/95 backdrop-blur-sm border-t border-slate-100">
+          {submitError && (
+            <div className="mb-4 bg-red-50 border border-red-200 rounded-2xl p-4 flex gap-3 items-start">
+              <AlertCircle size={20} className="text-red-500 shrink-0 mt-0.5" />
+              <p className="text-sm font-bold text-red-700 leading-tight">{submitError}</p>
+            </div>
+          )}
           <button
-            onClick={() => setVista('confirmar')}
-            disabled={!formValido}
-            className="w-full py-5 bg-blue-600 hover:bg-blue-700 text-white rounded-[2rem] font-black uppercase tracking-widest shadow-xl shadow-blue-200 active:scale-95 transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            onClick={handleConfirmarRegistro}
+            disabled={!formValido || submitting}
+            className="w-full py-5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-[2rem] font-black uppercase tracking-widest shadow-xl shadow-emerald-200 active:scale-95 transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
           >
-            <ClipboardCheck size={22} />
-            Revisar y confirmar
-            <ChevronRight size={20} />
+            {submitting ? (
+              <><Loader2 size={22} className="animate-spin" /> Guardando...</>
+            ) : (
+              <><CheckCircle size={22} /> Confirmar y registrar</>
+            )}
           </button>
           {!formValido && (
             <p className="text-center text-[10px] text-slate-400 font-bold mt-2 uppercase tracking-widest">
