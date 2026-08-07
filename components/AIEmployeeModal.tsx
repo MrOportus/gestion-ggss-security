@@ -155,8 +155,11 @@ export const AIEmployeeModal: React.FC<AIEmployeeModalProps> = ({ onClose }) => 
             await addEmployee({
                 ...extractedData as Employee,
                 isActive: true,
+                // SEGURIDAD: rol y cargo siempre forzados a valores seguros.
+                // Nunca se deben tomar del dato extraído por la IA para evitar
+                // crear usuarios con acceso de administrador por error.
                 role: 'worker',
-                cargo: 'Guardia', // Valor por defecto
+                cargo: 'GUARDIA DE SEGURIDAD',
             } as Omit<Employee, 'id'>, defaultPassword);
 
             showNotification("Empleado creado exitosamente", "success");
@@ -176,8 +179,8 @@ export const AIEmployeeModal: React.FC<AIEmployeeModalProps> = ({ onClose }) => 
                             <Sparkles size={24} />
                         </div>
                         <div>
-                            <h2 className="text-xl font-black text-slate-800 uppercase tracking-tight">Alta de Personal con IA</h2>
-                            <p className="text-xs text-slate-400 font-bold uppercase tracking-widest">Digitalización de Ficha de Registro</p>
+                            <h2 className="text-xl font-black text-slate-800 uppercase tracking-tight">Registrar Nuevo Colaborador</h2>
+                            <p className="text-xs text-slate-400 font-bold uppercase tracking-widest">Carga rápida desde imagen (Copiar/pegar)</p>
                         </div>
                     </div>
                     <button onClick={onClose} className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition">

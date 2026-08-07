@@ -246,7 +246,7 @@ const EmployeesPage: React.FC = () => {
             className="bg-slate-900 hover:bg-black text-white px-3 py-2 rounded-lg font-medium flex-1 sm:flex-none flex items-center justify-center gap-2 shadow-lg transition"
           >
             <Sparkles size={18} className="text-orange-400" />
-            <span className="text-sm">Alta IA</span>
+            <span className="text-sm">Cargar desde foto</span>
           </button>
           <button
             onClick={() => setShowAddModal(true)}
