@@ -69,14 +69,6 @@ async function executeAttendanceClosure(db, params) {
       alcanceSnap = await transaction.get(db.collection('AlcancesOperativos').doc(actorUid));
     }
 
-    // Búsqueda de sesión posterior (para forceLogout condicional)
-    const posteriorQuery = db.collection('Asistencia')
-      .where('employeeId', '==', checkInData.employeeId)
-      .where('type', '==', 'check_in')
-      .where('estado', '==', 'ABIERTO')
-      .where('timestamp', '>', checkInData.timestamp);
-    const posteriorSnap = await transaction.get(posteriorQuery);
-
     // --- 2. VALIDACIONES E IDEMPOTENCIA ---
     if (tokenDoc.exists) {
       const tData = tokenDoc.data();
@@ -222,14 +214,10 @@ async function executeAttendanceClosure(db, params) {
       transaction.delete(digRef);
     }
 
-    // forceLogout condicional
-    if (!hasActivePosteriorSession) {
-      const empRef = db.collection('Colaboradores').doc(checkInData.employeeId);
-      transaction.set(empRef, {
-        forceLogout: true,
-        lastForceLogout: endTimestamp
-      }, { merge: true });
-    }
+    // NOTA: forceLogout fue eliminado del flujo de cierre de turno.
+    // Cerrar un turno (automático o por admin) NO debe cerrar la sesión del guardia.
+    // El forceLogout solo debe usarse para logout remoto explícito, no como efecto
+    // colateral de un cierre de turno.
 
     // asistencia_manual (Legacy)
     const manualDocId = `manual_${checkInData.employeeId}_${jornadaDate}`;
