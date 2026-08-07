@@ -160,7 +160,6 @@ const PanelAdminSolicitudes: React.FC = () => {
       }
     });
   };
-  };
 
   const activas = solicitudes.filter(s => s.estado === 'disponible');
   const asignadas = solicitudes.filter(s => s.estado !== 'disponible');
