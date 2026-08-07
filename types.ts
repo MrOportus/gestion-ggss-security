@@ -334,6 +334,7 @@ export interface Loan {
   status: 'PENDING' | 'PAID' | 'PARTIAL';
   installments: LoanInstallment[];
   pdfUrl?: string;
+  notes?: string; // Información adicional o comentarios del préstamo
   createdAt: string;
   createdBy: string;
 }
