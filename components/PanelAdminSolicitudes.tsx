@@ -12,6 +12,11 @@ const PanelAdminSolicitudes: React.FC = () => {
   const [solicitudes, setSolicitudes] = useState<SolicitudTurno[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   
+  const [activeTab, setActiveTab] = useState<'activas' | 'asignadas'>('activas');
+  const [pageActivas, setPageActivas] = useState(1);
+  const [pageAsignadas, setPageAsignadas] = useState(1);
+  const ITEMS_PER_PAGE = 15;
+  
   // Form State
   const [selectedSiteId, setSelectedSiteId] = useState<string>('');
   const [fechaInicio, setFechaInicio] = useState('');
@@ -155,6 +160,17 @@ const PanelAdminSolicitudes: React.FC = () => {
       }
     });
   };
+  };
+
+  const activas = solicitudes.filter(s => s.estado === 'disponible');
+  const asignadas = solicitudes.filter(s => s.estado !== 'disponible');
+
+  const totalPagesActivas = Math.ceil(activas.length / ITEMS_PER_PAGE) || 1;
+  const totalPagesAsignadas = Math.ceil(asignadas.length / ITEMS_PER_PAGE) || 1;
+
+  const currentList = activeTab === 'activas' 
+    ? activas.slice((pageActivas - 1) * ITEMS_PER_PAGE, pageActivas * ITEMS_PER_PAGE)
+    : asignadas.slice((pageAsignadas - 1) * ITEMS_PER_PAGE, pageAsignadas * ITEMS_PER_PAGE);
 
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-6 animate-fade-in">
@@ -397,15 +413,31 @@ const PanelAdminSolicitudes: React.FC = () => {
 
         {/* LIST OF SOLICITUDES */}
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 lg:col-span-2 space-y-4">
-          <h2 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
-            <Calendar className="text-blue-500" />
-            Solicitudes Activas
-          </h2>
+          <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4 mb-4">
+            <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+              <Calendar className="text-blue-500" />
+              Solicitudes
+            </h2>
+            <div className="flex bg-slate-100 p-1 rounded-xl">
+              <button
+                onClick={() => { setActiveTab('activas'); setPageActivas(1); }}
+                className={`px-4 py-2 text-xs font-bold rounded-lg transition-all ${activeTab === 'activas' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+              >
+                Pendientes ({activas.length})
+              </button>
+              <button
+                onClick={() => { setActiveTab('asignadas'); setPageAsignadas(1); }}
+                className={`px-4 py-2 text-xs font-bold rounded-lg transition-all ${activeTab === 'asignadas' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+              >
+                Historial / Asignadas ({asignadas.length})
+              </button>
+            </div>
+          </div>
 
-          {solicitudes.length === 0 ? (
+          {currentList.length === 0 ? (
             <div className="text-center py-12 bg-slate-50 rounded-2xl border border-dashed border-slate-300">
               <DollarSign className="mx-auto text-slate-300 mb-3" size={48} />
-              <p className="text-slate-500 font-bold">No hay solicitudes de turno publicadas.</p>
+              <p className="text-slate-500 font-bold">No hay solicitudes en esta sección.</p>
             </div>
           ) : (
             <div className="space-y-2">
@@ -418,7 +450,7 @@ const PanelAdminSolicitudes: React.FC = () => {
                 <div className="col-span-1 text-center">Acción</div>
               </div>
 
-              {solicitudes.map(sol => (
+              {currentList.map(sol => (
                 <div key={sol.id} className={`p-3 lg:p-4 rounded-xl border transition-all ${sol.estado === 'disponible' ? 'bg-white border-slate-100 hover:border-blue-200 shadow-sm' : 'bg-slate-50/50 border-slate-100 opacity-90'}`}>
                   <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-center">
                     {/* Sucursal */}
@@ -518,6 +550,31 @@ const PanelAdminSolicitudes: React.FC = () => {
                   )}
                 </div>
               ))}
+            </div>
+          )}
+
+          {/* Paginación */}
+          {currentList.length > 0 && (
+            <div className="flex justify-between items-center pt-4 border-t border-slate-100 mt-4">
+              <span className="text-xs font-bold text-slate-400">
+                Página {activeTab === 'activas' ? pageActivas : pageAsignadas} de {activeTab === 'activas' ? totalPagesActivas : totalPagesAsignadas}
+              </span>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => activeTab === 'activas' ? setPageActivas(p => Math.max(1, p - 1)) : setPageAsignadas(p => Math.max(1, p - 1))}
+                  disabled={(activeTab === 'activas' ? pageActivas : pageAsignadas) === 1}
+                  className="px-3 py-1.5 bg-slate-100 text-slate-600 text-xs font-bold rounded-lg hover:bg-slate-200 disabled:opacity-50 transition-all"
+                >
+                  Anterior
+                </button>
+                <button
+                  onClick={() => activeTab === 'activas' ? setPageActivas(p => Math.min(totalPagesActivas, p + 1)) : setPageAsignadas(p => Math.min(totalPagesAsignadas, p + 1))}
+                  disabled={(activeTab === 'activas' ? pageActivas : pageAsignadas) === (activeTab === 'activas' ? totalPagesActivas : totalPagesAsignadas)}
+                  className="px-3 py-1.5 bg-slate-100 text-slate-600 text-xs font-bold rounded-lg hover:bg-slate-200 disabled:opacity-50 transition-all"
+                >
+                  Siguiente
+                </button>
+              </div>
             </div>
           )}
         </div>
