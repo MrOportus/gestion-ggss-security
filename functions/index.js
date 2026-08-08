@@ -16,12 +16,14 @@ const { resolveShadowShift, toAbsoluteMinutes } = require('./shadowResolver');
 const { processAutoCloseShifts } = require('./autoCloseHelper');
 const { saveProgramacionValidated } = require('./src/phase5/saveProgramacionValidated');
 const { forceCloseAttendanceValidated } = require('./src/phase5/forceCloseAttendanceValidated');
+const { checkProgramacionConflicts } = require('./src/phase5/checkProgramacionConflicts');
 const { getAttendanceShadowValidated } = require('./src/phase5d2/getAttendanceShadowValidated');
 const { regularizeContractValidated } = require('./src/phase3/regularizeContractValidated');
 const { logContractShadowDiagnostic } = require('./src/phase3/logContractShadowDiagnostic');
 
 exports.saveProgramacionValidated = saveProgramacionValidated;
 exports.forceCloseAttendanceValidated = forceCloseAttendanceValidated;
+exports.checkProgramacionConflicts = checkProgramacionConflicts;
 exports.getAttendanceShadowValidated = getAttendanceShadowValidated;
 exports.regularizeContractValidated = regularizeContractValidated;
 exports.logContractShadowDiagnostic = logContractShadowDiagnostic;

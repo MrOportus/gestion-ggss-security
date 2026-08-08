@@ -108,7 +108,8 @@ service cloud.firestore {
     // Programación de Turnos (solo admin/supervisor pueden escribir en campos no operacionales)
     match /programacion/{docId} {
       allow read: if request.auth != null;
-      allow create, delete: if false;
+      allow create: if false;
+      allow delete: if isAdmin() || isSupervisor();
       allow update: if (isAdmin() || isSupervisor()) && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['fecha', 'horario', 'turno', 'estado', 'siteId', 'colaboradorId']));
     }
 
@@ -188,6 +189,17 @@ service cloud.firestore {
       allow write: if isAdmin() || isSupervisor();
     }
 
+    match /Vacaciones/{id} {
+      allow read: if request.auth != null;
+      allow write: if isAdmin() || isSupervisor();
+    }
+
+    match /ConflictWarnings/{docId} {
+      allow read: if request.auth != null;
+      allow update: if request.auth != null;
+      allow create, delete: if false; // Solo backend
+    }
+
     match /solicitudes_turnos/{docId} {
       allow read: if request.auth != null;
       allow create, delete: if isAdmin();
@@ -201,7 +213,8 @@ service cloud.firestore {
     
     match /TurnosProgramados/{id} {
       allow read: if request.auth != null;
-      allow create, delete: if false;
+      allow create: if false;
+      allow delete: if isAdmin() || isSupervisor();
       allow update: if (isAdmin() || isSupervisor()) && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['fechaOperacional', 'horarioSnapshot', 'codigoTurno', 'estado', 'sucursalId', 'colaboradorId']));
     }
     

@@ -2,8 +2,6 @@ import { useState } from 'react';
 import { db } from '../../lib/firebase';
 import { doc, setDoc, deleteDoc } from 'firebase/firestore';
 import { getFunctions, httpsCallable } from 'firebase/functions';
-import { featureFlagService } from './featureFlagService';
-import { previewConflict } from '../phase4/conflictPreview';
 
 type ShiftStatus = 'programado' | 'asistio_manual' | 'asistio_manual_completed' | 'ausente' | 'noche' | 'descanso' | 'trasladado' | null;
 
@@ -23,6 +21,7 @@ export interface SaveChangesResult {
   technicalErrors: any[];
   newTokens: Record<string, string>;
   failedColabIds: string[];
+  conflictCheckPending: boolean;
 }
 
 export const useShiftManagementFacade = () => {
@@ -44,7 +43,8 @@ export const useShiftManagementFacade = () => {
       conflicts: [],
       technicalErrors: [],
       newTokens: { ...previousTokens },
-      failedColabIds: []
+      failedColabIds: [],
+      conflictCheckPending: false
     };
 
     try {
@@ -65,33 +65,6 @@ export const useShiftManagementFacade = () => {
 
         const site = sites.find(s => s.id.toString() === siteId.toString());
         const emp = employees.find(e => e.id === empId);
-
-        if ((status === 'programado' || status === 'noche') && !overrideConflicts) {
-          const cruzaMedianoche = status === 'noche';
-          const conflict = await previewConflict({
-            colaboradorId: empId,
-            fecha: dateStr,
-            horario: {
-              inicio: cruzaMedianoche ? '19:30' : '07:30',
-              termino: cruzaMedianoche ? '07:30' : '19:30',
-              cruzaMedianoche,
-            },
-            excludeShiftId: progDocId,
-            codigoTurno: cruzaMedianoche ? 'N' : 'X',
-          });
-
-          if (conflict.type !== 'none') {
-            const rawName = emp ? `${emp.firstName} ${emp.lastNamePaterno}` : empId;
-            const empName = rawName.replace(/[\w.-]+@[\w.-]+\.\w+/g, '').trim();
-            const conflictSite = sites.find(s => s.id.toString() === conflict.sucursalConflictiva?.toString());
-            const branchInfo = conflictSite ? `Sucursal ${conflictSite.name}` : (conflict.sucursalConflictiva ? `Sucursal ${conflict.sucursalConflictiva}` : 'otra sucursal');
-            const horarioInfo = conflict.inicioConflicto && conflict.terminoConflicto ? ` desde ${conflict.inicioConflicto} hasta ${conflict.terminoConflicto}` : '';
-            const fechaInfo = conflict.fechaConflicto || dateStr;
-            result.conflicts.push(`No se puede programar este turno. El colaborador ${empName} ya está programado en ${branchInfo} el ${fechaInfo}${horarioInfo}.`);
-            result.failedColabIds.push(empId);
-            continue; 
-          }
-        }
 
         if (status === 'programado' || status === 'noche' || status === 'descanso' || status === null) {
           if (!callableChangesByColab[empId]) callableChangesByColab[empId] = [];
@@ -189,7 +162,7 @@ export const useShiftManagementFacade = () => {
         await Promise.allSettled(batchPromises);
       }
       
-      const BATCH_SIZE = 5; 
+      const BATCH_SIZE = 10;
       const colabs = Object.keys(callableChangesByColab);
       
       for (let i = 0; i < colabs.length; i += BATCH_SIZE) {
@@ -203,38 +176,15 @@ export const useShiftManagementFacade = () => {
           result.newTokens[empId] = operationRequestId;
 
           try {
-            const res = await saveProgramacionCallable({ 
+            await saveProgramacionCallable({ 
               operationRequestId, 
-              cambios,
-              overrideConflicts
+              cambios
             });
             result.success++;
+            result.conflictCheckPending = true; // conflictos verificados async en background
           } catch (err: any) {
             result.failedColabIds.push(empId);
-            let isConflict = false;
-            
-            if (err.details || err.message.includes("shift_conflict")) {
-              try {
-                const data = typeof err.message === 'string' && err.message.startsWith('{') 
-                  ? JSON.parse(err.message) 
-                  : (err.details || {});
-                  
-                if (data.code === "shift_conflict") {
-                  const emp = employees.find((e: any) => e.id === empId);
-                  const rawName = emp ? `${emp.firstName} ${emp.lastNamePaterno}` : empId;
-                  const empName = rawName.replace(/[\w.-]+@[\w.-]+\.\w+/g, '').trim();
-                  const conflictSite = sites.find(s => s.id.toString() === data.sucursalId?.toString());
-                  const sucursalTexto = conflictSite ? conflictSite.name : (data.sucursalNombre || `Sucursal ${data.sucursalId}`);
-                  const msg = `No se puede programar este turno. El colaborador ${empName} ya está programado en Sucursal ${sucursalTexto} el ${data.fechaOperacional} desde ${data.inicio} hasta ${data.termino}.`;
-                  result.conflicts.push(msg);
-                  isConflict = true;
-                }
-              } catch (parseErr) {}
-            }
-            
-            if (!isConflict) {
-              result.technicalErrors.push(`Error en colaborador ${empId}: ${err.message || 'Desconocido'}`);
-            }
+            result.technicalErrors.push(`Error en colaborador ${empId}: ${err.message || 'Desconocido'}`);
           }
         });
         

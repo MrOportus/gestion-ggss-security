@@ -1,6 +1,6 @@
 import React from 'react';
 import { Dialog, Transition } from '@headlessui/react';
-import { ArrowRightLeft, Plus, Users, RotateCcw, X } from 'lucide-react';
+import { ArrowRightLeft, Plus, Users, RotateCcw, X, CheckCircle2 } from 'lucide-react';
 
 interface ShiftActionModalProps {
   isOpen: boolean;
@@ -9,7 +9,8 @@ interface ShiftActionModalProps {
   requiereCobertura: boolean;
   colaboradorNombre: string;
   fecha: string;
-  onAction: (action: 'transfer' | 'additional' | 'coverage' | 'revert') => void;
+  isConflict?: boolean;
+  onAction: (action: 'transfer' | 'additional' | 'coverage' | 'revert' | 'delete' | 'force_assign') => void;
   role?: string;
 }
 
@@ -20,6 +21,7 @@ const ShiftActionModal: React.FC<ShiftActionModalProps> = ({
   requiereCobertura,
   colaboradorNombre,
   fecha,
+  isConflict,
   onAction,
   role
 }) => {
@@ -49,7 +51,37 @@ const ShiftActionModal: React.FC<ShiftActionModalProps> = ({
             </div>
 
             <div className="p-2 space-y-1">
-              {(shiftStatus === 'programado' || shiftStatus === 'noche' || shiftStatus === 'descanso') && role !== 'rrhh' && (
+              {isConflict ? (
+                <>
+                  <button
+                    onClick={() => { onAction('delete'); onClose(); }}
+                    className="w-full flex items-center gap-3 p-3 text-left hover:bg-red-50 rounded-lg transition"
+                  >
+                    <div className="p-2 bg-red-100 text-red-600 rounded-lg">
+                      <X size={18} />
+                    </div>
+                    <div>
+                      <div className="font-bold text-slate-700">Eliminar este turno</div>
+                      <div className="text-xs text-slate-500">Quitar el turno de esta sucursal</div>
+                    </div>
+                  </button>
+
+                  <button
+                    onClick={() => { onAction('force_assign'); onClose(); }}
+                    className="w-full flex items-center gap-3 p-3 text-left hover:bg-emerald-50 rounded-lg transition"
+                  >
+                    <div className="p-2 bg-emerald-100 text-emerald-600 rounded-lg">
+                      <CheckCircle2 size={18} />
+                    </div>
+                    <div>
+                      <div className="font-bold text-slate-700">Asignar Forzado</div>
+                      <div className="text-xs text-slate-500">EliminarForzado: elimina el otro turno programado de la otra sucursal</div>
+                    </div>
+                  </button>
+                </>
+              ) : (
+                <>
+                  {(shiftStatus === 'programado' || shiftStatus === 'noche' || shiftStatus === 'descanso') && role !== 'rrhh' && (
                 <button
                   onClick={() => { onAction('transfer'); onClose(); }}
                   className="w-full flex items-center gap-3 p-3 text-left hover:bg-slate-50 rounded-lg transition"
@@ -107,6 +139,8 @@ const ShiftActionModal: React.FC<ShiftActionModalProps> = ({
                     <div className="text-xs text-slate-500">Cancelar destino y reactivar origen</div>
                   </div>
                 </button>
+              )}
+              </>
               )}
             </div>
           </Dialog.Panel>

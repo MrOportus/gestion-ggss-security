@@ -80,8 +80,6 @@ async function executeAttendanceClosure(db, params) {
       }
     }
 
-    const hasActivePosteriorSession = !posteriorSnap.empty;
-
     // Si ya estaba cerrado, simplemente retornar (Idempotencia base)
     if (checkInData.status === 'completed' || checkInData.estado === 'CERRADO') {
       return { success: true, message: 'La asistencia ya estaba cerrada.', checkOutId: null };
@@ -233,6 +231,18 @@ async function executeAttendanceClosure(db, params) {
       updatedAt: FieldValue.serverTimestamp()
     };
     transaction.set(manualRef, legacyPayload, { merge: true });
+
+    // Actualizar TurnosProgramados → estado 'completado' al cerrar turno
+    if (tpSnap && tpSnap.exists) {
+      const tpRef = db.collection('TurnosProgramados').doc(checkInData.turnoProgramadoId);
+      transaction.update(tpRef, {
+        estado: 'completado',
+        asistenciaEstado: 'presente',
+        horaSalidaReal: endTimestamp,
+        checkOutId: checkOutId,
+        updatedAt: FieldValue.serverTimestamp()
+      });
+    }
 
     const auditId = isSystemActor ? `auto_close_${attendanceId}` : `attendance_force_closed_${attendanceId}`;
 

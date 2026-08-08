@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useAppStore } from '../store/useAppStore';
 import { normalizeText } from '../lib/textUtils';
 import { db } from '../lib/firebase';
-import { collection, query, where, onSnapshot, doc, updateDoc, Timestamp } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, doc, updateDoc, Timestamp, getDocs, deleteDoc as firestoreDeleteDoc } from 'firebase/firestore';
 import {
     Calendar as CalendarIcon,
     MapPin,
@@ -140,7 +140,8 @@ const ShiftManagement: React.FC = () => {
         fecha: string;
         shiftStatus: string;
         requiereCobertura: boolean;
-        shiftId?: string; // needed for coverage and revert
+        shiftId?: string;
+        isConflict?: boolean;
     } | null>(null);
 
     const [additionalModal, setAdditionalModal] = useState<{
@@ -420,7 +421,8 @@ const ShiftManagement: React.FC = () => {
                         fecha: formatDateKey(day),
                         shiftStatus: status.type,
                         requiereCobertura: status.details.requiereCobertura === true,
-                        shiftId: status.details.id
+                        shiftId: status.details.id,
+                        isConflict: conflictingCells.has(`${emp.id}_${formatDateKey(day)}`)
                     });
                 }
             }
@@ -434,8 +436,57 @@ const ShiftManagement: React.FC = () => {
         isOpen: boolean;
         result?: import('../lib/phase2/useShiftManagementFacade').SaveChangesResult;
         contractAlerts?: string[];
+        conflictCheckPending?: boolean;
     }>({ isOpen: false });
     const [savedTokens, setSavedTokens] = useState<Record<string, string>>({});
+
+    // ── ConflictWarnings: listener en tiempo real ─────────────────────────────
+    const [conflictWarnings, setConflictWarnings] = useState<any[]>([]);
+    const [dismissedWarnings, setDismissedWarnings] = useState<Set<string>>(new Set());
+
+    useEffect(() => {
+        const mesStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
+
+        const warningsQuery = query(
+            collection(db, 'ConflictWarnings'),
+            where('mes', '==', mesStr)
+        );
+        const unsub = onSnapshot(warningsQuery, (snap) => {
+            const warnings: any[] = [];
+            snap.docs.forEach(d => {
+                const data = d.data();
+                if (data.acknowledged !== true) {
+                    warnings.push({ id: d.id, ...data });
+                }
+            });
+            setConflictWarnings(warnings);
+        });
+        return () => unsub();
+    }, [currentDate]);
+
+    const dismissWarning = (id: string) => {
+        setDismissedWarnings(prev => {
+            const next = new Set(prev);
+            next.add(id);
+            return next;
+        });
+        const ref = doc(db, 'ConflictWarnings', id);
+        updateDoc(ref, { acknowledged: true }).catch(console.error);
+    };
+
+    // Elimina una fecha específica del ConflictWarning de un colaborador.
+    // Si no quedan conflictos en ese mes, marca el doc como acknowledged.
+    const clearConflictForDate = async (empId: string, fecha: string) => {
+        const warningDoc = conflictWarnings.find(w => w.colaboradorId === empId);
+        if (!warningDoc) return;
+        const remaining = (warningDoc.conflictos || []).filter((c: any) => c.fecha !== fecha);
+        const ref = doc(db, 'ConflictWarnings', warningDoc.id);
+        if (remaining.length === 0) {
+            await updateDoc(ref, { acknowledged: true, conflictos: [], totalConflictos: 0 }).catch(console.error);
+        } else {
+            await updateDoc(ref, { conflictos: remaining, totalConflictos: remaining.length }).catch(console.error);
+        }
+    };
 
     const saveChanges = async (overrideConflicts: boolean = false) => {
         setConflictError(null);
@@ -499,10 +550,29 @@ const ShiftManagement: React.FC = () => {
             }
         });
         setPendingChanges(newPending);
-        
-        if (result.conflicts.length > 0 || result.technicalErrors.length > 0) {
-            setSummaryModalState({ isOpen: true, result, contractAlerts: [] });
+
+        if (result.technicalErrors.length > 0 || (result.conflicts && result.conflicts.length > 0)) {
+            // Solo errores técnicos o conflictos bloquean con modal
+            setSummaryModalState({ isOpen: true, result, contractAlerts: [], conflictCheckPending: result.conflictCheckPending });
         } else {
+            // Guardado exitoso: limpiar conflictos de celdas borradas
+            const cleanupPromises: Promise<void>[] = [];
+            Object.entries(pendingChanges).forEach(([key, status]) => {
+                if (status === null) {
+                    // key = {siteId}_{empId}_{fecha}
+                    const parts = key.split('_');
+                    const fecha = parts[parts.length - 1];
+                    const empId = parts.slice(1, -1).join('_');
+                    // Si esa celda tenía un conflicto activo, limpiar el warning
+                    if (conflictingCells.has(`${empId}_${fecha}`)) {
+                        cleanupPromises.push(clearConflictForDate(empId, fecha));
+                    }
+                }
+            });
+            if (cleanupPromises.length > 0) {
+                await Promise.allSettled(cleanupPromises);
+            }
+            // Salir de modo edición
             setIsEditMode(false);
             setConflictError(null);
             setSavedTokens({});
@@ -511,7 +581,27 @@ const ShiftManagement: React.FC = () => {
 
     const handleForceConflicts = async () => {
         setSummaryModalState({ isOpen: false });
-        await saveChanges(true);
+        try {
+            const result = await facadeSaveChanges({
+                pendingChanges,
+                programmingMap,
+                sites,
+                employees,
+                currentUser,
+                previousTokens: {},  // Forzar nuevos tokens para evitar idempotencia
+                overrideConflicts: true,
+            });
+            // Limpiar todos los pending tras guardar forzado
+            setPendingChanges({});
+            setSavedTokens({});
+            setIsEditMode(false);
+            setConflictError(null);
+            if (result.technicalErrors.length > 0) {
+                setSummaryModalState({ isOpen: true, result, contractAlerts: [], conflictCheckPending: false });
+            }
+        } catch (e) {
+            console.error("Error al forzar guardado:", e);
+        }
     };
 
     const handleRetryTechnical = async () => {
@@ -591,6 +681,23 @@ const ShiftManagement: React.FC = () => {
 
     const shadowEmployeeIds = useMemo(() => finalVisibleEmployees.map(e => e.id), [finalVisibleEmployees]);
     
+    const activeConflictWarnings = useMemo(() => {
+        return conflictWarnings.filter(w => {
+            if (dismissedWarnings.has(w.id)) return false;
+            return shadowEmployeeIds.includes(w.colaboradorId);
+        });
+    }, [conflictWarnings, dismissedWarnings, shadowEmployeeIds]);
+
+    const conflictingCells = useMemo(() => {
+        const cells = new Set<string>();
+        activeConflictWarnings.forEach(w => {
+            w.conflictos.forEach((c: any) => {
+                cells.add(`${w.colaboradorId}_${c.fecha}`);
+            });
+        });
+        return cells;
+    }, [activeConflictWarnings]);
+
     const { featureFlag } = useContractShadowBatch({
         employeeIds: shadowEmployeeIds,
         selectedSiteId,
@@ -736,12 +843,46 @@ const ShiftManagement: React.FC = () => {
 
             {/* Header & Controls */}
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-4 rounded-xl shadow-sm border border-slate-200 shrink-0">
-                <div>
-                    <h1 className="text-2xl font-black text-slate-900 flex items-center gap-2">
-                        <CalendarIcon className="text-yellow-400" />
-                        GESTIÓN DE TURNOS
-                    </h1>
-                    <p className="text-slate-500 text-sm font-medium">Condominio Lihuen - Módulo Híbrido</p>
+                <div className="flex items-start gap-4">
+                    <div>
+                        <h1 className="text-2xl font-black text-slate-900 flex items-center gap-2">
+                            <CalendarIcon className="text-yellow-400" />
+                            GESTIÓN DE TURNOS
+                        </h1>
+                        <p className="text-slate-500 text-sm font-medium">
+                            {filteredSitesForUser.find(s => String(s.id) === String(selectedSiteId))?.name || 'Cargando sucursal...'}
+                        </p>
+                    </div>
+
+                    {/* Conflictos (Área solicitada por usuario) */}
+                    {activeConflictWarnings.length > 0 && (
+                        <div className="bg-red-50 text-red-700 px-3 py-2 rounded-lg border border-red-200 text-sm font-bold flex flex-col gap-1 shadow-sm max-w-xs">
+                            <div className="flex items-center gap-2">
+                                <AlertTriangle size={16} className="text-red-500 animate-pulse" />
+                                <span>{activeConflictWarnings.reduce((acc, w) => acc + w.totalConflictos, 0)} Conflictos de turno</span>
+                            </div>
+                            <button 
+                                onClick={() => setSummaryModalState({ 
+                                    isOpen: true, 
+                                    result: { 
+                                        success: 0, 
+                                        conflicts: activeConflictWarnings.flatMap(w => {
+                                            const emp = employees.find(e => e.id === w.colaboradorId);
+                                            const name = emp ? `${emp.firstName} ${emp.lastNamePaterno}` : 'Colaborador';
+                                            return w.conflictos.map((c: any) => `Conflicto: ${name} en: ${c.sucursalNombreA} y ${c.sucursalNombreB} (${c.fecha})`);
+                                        }), 
+                                        technicalErrors: [], 
+                                        newTokens: {}, 
+                                        failedColabIds: [], 
+                                        conflictCheckPending: false 
+                                    } 
+                                })}
+                                className="text-xs text-red-600 underline hover:text-red-800 text-left"
+                            >
+                                Ver detalles
+                            </button>
+                        </div>
+                    )}
                 </div>
 
                 <div className="flex items-center gap-4 flex-wrap">
@@ -980,6 +1121,8 @@ const ShiftManagement: React.FC = () => {
                                     </td>
                                     {days.map(day => {
                                         const status = getCellStatus(emp.id, day);
+                                        const dateStr = formatDateKey(day);
+                                        const isConflict = conflictingCells.has(`${emp.id}_${dateStr}`);
                                         const isWeekend = day.getDay() === 0 || day.getDay() === 6;
                                         return (
                                             <td
@@ -993,7 +1136,12 @@ const ShiftManagement: React.FC = () => {
                                             ${isWeekend && status.type === 'empty' ? 'bg-red-50/30' : ''}
                                         `}
                                             >
-                                                <div className="w-full h-10 flex items-center justify-center rounded-lg relative group pointer-events-none">
+                                                <div className={`w-full h-10 flex items-center justify-center rounded-lg relative group pointer-events-none ${isConflict ? 'ring-2 ring-red-500 bg-red-50' : ''}`}>
+                                                    {isConflict && (
+                                                        <div className="absolute -top-1 -right-1 z-10 text-red-500 bg-white rounded-full p-px shadow-sm" title="Conflicto de turno detectado con otra instalación">
+                                                            <AlertTriangle size={12} className="fill-red-100" />
+                                                        </div>
+                                                    )}
                                                     {status.type === 'programado' && (
                                                         <div className="w-8 h-8 flex items-center justify-center bg-blue-100 text-blue-600 rounded font-black text-sm">
                                                             X
@@ -1281,13 +1429,88 @@ const ShiftManagement: React.FC = () => {
                             : 'Desconocido'
                     }
                     fecha={actionModal.fecha}
+                    isConflict={actionModal.isConflict}
                     role={currentUser?.role}
-                    onAction={(action) => {
+                    onAction={async (action) => {
                         const emp = employees.find(e => e.id === actionModal.empId);
                         const site = sites.find(s => s.id == selectedSiteId);
                         if (!emp || !site) return;
 
-                        if (action === 'transfer') {
+                        if (action === 'delete') {
+                            showConfirmation({
+                                title: "Eliminar Turno",
+                                message: "¿Está seguro que desea eliminar este turno? Esta acción no se puede deshacer.",
+                                onConfirm: async () => {
+                                    try {
+                                        // ID en TurnosProgramados: prog_{siteId}_{empId}_{fecha}
+                                        const turnosProgramadosId = `prog_${selectedSiteId}_${actionModal.empId}_${actionModal.fecha}`;
+                                        // ID en programacion (legado): {fecha}_{empId}_{siteId}
+                                        const programacionId = `${actionModal.fecha}_${actionModal.empId}_${selectedSiteId}`;
+                                        await firestoreDeleteDoc(doc(db, 'TurnosProgramados', turnosProgramadosId)).catch(() => {});
+                                        await firestoreDeleteDoc(doc(db, 'programacion', programacionId)).catch(() => {});
+                                        // Fallback: si el shiftId guardado tiene un formato diferente
+                                        if (actionModal.shiftId && actionModal.shiftId !== turnosProgramadosId && actionModal.shiftId !== programacionId) {
+                                            await firestoreDeleteDoc(doc(db, 'programacion', actionModal.shiftId)).catch(() => {});
+                                            await firestoreDeleteDoc(doc(db, 'TurnosProgramados', actionModal.shiftId)).catch(() => {});
+                                        }
+                                        // Limpiar el warning de conflicto para esta fecha
+                                        await clearConflictForDate(actionModal.empId, actionModal.fecha);
+                                        setActionModal(null);
+                                    } catch (e) {
+                                        console.error("Error al eliminar el turno:", e);
+                                    }
+                                }
+                            });
+                        } else if (action === 'force_assign') {
+                            // turnoIdA/B en ConflictWarnings son IDs de TurnosProgramados con formato: prog_{sucursalId}_{empId}_{fecha}
+                            const conflictInfo = activeConflictWarnings
+                                .flatMap(w => w.conflictos)
+                                .find((c: any) => c.fecha === actionModal.fecha);
+                            
+                            if (conflictInfo) {
+                                // Determinar cuál turno pertenece a la OTRA sucursal usando sucursalIdA/B
+                                const currentSiteStr = String(selectedSiteId);
+                                let otherShiftId = '';
+                                let otherSucursalNombre = '';
+                                if (String(conflictInfo.sucursalIdA) !== currentSiteStr) {
+                                    otherShiftId = conflictInfo.turnoIdA;
+                                    otherSucursalNombre = conflictInfo.sucursalNombreA || '';
+                                } else {
+                                    otherShiftId = conflictInfo.turnoIdB;
+                                    otherSucursalNombre = conflictInfo.sucursalNombreB || '';
+                                }
+
+                                if (otherShiftId) {
+                                    showConfirmation({
+                                        title: "Asignación Forzada",
+                                        message: `Se eliminará el turno en "${otherSucursalNombre || 'la otra sucursal'}" y se conservará el turno actual. ¿Desea continuar?`,
+                                        onConfirm: async () => {
+                                            try {
+                                                // otherShiftId es el ID de TurnosProgramados: prog_{siteId}_{empId}_{fecha}
+                                                // El ID en programacion (legado) es: {fecha}_{empId}_{siteId}
+                                                const parts = otherShiftId.replace(/^prog_/, '').split('_');
+                                                // parts = [siteId, ...empIdParts, fecha] — la fecha está al final YYYY-MM-DD
+                                                const otherFecha = parts[parts.length - 1];
+                                                const otherSiteIdFromId = parts[0];
+                                                const otherEmpIdFromId = parts.slice(1, -1).join('_');
+                                                const otherLegacyId = `${otherFecha}_${otherEmpIdFromId}_${otherSiteIdFromId}`;
+                                                await firestoreDeleteDoc(doc(db, 'TurnosProgramados', otherShiftId)).catch(() => {});
+                                                await firestoreDeleteDoc(doc(db, 'programacion', otherLegacyId)).catch(() => {});
+                                                // Limpiar el warning de conflicto para esta fecha
+                                                await clearConflictForDate(actionModal.empId, actionModal.fecha);
+                                                setActionModal(null);
+                                            } catch (e) {
+                                                console.error("Error al forzar la asignación:", e);
+                                            }
+                                        }
+                                    });
+                                } else {
+                                    alert("No se pudo localizar el turno de la otra sucursal.");
+                                }
+                            } else {
+                                alert("No se encontró información de conflicto para esta fecha. Intente recargar la página.");
+                            }
+                        } else if (action === 'transfer') {
                             setTransferModal({
                                 isOpen: true,
                                 colaboradorId: emp.id,
@@ -1392,6 +1615,16 @@ const ShiftManagement: React.FC = () => {
                                 </div>
                             </div>
 
+                            {summaryModalState.conflictCheckPending && (
+                                <div className="bg-blue-50 text-blue-800 text-sm p-4 rounded-xl border border-blue-200 shadow-sm flex flex-col items-center justify-center">
+                                    <div className="flex items-center gap-2 mb-2">
+                                        <div className="w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+                                        <h3 className="font-black uppercase text-blue-900">Guardado exitoso, verificando...</h3>
+                                    </div>
+                                    <p className="text-center mt-1">La planificación se ha guardado correctamente. El sistema está verificando posibles conflictos de solapamiento en segundo plano. Si se detectan, aparecerán como advertencias en la parte superior.</p>
+                                </div>
+                            )}
+
                             {(summaryModalState.contractAlerts && summaryModalState.contractAlerts.length > 0) && (
                                 <div>
                                     <h3 className="text-sm font-black text-slate-800 uppercase mb-3 flex items-center gap-2">
@@ -1436,31 +1669,13 @@ const ShiftManagement: React.FC = () => {
                                 </div>
                             )}
                         </div>
-                        <div className="p-4 border-t border-slate-100 bg-slate-50 rounded-b-2xl flex justify-end gap-3">
+                        <div className="p-4 border-t border-slate-100 bg-slate-50 rounded-b-2xl flex justify-end">
                             <button
                                 onClick={() => setSummaryModalState({ isOpen: false })}
-                                className="px-6 py-2 bg-white text-slate-600 border border-slate-200 hover:bg-slate-50 font-bold rounded-lg transition-colors shadow-sm"
+                                className="px-6 py-2 bg-slate-700 text-white hover:bg-slate-800 font-bold rounded-lg transition-colors shadow-sm"
                             >
-                                Cancelar / Cerrar
+                                Cerrar
                             </button>
-                            {((summaryModalState.result && summaryModalState.result.conflicts.length > 0) || (summaryModalState.contractAlerts && summaryModalState.contractAlerts.length > 0)) && (
-                                <button
-                                    onClick={handleForceConflicts}
-                                    disabled={isSaving}
-                                    className="px-6 py-2 bg-orange-600 text-white hover:bg-orange-700 font-bold rounded-lg shadow-md transition-colors flex items-center gap-2 disabled:opacity-50"
-                                >
-                                    {isSaving ? 'Forzando...' : 'Programar de todas formas'}
-                                </button>
-                            )}
-                            {summaryModalState.result && summaryModalState.result.technicalErrors.length > 0 && (
-                                <button
-                                    onClick={handleRetryTechnical}
-                                    disabled={isSaving}
-                                    className="px-6 py-2 bg-blue-600 text-white hover:bg-blue-700 font-bold rounded-lg shadow-md transition-colors flex items-center gap-2 disabled:opacity-50"
-                                >
-                                    {isSaving ? 'Reintentando...' : 'Reintentar Errores Técnicos'}
-                                </button>
-                            )}
                         </div>
                     </div>
                 </div>
