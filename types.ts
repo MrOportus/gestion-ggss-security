@@ -425,6 +425,7 @@ export type RegistroCategoria =
   | 'daño_desperfecto'
   | 'emergencia'
   | 'entrega_recepcion_turno'
+  | 'requiere_seguimiento'
   | 'otro';
 
 export type RegistroPrioridad = 'informativa' | 'media' | 'alta' | 'critica';

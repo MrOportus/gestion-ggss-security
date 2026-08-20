@@ -393,19 +393,36 @@ const EstadoServicio = ({ allowedSites, guardRounds, novedades, attendanceLogs, 
                         <h4 className="font-bold text-amber-800 text-sm">Novedades del Día ({todayNovedades.length})</h4>
                     </div>
                     <div className="space-y-2">
-                        {todayNovedades.slice(0, 5).map((n: any) => (
-                            <div key={n.id} className="bg-white rounded-xl p-3 flex items-start gap-3">
-                                <div className="w-1.5 h-1.5 rounded-full bg-amber-400 mt-2 shrink-0" />
-                                <div className="flex-1 min-w-0">
-                                    <div className="flex items-center gap-2 flex-wrap">
-                                        <span className="text-xs font-bold text-slate-700">{n.guardName}</span>
-                                        <span className="text-[10px] text-slate-400">·</span>
-                                        <span className="text-[10px] text-slate-400">{fmtTime(n.timestamp)}</span>
+                        {todayNovedades.slice(0, 5).map((n: any) => {
+                            const dotColor = n.prioridad === 'critica' ? 'bg-red-500'
+                                : n.prioridad === 'alta' ? 'bg-orange-500'
+                                : n.prioridad === 'media' ? 'bg-amber-500'
+                                : n.prioridad === 'informativa' ? 'bg-blue-500'
+                                : 'bg-amber-400';
+                            return (
+                                <div key={n.id} className="bg-white rounded-xl p-3 flex items-start gap-3 border border-slate-100 shadow-sm">
+                                    <div className={`w-2 h-2 rounded-full mt-1.5 shrink-0 ${dotColor}`} />
+                                    <div className="flex-1 min-w-0">
+                                        <div className="flex items-center gap-2 flex-wrap mb-1">
+                                            {n.prioridad && (
+                                                <span className={`px-1.5 py-0.5 rounded text-[8px] font-black uppercase ${
+                                                    n.prioridad === 'critica' ? 'bg-red-100 text-red-700' :
+                                                    n.prioridad === 'alta' ? 'bg-orange-100 text-orange-700' :
+                                                    n.prioridad === 'media' ? 'bg-amber-100 text-amber-700' :
+                                                    'bg-blue-100 text-blue-700'
+                                                }`}>
+                                                    {n.prioridad}
+                                                </span>
+                                            )}
+                                            <span className="text-xs font-bold text-slate-700">{n.guardName || n.autorNombre}</span>
+                                            <span className="text-[10px] text-slate-400">·</span>
+                                            <span className="text-[10px] text-slate-400">{fmtTime(n.timestamp || n.fechaHoraDispositivo)}</span>
+                                        </div>
+                                        <p className="text-xs text-slate-600 line-clamp-2">{n.descripcion}</p>
                                     </div>
-                                    <p className="text-xs text-slate-600 mt-0.5 truncate">{n.descripcion}</p>
                                 </div>
-                            </div>
-                        ))}
+                            );
+                        })}
                     </div>
                 </div>
             )}
@@ -427,13 +444,14 @@ const LibroNovedades = ({ allowedSites, guardRounds, novedades }: any) => {
     const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
     const [tipoFilter, setTipoFilter] = useState('all');
     const [siteFilter, setSiteFilter] = useState('all');
+    const [prioridadFilter, setPrioridadFilter] = useState('all');
     const [selectedImage, setSelectedImage] = useState<string | null>(null);
     const [page, setPage] = useState(1);
     const itemsPerPage = 20;
 
     useEffect(() => {
         setPage(1);
-    }, [startDate, endDate, tipoFilter, siteFilter]);
+    }, [startDate, endDate, tipoFilter, siteFilter, prioridadFilter]);
 
     const timelineItems = useMemo(() => {
         const roundItems = guardRounds
@@ -461,6 +479,7 @@ const LibroNovedades = ({ allowedSites, guardRounds, novedades }: any) => {
                 guardName: n.autorNombre || n.guardName,
                 timestamp: n.fechaHoraDispositivo || n.timestamp || n.createdAt || '',
                 resultado: n.estado || n.resultado,
+                prioridad: n.prioridad,
                 evidencias: n.evidencias || (n.evidenciaUrl ? [n.evidenciaUrl] : []),
                 original: n // Guardar referencia al doc original por si acaso
             }));
@@ -473,7 +492,8 @@ const LibroNovedades = ({ allowedSites, guardRounds, novedades }: any) => {
         const matchDate = dateStr >= startDate && dateStr <= endDate;
         const matchTipo = tipoFilter === 'all' || item.tipo === tipoFilter;
         const matchSite = siteFilter === 'all' || item.siteId === siteFilter;
-        return matchDate && matchTipo && matchSite;
+        const matchPrioridad = prioridadFilter === 'all' || item.prioridad === prioridadFilter;
+        return matchDate && matchTipo && matchSite && matchPrioridad;
     });
 
     const tipoIcon: Record<string, React.ReactNode> = {
@@ -518,6 +538,17 @@ const LibroNovedades = ({ allowedSites, guardRounds, novedades }: any) => {
                     </select>
                 </div>
                 <div>
+                    <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Prioridad</label>
+                    <select value={prioridadFilter} onChange={e => setPrioridadFilter(e.target.value)}
+                        className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-700 focus:ring-2 focus:ring-blue-500 outline-none">
+                        <option value="all">Todas</option>
+                        <option value="informativa">Informativa</option>
+                        <option value="media">Media</option>
+                        <option value="alta">Alta</option>
+                        <option value="critica">Crítica</option>
+                    </select>
+                </div>
+                <div>
                     <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Instalación</label>
                     <select value={siteFilter} onChange={e => setSiteFilter(e.target.value)}
                         className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-700 focus:ring-2 focus:ring-blue-500 outline-none">
@@ -539,7 +570,11 @@ const LibroNovedades = ({ allowedSites, guardRounds, novedades }: any) => {
                         const prevDate = idx > 0 ? filtered[idx - 1].timestamp.substring(0, 10) : null;
                         const currDate = item.timestamp.substring(0, 10);
                         const showSep = prevDate !== currDate;
-                        const dotColor = item.resultado === 'SIN_NOVEDAD' ? 'bg-emerald-400 border-emerald-300'
+                        const dotColor = item.prioridad === 'critica' ? 'bg-red-500 border-red-300'
+                            : item.prioridad === 'alta' ? 'bg-orange-500 border-orange-300'
+                            : item.prioridad === 'media' ? 'bg-amber-500 border-amber-300'
+                            : item.prioridad === 'informativa' ? 'bg-blue-500 border-blue-300'
+                            : item.resultado === 'SIN_NOVEDAD' ? 'bg-emerald-400 border-emerald-300'
                             : (item.resultado === 'CON_NOVEDAD' || item.tipo === 'incidente') ? 'bg-rose-400 border-rose-300'
                             : item.tipo === 'alerta' ? 'bg-amber-400 border-amber-300' : 'bg-blue-400 border-blue-300';
                         return (
@@ -565,6 +600,16 @@ const LibroNovedades = ({ allowedSites, guardRounds, novedades }: any) => {
                                             <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[9px] font-black uppercase ${tipoColor[item.tipo] || tipoColor.otro}`}>
                                                 {tipoIcon[item.tipo] || tipoIcon.otro}{item.tipo}
                                             </span>
+                                            {item.prioridad && (
+                                                <span className={`px-2 py-0.5 rounded-lg text-[9px] font-black uppercase ${
+                                                    item.prioridad === 'critica' ? 'bg-red-100 text-red-700' :
+                                                    item.prioridad === 'alta' ? 'bg-orange-100 text-orange-700' :
+                                                    item.prioridad === 'media' ? 'bg-amber-100 text-amber-700' :
+                                                    'bg-blue-100 text-blue-700'
+                                                }`}>
+                                                    {item.prioridad}
+                                                </span>
+                                            )}
                                             {item.resultado && <ResultBadge result={item.resultado} />}
                                             <span className="text-xs text-slate-400">·</span>
                                             <span className="text-xs font-bold text-slate-600">{item.guardName}</span>

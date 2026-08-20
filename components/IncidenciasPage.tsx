@@ -72,28 +72,11 @@ function calcularVisibilidadMandante(categoria: RegistroCategoria, tipo: Registr
 const CATEGORIAS: { value: RegistroCategoria; label: string; icon: string }[] = [
   { value: 'acceso_personas', label: 'Acceso de personas', icon: '🚶' },
   { value: 'acceso_vehiculos', label: 'Acceso de vehículos', icon: '🚗' },
-  { value: 'infraestructura', label: 'Infraestructura', icon: '🏗️' },
-  { value: 'seguridad', label: 'Seguridad', icon: '🛡️' },
-  { value: 'alarma', label: 'Alarma', icon: '🚨' },
-  { value: 'persona_sospechosa', label: 'Persona sospechosa', icon: '👀' },
+  { value: 'alarma', label: 'Alarmas', icon: '🚨' },
   { value: 'objeto_encontrado', label: 'Objeto encontrado', icon: '📦' },
-  { value: 'daño_desperfecto', label: 'Daño o desperfecto', icon: '⚠️' },
   { value: 'emergencia', label: 'Emergencia', icon: '🆘' },
-  { value: 'entrega_recepcion_turno', label: 'Entrega/Recepción de turno', icon: '🔄' },
+  { value: 'requiere_seguimiento', label: 'Requiere seguimiento', icon: '👁️' },
   { value: 'otro', label: 'Otro', icon: '📝' },
-];
-
-const UBICACIONES_INSTALACION = [
-  'Acceso principal',
-  'Portería',
-  'Estacionamiento',
-  'Bodega',
-  'Perímetro',
-  'Sala de servidores',
-  'Área de carga',
-  'Patio interior',
-  'Oficinas',
-  'Otro',
 ];
 
 const PRIORIDAD_CONFIG: Record<RegistroPrioridad, { label: string; color: string; bg: string; border: string }> = {
@@ -255,13 +238,7 @@ const IncidenciasPage: React.FC<IncidenciasPageProps> = ({ onBack, activeLog, cu
     cargarRegistros();
   }, [cargarRegistros]);
 
-  // ── Resetear prioridad según tipo ────────────────────────────────────────
-  useEffect(() => {
-    setForm(f => ({
-      ...f,
-      prioridad: f.tipoRegistro === 'incidencia' ? 'media' : 'informativa',
-    }));
-  }, [form.tipoRegistro]);
+  // ── Resetear prioridad según tipo (eliminado porque siempre es novedad) ──
 
   // ── Tomar/seleccionar foto ───────────────────────────────────────────────
   const handleAgregarFoto = async (source: 'camera' | 'gallery') => {
@@ -582,30 +559,7 @@ const IncidenciasPage: React.FC<IncidenciasPageProps> = ({ onBack, activeLog, cu
 
         <div className="p-6 space-y-6 max-w-lg mx-auto w-full pb-28">
 
-          {/* ── TIPO DE REGISTRO ── */}
-          <div className="space-y-3">
-            <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Tipo de registro *</label>
-            <div className="grid grid-cols-2 gap-3">
-              {/* Novedad */}
-              <button
-                onClick={() => setForm(f => ({ ...f, tipoRegistro: 'novedad' }))}
-                className={`p-4 rounded-2xl border-2 flex flex-col items-center gap-2 transition-all active:scale-95 ${form.tipoRegistro === 'novedad' ? 'border-blue-500 bg-blue-50 shadow-md shadow-blue-100' : 'border-slate-200 bg-white'}`}
-              >
-                <BookOpen size={28} className={form.tipoRegistro === 'novedad' ? 'text-blue-600' : 'text-slate-400'} />
-                <span className={`text-sm font-black uppercase tracking-wide ${form.tipoRegistro === 'novedad' ? 'text-blue-700' : 'text-slate-500'}`}>Novedad</span>
-                <span className="text-[10px] text-slate-400 text-center leading-tight">Informativa o no crítica</span>
-              </button>
-              {/* Incidencia */}
-              <button
-                onClick={() => setForm(f => ({ ...f, tipoRegistro: 'incidencia' }))}
-                className={`p-4 rounded-2xl border-2 flex flex-col items-center gap-2 transition-all active:scale-95 ${form.tipoRegistro === 'incidencia' ? 'border-red-500 bg-red-50 shadow-md shadow-red-100' : 'border-slate-200 bg-white'}`}
-              >
-                <AlertTriangle size={28} className={form.tipoRegistro === 'incidencia' ? 'text-red-600' : 'text-slate-400'} />
-                <span className={`text-sm font-black uppercase tracking-wide ${form.tipoRegistro === 'incidencia' ? 'text-red-700' : 'text-slate-500'}`}>Incidencia</span>
-                <span className="text-[10px] text-slate-400 text-center leading-tight">Requiere atención o seguimiento</span>
-              </button>
-            </div>
-          </div>
+          {/* ── TIPO DE REGISTRO (eliminado, siempre es novedad) ── */}
 
           {/* ── CATEGORÍA ── */}
           <div className="space-y-3">
@@ -661,20 +615,7 @@ const IncidenciasPage: React.FC<IncidenciasPageProps> = ({ onBack, activeLog, cu
             </div>
           </div>
 
-          {/* ── UBICACIÓN DENTRO DE LA INSTALACIÓN (opcional) ── */}
-          <div className="space-y-2">
-            <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">
-              Ubicación en la instalación <span className="text-slate-300 font-normal">(opcional)</span>
-            </label>
-            <select
-              value={form.ubicacionInstalacion}
-              onChange={e => setForm(f => ({ ...f, ubicacionInstalacion: e.target.value }))}
-              className="w-full px-4 py-3 bg-white border-2 border-slate-200 rounded-2xl focus:border-blue-500 outline-none transition-all font-medium text-slate-700 text-sm"
-            >
-              <option value="">— Seleccionar —</option>
-              {UBICACIONES_INSTALACION.map(u => <option key={u} value={u}>{u}</option>)}
-            </select>
-          </div>
+          {/* ── UBICACIÓN DENTRO DE LA INSTALACIÓN (eliminado) ── */}
 
           {/* ── FOTOGRAFÍAS (opcional) ── */}
           <div className="space-y-3">
