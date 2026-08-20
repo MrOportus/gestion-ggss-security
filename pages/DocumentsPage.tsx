@@ -20,12 +20,15 @@ import {
     Users,
     Layers,
     Clock,
-    Plus
+    Plus,
+    Settings,
+    Save,
+    Edit3,
 } from 'lucide-react';
 import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
 import { Document, Page, pdfjs } from 'react-pdf';
 import axios from 'axios';
-import { DigitalDocument } from '../types';
+import { DigitalDocument, SignatureTemplate } from '../types';
 import { normalizeText } from '../lib/textUtils';
 
 // Configurar worker de react-pdf (Usando el patrón recomendado para Vite)
@@ -50,7 +53,12 @@ const DocumentsPage: React.FC = () => {
         isLoading,
         showNotification,
         preselectedEmployeeForDoc,
-        setPreselectedEmployeeForDoc
+        setPreselectedEmployeeForDoc,
+        signatureTemplates,
+        fetchSignatureTemplates,
+        addSignatureTemplate,
+        updateSignatureTemplate,
+        deleteSignatureTemplate,
     } = useAppStore();
 
     const [activeTab, setActiveTab] = useState<'pending' | 'signed' | 'all'>('pending');
@@ -89,6 +97,13 @@ const DocumentsPage: React.FC = () => {
         setEmployeeDocsPages({});
     }, [searchTerm, activeTab]);
 
+    // Cargar plantillas de firma al montar (solo admin)
+    useEffect(() => {
+        if (currentUser?.role === 'admin') {
+            fetchSignatureTemplates();
+        }
+    }, [currentUser?.role]);
+
     // Interceptar pre-selección para asignar contrato (desde Panel RRHH)
     useEffect(() => {
         if (preselectedEmployeeForDoc) {
@@ -102,20 +117,33 @@ const DocumentsPage: React.FC = () => {
 
     // Opciones del Asistente Masivo (Wizard)
     const [wizardStep, setWizardStep] = useState<'docs' | 'destinatarios' | 'confirmacion' | 'resultado'>('docs');
-    const [wizardMode, setWizardMode] = useState<'upload' | 'templates'>('upload');
-    
+
     // Archivos Nuevos
     const [wizardFiles, setWizardFiles] = useState<File[]>([]);
     const [wizardDocTitle, setWizardDocTitle] = useState('');
     const [wizardDocType, setWizardDocType] = useState('Contrato');
-    
-    // Configuración de firmas
+
+    // Plantilla de firma seleccionada para esta asignación
+    const [selectedSigTemplateId, setSelectedSigTemplateId] = useState<string>('');
+    // Config manual de firma (fallback si no hay plantilla)
     const [sigPageType, setSigPageType] = useState<'last' | 'specific'>('last');
     const [sigPageNumber, setSigPageNumber] = useState(1);
     const [sigPosition, setSigPosition] = useState<'left' | 'center' | 'right'>('center');
+    const [sigPosicionY, setSigPosicionY] = useState(40);
 
-    // Selección de plantillas existentes
-    const [selectedTemplates, setSelectedTemplates] = useState<{ title: string; type: string; originalUrl: string }[]>([]);
+    // Gestor de Plantillas de Firma
+    const [showTemplatesManager, setShowTemplatesManager] = useState(false);
+    const [tplModalOpen, setTplModalOpen] = useState(false);
+    const [tplEditing, setTplEditing] = useState<SignatureTemplate | null>(null);
+    const [tplForm, setTplForm] = useState<Omit<SignatureTemplate, 'id' | 'creadoEn' | 'actualizadoEn'>>({
+        nombre: '', docType: 'Contrato', pageType: 'last', posicionX: 237, posicionY: 40
+    });
+    
+    // Estados para previsualizar documento en el Gestor de Plantillas
+    const [tplDemoFile, setTplDemoFile] = useState<File | null>(null);
+    const [tplDemoUrl, setTplDemoUrl] = useState<string | null>(null);
+    const [tplDemoNumPages, setTplDemoNumPages] = useState<number | null>(null);
+    const [tplSaving, setTplSaving] = useState(false);
 
     // Selección de Destinatarios
     const [assigneeType, setAssigneeType] = useState<'all' | 'sucursal' | 'colaboradores'>('colaboradores');
@@ -261,35 +289,40 @@ const DocumentsPage: React.FC = () => {
     // EJECUTAR ASIGNACIÓN MASIVA
     const handleExecuteBulkAssignment = async () => {
         try {
-            // 1. Obtener los documentos a asignar
-            let docsToAssign: { title: string; type: string; originalUrl: string }[] = [];
+            // 1. Subir archivos nuevos
+            if (wizardFiles.length === 0) {
+                showNotification("Sube al menos un archivo PDF", "warning");
+                return;
+            }
+            setIsSigning(true);
+            const uploadPromises = wizardFiles.map(async (file) => {
+                const fileName = `${Date.now()}_${file.name}`;
+                const originalUrl = await uploadFile(file, `original_docs/${fileName}`);
+                return {
+                    title: wizardFiles.length === 1 ? wizardDocTitle || file.name.replace('.pdf', '') : file.name.replace('.pdf', ''),
+                    type: wizardDocType,
+                    originalUrl
+                };
+            });
+            const docsToAssign = await Promise.all(uploadPromises);
 
-            if (wizardMode === 'upload') {
-                if (wizardFiles.length === 0) {
-                    showNotification("Sube al menos un archivo PDF", "warning");
-                    return;
-                }
-                setIsSigning(true);
-                // Subir cada archivo nuevo a Firebase Storage
-                const uploadPromises = wizardFiles.map(async (file) => {
-                    const fileName = `${Date.now()}_${file.name}`;
-                    const originalUrl = await uploadFile(file, `original_docs/${fileName}`);
-                    return {
-                        title: wizardFiles.length === 1 ? wizardDocTitle || file.name.replace('.pdf', '') : file.name.replace('.pdf', ''),
-                        type: wizardDocType,
-                        originalUrl
-                    };
-                });
-                docsToAssign = await Promise.all(uploadPromises);
+            // 2. Resolver configuración de firma
+            let signatureConfig: any;
+            const selectedTpl = signatureTemplates.find(t => t.id === selectedSigTemplateId);
+            if (selectedTpl) {
+                signatureConfig = {
+                    page: selectedTpl.pageType,
+                    posicionY: selectedTpl.posicionY,
+                    ...(selectedTpl.position ? { position: selectedTpl.position } : {}),
+                    ...(selectedTpl.posicionX !== undefined ? { posicionX: selectedTpl.posicionX } : {}),
+                    ...(selectedTpl.pageType === 'specific' ? { pageNumber: selectedTpl.pageNumber } : {})
+                };
             } else {
-                if (selectedTemplates.length === 0) {
-                    showNotification("Selecciona al menos un documento", "warning");
-                    return;
-                }
-                docsToAssign = [...selectedTemplates];
+                signatureConfig = { page: sigPageType, position: sigPosition, posicionY: sigPosicionY };
+                if (sigPageType === 'specific') signatureConfig.pageNumber = Number(sigPageNumber);
             }
 
-            // 2. Obtener los trabajadores destinatarios
+            // 3. Obtener trabajadores destinatarios
             let targetWorkers: typeof employees = [];
             if (assigneeType === 'all') {
                 targetWorkers = employees.filter(e => e.isActive);
@@ -305,43 +338,23 @@ const DocumentsPage: React.FC = () => {
                 return;
             }
 
-            // 3. Procesar asignaciones aplicando reglas
+            // 4. Procesar asignaciones
             let generatedCount = 0;
             let skippedCount = 0;
-
-            const signatureConfig: any = {
-                page: sigPageType,
-                position: sigPosition
-            };
-            if (sigPageType === 'specific') {
-                signatureConfig.pageNumber = Number(sigPageNumber);
-            }
-
             const creationPromises: Promise<any>[] = [];
 
             for (const doc of docsToAssign) {
                 for (const worker of targetWorkers) {
-                    // Verificar si ya tiene el mismo documento pendiente
                     const hasPending = digitalDocuments.some(
                         d => d.assignedTo === worker.id && d.title === doc.title && d.status === 'pending'
                     );
+                    if (hasPending) { skippedCount++; continue; }
 
-                    if (hasPending) {
-                        skippedCount++;
-                        continue;
-                    }
-
-                    // Verificar si ya tiene el mismo documento firmado
                     const hasSigned = digitalDocuments.some(
                         d => d.assignedTo === worker.id && d.title === doc.title && d.status === 'signed'
                     );
+                    if (hasSigned && conflictBehavior === 'omit') { skippedCount++; continue; }
 
-                    if (hasSigned && conflictBehavior === 'omit') {
-                        skippedCount++;
-                        continue;
-                    }
-
-                    // Crear la asignación
                     creationPromises.push(
                         addDigitalDocument({
                             title: doc.title,
@@ -376,13 +389,17 @@ const DocumentsPage: React.FC = () => {
     };
 
     // Cerrar y resetear el asistente
+
     const resetWizard = () => {
         setShowUploadModal(false);
         setWizardStep('docs');
         setWizardFiles([]);
         setWizardDocTitle('');
         setWizardDocType('Contrato');
-        setSelectedTemplates([]);
+        setSelectedSigTemplateId('');
+        setSigPageType('last');
+        setSigPosition('center');
+        setSigPosicionY(40);
         setSelectedEmployees([]);
         setSelectedSites([]);
         setEmployeeSearchText('');
@@ -410,14 +427,14 @@ const DocumentsPage: React.FC = () => {
         const selectedPage = pages[pageIndex];
         const { width: pdfWidth } = selectedPage.getSize();
 
-        let x = (pdfWidth - 120) / 2;
+        let x = (docToSign.signatureConfig as any)?.posicionX ?? ((pdfWidth - 120) / 2);
         if (docToSign.signatureConfig?.position === 'left') {
             x = 50;
         } else if (docToSign.signatureConfig?.position === 'right') {
             x = pdfWidth - 120 - 50;
         }
 
-        const y = 40;
+        const y = (docToSign.signatureConfig as any)?.posicionY ?? 40;
 
         const signatureImage = await pdfDoc.embedPng(worker.signatureUrl);
         selectedPage.drawImage(signatureImage, {
@@ -1016,189 +1033,197 @@ const DocumentsPage: React.FC = () => {
                             {/* PASO 1: SELECCIONAR DOCUMENTOS */}
                             {wizardStep === 'docs' && (
                                 <div className="space-y-6 animate-in fade-in duration-200">
-                                    {/* Selector de Modo */}
-                                    <div className="flex p-1 bg-slate-100 rounded-2xl w-fit">
-                                        <button
-                                            type="button"
-                                            onClick={() => setWizardMode('upload')}
-                                            className={`px-6 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all ${
-                                                wizardMode === 'upload' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500'
-                                            }`}
-                                        >
-                                            Subir Archivos Nuevos
-                                        </button>
-                                        <button
-                                            type="button"
-                                            onClick={() => setWizardMode('templates')}
-                                            className={`px-6 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all ${
-                                                wizardMode === 'templates' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500'
-                                            }`}
-                                        >
-                                            Seleccionar Existentes
-                                        </button>
+                                    {/* Formulario de carga de archivos (Siempre visible) */}
+                                    <div className="space-y-4">
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                            <div className="space-y-2">
+                                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Título base (Para un solo archivo)</label>
+                                                <input
+                                                    type="text"
+                                                    placeholder="Ej: Reglamento Interno 2026"
+                                                    className="w-full px-4 py-3 bg-slate-50 border-2 border-transparent focus:border-blue-500/20 focus:bg-white rounded-2xl outline-none transition-all text-xs font-bold"
+                                                    value={wizardDocTitle}
+                                                    onChange={(e) => setWizardDocTitle(e.target.value)}
+                                                />
+                                            </div>
+                                            <div className="space-y-2">
+                                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Tipo de Documento</label>
+                                                <select
+                                                    className="w-full px-4 py-3 bg-slate-50 border-2 border-transparent focus:border-blue-500/20 focus:bg-white rounded-2xl outline-none transition-all text-xs font-bold appearance-none cursor-pointer"
+                                                    value={wizardDocType}
+                                                    onChange={(e) => setWizardDocType(e.target.value)}
+                                                >
+                                                    <option value="Contrato">Contrato</option>
+                                                    <option value="EPP">EPP</option>
+                                                    <option value="ODI">ODI</option>
+                                                    <option value="Anexo">Anexo</option>
+                                                    <option value="Otro">Otro</option>
+                                                </select>
+                                            </div>
+                                        </div>
+
+                                        <div className="space-y-2">
+                                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Subir archivos PDF (Uno o varios)</label>
+                                            <div className="relative group">
+                                                <input
+                                                    type="file"
+                                                    accept="application/pdf"
+                                                    multiple
+                                                    onChange={(e) => {
+                                                        const files = Array.from(e.target.files || []);
+                                                        setWizardFiles(prev => [...prev, ...files]);
+                                                    }}
+                                                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                                                />
+                                                <div className="w-full px-4 py-8 border-2 border-dashed border-slate-200 group-hover:border-blue-400 rounded-3xl flex flex-col items-center justify-center gap-2 bg-slate-50 group-hover:bg-blue-50/30 transition-all">
+                                                    <div className="w-12 h-12 bg-white rounded-2xl shadow-sm flex items-center justify-center text-slate-400 group-hover:text-blue-500 transition-colors">
+                                                        <Upload size={24} />
+                                                    </div>
+                                                    <p className="text-xs font-bold text-slate-500 text-center">
+                                                        Haz clic o arrastra uno o más archivos PDF aquí
+                                                    </p>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        {/* Listado de archivos agregados para lote */}
+                                        {wizardFiles.length > 0 && (
+                                            <div className="space-y-2 max-h-36 overflow-y-auto pr-1">
+                                                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Archivos en cola ({wizardFiles.length})</p>
+                                                {wizardFiles.map((file, idx) => (
+                                                    <div key={idx} className="flex items-center justify-between p-2 bg-blue-50/40 rounded-xl border border-blue-100 text-xs font-bold text-slate-700">
+                                                        <span className="truncate max-w-md">{file.name}</span>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setWizardFiles(prev => prev.filter((_, i) => i !== idx))}
+                                                            className="text-slate-400 hover:text-red-500 transition-colors p-1"
+                                                        >
+                                                            <X size={14} />
+                                                        </button>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
                                     </div>
 
-                                    {/* Modo: Cargar Nuevos Archivos */}
-                                    {wizardMode === 'upload' ? (
-                                        <div className="space-y-4">
-                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                                <div className="space-y-2">
-                                                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Título base (Para un solo archivo)</label>
-                                                    <input
-                                                        type="text"
-                                                        placeholder="Ej: Reglamento Interno 2026"
-                                                        className="w-full px-4 py-3 bg-slate-50 border-2 border-transparent focus:border-blue-500/20 focus:bg-white rounded-2xl outline-none transition-all text-xs font-bold"
-                                                        value={wizardDocTitle}
-                                                        onChange={(e) => setWizardDocTitle(e.target.value)}
-                                                    />
-                                                </div>
-                                                <div className="space-y-2">
-                                                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Tipo de Documento</label>
-                                                    <select
-                                                        className="w-full px-4 py-3 bg-slate-50 border-2 border-transparent focus:border-blue-500/20 focus:bg-white rounded-2xl outline-none transition-all text-xs font-bold appearance-none cursor-pointer"
-                                                        value={wizardDocType}
-                                                        onChange={(e) => setWizardDocType(e.target.value)}
-                                                    >
-                                                        <option value="Contrato">Contrato</option>
-                                                        <option value="EPP">EPP</option>
-                                                        <option value="ODI">ODI</option>
-                                                        <option value="Anexo">Anexo</option>
-                                                        <option value="Otro">Otro</option>
-                                                    </select>
-                                                </div>
-                                            </div>
+                                    {/* ── Selector de Plantilla de Firma ─────────────────────────────── */}
+                                    <div className="bg-slate-50 p-6 rounded-[2rem] border border-slate-100 space-y-4">
+                                        <div className="flex items-center justify-between">
+                                            <h3 className="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                                                <PenTool size={14} className="text-blue-600" />
+                                                Plantilla de Firma
+                                            </h3>
+                                            <button
+                                                type="button"
+                                                onClick={() => setShowTemplatesManager(true)}
+                                                className="text-[10px] font-black text-blue-600 hover:text-blue-700 flex items-center gap-1 uppercase tracking-wider transition-colors"
+                                            >
+                                                <Settings size={12} /> Gestionar Plantillas
+                                            </button>
+                                        </div>
 
+                                        {signatureTemplates.length === 0 ? (
+                                            <div className="p-4 bg-amber-50 border border-amber-100 rounded-2xl">
+                                                <p className="text-xs font-bold text-amber-700 flex items-start gap-2">
+                                                    <AlertTriangle size={14} className="shrink-0 mt-0.5" />
+                                                    No tienes plantillas de firma creadas. Puedes crear una haciendo clic en "Gestionar Plantillas" o configurar la posición manualmente abajo.
+                                                </p>
+                                            </div>
+                                        ) : (
                                             <div className="space-y-2">
-                                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Subir archivos PDF (Uno o varios)</label>
-                                                <div className="relative group">
-                                                    <input
-                                                        type="file"
-                                                        accept="application/pdf"
-                                                        multiple
-                                                        onChange={(e) => {
-                                                            const files = Array.from(e.target.files || []);
-                                                            setWizardFiles(prev => [...prev, ...files]);
-                                                        }}
-                                                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
-                                                    />
-                                                    <div className="w-full px-4 py-8 border-2 border-dashed border-slate-200 group-hover:border-blue-400 rounded-3xl flex flex-col items-center justify-center gap-2 bg-slate-50 group-hover:bg-blue-50/30 transition-all">
-                                                        <div className="w-12 h-12 bg-white rounded-2xl shadow-sm flex items-center justify-center text-slate-400 group-hover:text-blue-500 transition-colors">
-                                                            <Upload size={24} />
+                                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Seleccionar Plantilla</label>
+                                                <select
+                                                    className="w-full px-4 py-3 bg-white border border-slate-200 focus:border-blue-500 rounded-xl outline-none transition-all text-xs font-bold appearance-none cursor-pointer"
+                                                    value={selectedSigTemplateId}
+                                                    onChange={(e) => setSelectedSigTemplateId(e.target.value)}
+                                                >
+                                                    <option value="">— Configurar manualmente —</option>
+                                                    {signatureTemplates.map(tpl => (
+                                                        <option key={tpl.id} value={tpl.id}>
+                                                            {tpl.nombre} ({tpl.docType} · {tpl.pageType === 'last' ? 'Última hoja' : `Pág. ${tpl.pageNumber}`} · {tpl.position === 'left' ? 'Izq.' : tpl.position === 'right' ? 'Der.' : 'Centro'} · Y:{tpl.posicionY})
+                                                        </option>
+                                                    ))}
+                                                </select>
+                                                {selectedSigTemplateId && (() => {
+                                                    const tpl = signatureTemplates.find(t => t.id === selectedSigTemplateId);
+                                                    if (!tpl) return null;
+                                                    return (
+                                                        <div className="mt-2 p-3 bg-blue-50 border border-blue-100 rounded-2xl">
+                                                            {/* Preview visual de la posición de la firma */}
+                                                            <p className="text-[9px] font-black text-blue-600 uppercase tracking-widest mb-2">Vista previa de posición</p>
+                                                            <div className="relative w-full h-20 bg-white border border-slate-200 rounded-xl overflow-hidden shadow-inner">
+                                                                <div className="absolute bottom-0 left-0 right-0 h-px bg-slate-100" style={{ bottom: `${Math.min((tpl.posicionY / 200) * 100, 95)}%` }} />
+                                                                <div
+                                                                    className="absolute w-16 h-6 bg-blue-500/20 border border-blue-400 rounded flex items-center justify-center text-[7px] font-black text-blue-700"
+                                                                    style={{
+                                                                        bottom: `${Math.min((tpl.posicionY / 200) * 100, 80)}%`,
+                                                                        left: tpl.position === 'left' ? '5%' : tpl.position === 'right' ? 'calc(95% - 4rem)' : 'calc(50% - 2rem)',
+                                                                    }}
+                                                                >
+                                                                    FIRMA
+                                                                </div>
+                                                                <div className="absolute top-1 right-1 text-[7px] text-slate-300 font-bold">PDF</div>
+                                                            </div>
                                                         </div>
-                                                        <p className="text-xs font-bold text-slate-500 text-center">
-                                                            Haz clic o arrastra uno o más archivos PDF aquí
-                                                        </p>
+                                                    );
+                                                })()}
+                                            </div>
+                                        )}
+
+                                        {/* Config Manual (visible si no se seleccionó plantilla) */}
+                                        {!selectedSigTemplateId && (
+                                            <div className="space-y-4 animate-in fade-in slide-in-from-top-2 duration-200">
+                                                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Configuración Manual</p>
+                                                <div className="grid grid-cols-2 gap-4">
+                                                    <div className="space-y-2">
+                                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Página de Firma</label>
+                                                        <select
+                                                            className="w-full px-4 py-3 bg-white border border-slate-200 focus:border-blue-500 rounded-xl outline-none transition-all text-xs font-bold appearance-none cursor-pointer"
+                                                            value={sigPageType}
+                                                            onChange={(e) => setSigPageType(e.target.value as any)}
+                                                        >
+                                                            <option value="last">Última hoja</option>
+                                                            <option value="specific">Página específica</option>
+                                                        </select>
+                                                    </div>
+                                                    <div className="space-y-2">
+                                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Posición Horizontal</label>
+                                                        <select
+                                                            className="w-full px-4 py-3 bg-white border border-slate-200 focus:border-blue-500 rounded-xl outline-none transition-all text-xs font-bold appearance-none cursor-pointer"
+                                                            value={sigPosition}
+                                                            onChange={(e) => setSigPosition(e.target.value as any)}
+                                                        >
+                                                            <option value="left">Izquierda</option>
+                                                            <option value="center">Centro</option>
+                                                            <option value="right">Derecha</option>
+                                                        </select>
                                                     </div>
                                                 </div>
-                                            </div>
-
-                                            {/* Listado de archivos agregados para lote */}
-                                            {wizardFiles.length > 0 && (
-                                                <div className="space-y-2 max-h-36 overflow-y-auto pr-1">
-                                                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Archivos en cola ({wizardFiles.length})</p>
-                                                    {wizardFiles.map((file, idx) => (
-                                                        <div key={idx} className="flex items-center justify-between p-2 bg-blue-50/40 rounded-xl border border-blue-100 text-xs font-bold text-slate-700">
-                                                            <span className="truncate max-w-md">{file.name}</span>
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => setWizardFiles(prev => prev.filter((_, i) => i !== idx))}
-                                                                className="text-slate-400 hover:text-red-500 transition-colors p-1"
-                                                            >
-                                                                <X size={14} />
-                                                            </button>
-                                                        </div>
-                                                    ))}
+                                                {sigPageType === 'specific' && (
+                                                    <div className="space-y-2 animate-in fade-in duration-200">
+                                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Número de Página</label>
+                                                        <input
+                                                            type="number" min="1" required
+                                                            className="w-full px-4 py-3 bg-white border border-slate-200 focus:border-blue-500 rounded-xl outline-none transition-all text-xs font-bold"
+                                                            value={sigPageNumber}
+                                                            onChange={(e) => setSigPageNumber(Math.max(1, parseInt(e.target.value) || 1))}
+                                                        />
+                                                    </div>
+                                                )}
+                                                <div className="space-y-2">
+                                                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                                                        Posición Vertical (Y desde abajo: {sigPosicionY}px)
+                                                    </label>
+                                                    <input
+                                                        type="range" min="10" max="200" step="5"
+                                                        value={sigPosicionY}
+                                                        onChange={(e) => setSigPosicionY(Number(e.target.value))}
+                                                        className="w-full accent-blue-600"
+                                                    />
+                                                    <div className="flex justify-between text-[9px] text-slate-400 font-bold">
+                                                        <span>Fondo (10px)</span><span>Alto (200px)</span>
+                                                    </div>
                                                 </div>
-                                            )}
-                                        </div>
-                                    ) : (
-                                        /* Modo: Seleccionar de Plantillas/Existentes */
-                                        <div className="space-y-4">
-                                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Selecciona uno o más documentos de la biblioteca ({uniqueTemplates.length})</p>
-                                            {uniqueTemplates.length === 0 ? (
-                                                <p className="text-slate-400 text-xs font-bold py-6 text-center">No hay documentos cargados previamente en el sistema.</p>
-                                            ) : (
-                                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-60 overflow-y-auto pr-1">
-                                                    {uniqueTemplates.map((tpl, idx) => {
-                                                        const isSelected = selectedTemplates.some(t => t.originalUrl === tpl.originalUrl && t.title === tpl.title);
-                                                        return (
-                                                            <button
-                                                                key={idx}
-                                                                type="button"
-                                                                onClick={() => {
-                                                                    if (isSelected) {
-                                                                        setSelectedTemplates(prev => prev.filter(t => t.originalUrl !== tpl.originalUrl || t.title !== tpl.title));
-                                                                    } else {
-                                                                        setSelectedTemplates(prev => [...prev, tpl]);
-                                                                    }
-                                                                }}
-                                                                className={`p-4 border rounded-3xl text-left flex items-start gap-3 transition-all ${
-                                                                    isSelected ? 'border-blue-500 bg-blue-50/30' : 'border-slate-100 hover:border-slate-300 bg-slate-50/50'
-                                                                }`}
-                                                            >
-                                                                <input
-                                                                    type="checkbox"
-                                                                    checked={isSelected}
-                                                                    readOnly
-                                                                    className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 mt-1 pointer-events-none"
-                                                                />
-                                                                <div className="min-w-0">
-                                                                    <p className="text-xs font-bold text-slate-800 truncate">{tpl.title}</p>
-                                                                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-wider mt-0.5 bg-slate-100 px-1.5 py-0.5 rounded w-fit">{tpl.type}</p>
-                                                                </div>
-                                                            </button>
-                                                        );
-                                                    })}
-                                                </div>
-                                            )}
-                                        </div>
-                                    )}
-
-                                    {/* Configuración de Firma Compartida para el lote */}
-                                    <div className="bg-slate-50 p-6 rounded-[2rem] border border-slate-100 space-y-4">
-                                        <h3 className="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
-                                            <PenTool size={14} className="text-blue-600" />
-                                            Configuración de Firma (Común para el lote)
-                                        </h3>
-                                        
-                                        <div className="grid grid-cols-2 gap-4">
-                                            <div className="space-y-2">
-                                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Página de Firma</label>
-                                                <select
-                                                    className="w-full px-4 py-3 bg-white border border-slate-200 focus:border-blue-500 rounded-xl outline-none transition-all text-xs font-bold appearance-none cursor-pointer"
-                                                    value={sigPageType}
-                                                    onChange={(e) => setSigPageType(e.target.value as any)}
-                                                >
-                                                    <option value="last">Última hoja</option>
-                                                    <option value="specific">Página específica</option>
-                                                </select>
-                                            </div>
-
-                                            <div className="space-y-2">
-                                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Posición Horizontal</label>
-                                                <select
-                                                    className="w-full px-4 py-3 bg-white border border-slate-200 focus:border-blue-500 rounded-xl outline-none transition-all text-xs font-bold appearance-none cursor-pointer"
-                                                    value={sigPosition}
-                                                    onChange={(e) => setSigPosition(e.target.value as any)}
-                                                >
-                                                    <option value="left">Izquierda</option>
-                                                    <option value="center">Centro</option>
-                                                    <option value="right">Derecha</option>
-                                                </select>
-                                            </div>
-                                        </div>
-
-                                        {sigPageType === 'specific' && (
-                                            <div className="space-y-2 animate-in fade-in slide-in-from-top-2 duration-200">
-                                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Número de Página</label>
-                                                <input
-                                                    type="number"
-                                                    min="1"
-                                                    required
-                                                    className="w-full px-4 py-3 bg-white border border-slate-200 focus:border-blue-500 rounded-xl outline-none transition-all text-xs font-bold"
-                                                    value={sigPageNumber}
-                                                    onChange={(e) => setSigPageNumber(Math.max(1, parseInt(e.target.value) || 1))}
-                                                />
                                             </div>
                                         )}
                                     </div>
@@ -1374,7 +1399,7 @@ const DocumentsPage: React.FC = () => {
                                                 <div className="flex justify-between items-center py-2 border-b border-slate-200/50">
                                                     <span className="text-xs font-bold text-slate-500">Documentos seleccionados:</span>
                                                     <span className="text-xs font-black text-slate-800">
-                                                        {wizardMode === 'upload' ? wizardFiles.length : selectedTemplates.length}
+                                                        {wizardFiles.length}
                                                     </span>
                                                 </div>
                                                 <div className="flex justify-between items-center py-2 border-b border-slate-200/50">
@@ -1470,12 +1495,8 @@ const DocumentsPage: React.FC = () => {
                                             onClick={() => {
                                                 if (wizardStep === 'docs') {
                                                     // Validaciones Paso 1
-                                                    if (wizardMode === 'upload' && wizardFiles.length === 0) {
+                                                    if (wizardFiles.length === 0) {
                                                         showNotification("Sube al menos un archivo PDF", "warning");
-                                                        return;
-                                                    }
-                                                    if (wizardMode === 'templates' && selectedTemplates.length === 0) {
-                                                        showNotification("Selecciona al menos un documento", "warning");
                                                         return;
                                                     }
                                                     setWizardStep('destinatarios');
@@ -1650,6 +1671,321 @@ const DocumentsPage: React.FC = () => {
                             ></div>
                         </div>
                         <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Por favor, no cierres la aplicación</p>
+                    </div>
+                </div>
+            )}
+
+            {/* MODAL GESTOR DE PLANTILLAS DE FIRMA */}
+            {showTemplatesManager && (
+                <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[250] flex items-center justify-center p-4">
+                    <div className="bg-white rounded-[2rem] w-full max-w-2xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh] animate-in zoom-in-95 duration-200">
+                        <div className="p-6 md:p-8 border-b border-slate-100 flex justify-between items-center bg-gradient-to-r from-blue-50/30 to-transparent shrink-0">
+                            <div>
+                                <h2 className="text-xl font-black text-slate-900 uppercase">Gestor de Plantillas de Firma</h2>
+                                <p className="text-slate-400 text-xs font-black uppercase tracking-widest leading-none mt-1.5">
+                                    Administra posiciones de firma predefinidas
+                                </p>
+                            </div>
+                            <button onClick={() => { setShowTemplatesManager(false); setTplModalOpen(false); }} className="p-2 hover:bg-slate-100 rounded-full transition-colors text-slate-400">
+                                <X size={24} />
+                            </button>
+                        </div>
+                        
+                        <div className="flex-1 overflow-y-auto p-6 md:p-8">
+                            {!tplModalOpen ? (
+                                <div className="space-y-6">
+                                    <div className="flex justify-between items-center">
+                                        <h3 className="text-sm font-black text-slate-700 uppercase tracking-widest">Mis Plantillas ({signatureTemplates.length})</h3>
+                                        <button
+                                            onClick={() => {
+                                                setTplEditing(null);
+                                                setTplForm({ nombre: '', docType: 'Contrato', pageType: 'last', posicionX: 237, posicionY: 40 });
+                                                setTplDemoFile(null);
+                                                if (tplDemoUrl) URL.revokeObjectURL(tplDemoUrl);
+                                                setTplDemoUrl(null);
+                                                setTplDemoNumPages(null);
+                                                setTplModalOpen(true);
+                                            }}
+                                            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-black uppercase tracking-widest flex items-center gap-2 transition-all shadow-lg shadow-blue-200"
+                                        >
+                                            <Plus size={16} /> Nueva Plantilla
+                                        </button>
+                                    </div>
+
+                                    {signatureTemplates.length === 0 ? (
+                                        <div className="p-10 border-2 border-dashed border-slate-200 rounded-[2rem] text-center flex flex-col items-center">
+                                            <div className="w-16 h-16 bg-slate-50 text-slate-300 rounded-3xl flex items-center justify-center mb-4">
+                                                <Layers size={32} />
+                                            </div>
+                                            <p className="text-slate-500 font-bold text-sm">No hay plantillas guardadas.</p>
+                                            <p className="text-slate-400 text-xs font-bold mt-1">Crea una plantilla para guardar la posición de la firma de tus documentos frecuentes.</p>
+                                        </div>
+                                    ) : (
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                            {signatureTemplates.map(tpl => (
+                                                <div key={tpl.id} className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm hover:shadow-md transition-all flex flex-col">
+                                                    <div className="flex justify-between items-start mb-3">
+                                                        <div>
+                                                            <h4 className="font-black text-sm text-slate-800">{tpl.nombre}</h4>
+                                                            <span className="inline-block mt-1 px-2 py-0.5 bg-blue-50 text-blue-600 text-[9px] font-black uppercase tracking-widest rounded-md">
+                                                                {tpl.docType}
+                                                            </span>
+                                                        </div>
+                                                        <div className="flex gap-1">
+                                                            <button
+                                                                onClick={() => {
+                                                                    setTplEditing(tpl);
+                                                                    setTplForm({
+                                                                        nombre: tpl.nombre,
+                                                                        docType: tpl.docType,
+                                                                        pageType: tpl.pageType,
+                                                                        pageNumber: tpl.pageNumber,
+                                                                        position: tpl.position,
+                                                                        posicionY: tpl.posicionY
+                                                                    });
+                                                                    setTplDemoFile(null);
+                                                                    if (tplDemoUrl) URL.revokeObjectURL(tplDemoUrl);
+                                                                    setTplDemoUrl(null);
+                                                                    setTplDemoNumPages(null);
+                                                                    setTplModalOpen(true);
+                                                                }}
+                                                                className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                                                                title="Editar"
+                                                            >
+                                                                <Edit3 size={16} />
+                                                            </button>
+                                                            <button
+                                                                onClick={async () => {
+                                                                    if (confirm(`¿Eliminar plantilla "${tpl.nombre}"?`)) {
+                                                                        await deleteSignatureTemplate(tpl.id);
+                                                                    }
+                                                                }}
+                                                                className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                                                                title="Eliminar"
+                                                            >
+                                                                <Trash2 size={16} />
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                    <div className="text-xs font-bold text-slate-500 space-y-1">
+                                                        <p>Página: {tpl.pageType === 'last' ? 'Última' : `Nº ${tpl.pageNumber}`}</p>
+                                                        <p>Pos. X: {tpl.position === 'left' ? 'Izquierda' : tpl.position === 'right' ? 'Derecha' : 'Centro'}</p>
+                                                        <p>Pos. Y: {tpl.posicionY}px (desde fondo)</p>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            ) : (
+                                <div className="space-y-6 animate-in fade-in duration-200">
+                                    <h3 className="text-sm font-black text-slate-700 uppercase tracking-widest border-b border-slate-100 pb-2">
+                                        {tplEditing ? 'Editar Plantilla' : 'Crear Nueva Plantilla'}
+                                    </h3>
+                                    
+                                    <div className="space-y-4">
+                                        <div className="space-y-2">
+                                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Nombre de la Plantilla</label>
+                                            <input
+                                                type="text"
+                                                placeholder="Ej: Contrato Estándar Centro"
+                                                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 focus:border-blue-500 focus:bg-white rounded-xl outline-none transition-all text-xs font-bold"
+                                                value={tplForm.nombre}
+                                                onChange={(e) => setTplForm({ ...tplForm, nombre: e.target.value })}
+                                            />
+                                        </div>
+
+                                        <div className="space-y-2">
+                                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Tipo de Documento</label>
+                                            <select
+                                                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 focus:border-blue-500 rounded-xl outline-none transition-all text-xs font-bold appearance-none cursor-pointer"
+                                                value={tplForm.docType}
+                                                onChange={(e) => setTplForm({ ...tplForm, docType: e.target.value })}
+                                            >
+                                                <option value="Contrato">Contrato</option>
+                                                <option value="EPP">EPP</option>
+                                                <option value="ODI">ODI</option>
+                                                <option value="Anexo">Anexo</option>
+                                                <option value="Otro">Otro</option>
+                                            </select>
+                                        </div>
+
+                                        <div className="grid grid-cols-2 gap-4">
+                                            <div className="space-y-2">
+                                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Página de Firma</label>
+                                                <select
+                                                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 focus:border-blue-500 rounded-xl outline-none transition-all text-xs font-bold appearance-none cursor-pointer"
+                                                    value={tplForm.pageType}
+                                                    onChange={(e) => setTplForm({ ...tplForm, pageType: e.target.value as any })}
+                                                >
+                                                    <option value="last">Última hoja</option>
+                                                    <option value="specific">Página específica</option>
+                                                </select>
+                                            </div>
+                                            {tplForm.pageType === 'specific' && (
+                                                <div className="space-y-2 animate-in fade-in duration-200">
+                                                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Número de Página</label>
+                                                    <input
+                                                        type="number" min="1" required
+                                                        className="w-full px-4 py-3 bg-slate-50 border border-slate-200 focus:border-blue-500 rounded-xl outline-none transition-all text-xs font-bold"
+                                                        value={tplForm.pageNumber || 1}
+                                                        onChange={(e) => setTplForm({ ...tplForm, pageNumber: Math.max(1, parseInt(e.target.value) || 1) })}
+                                                    />
+                                                </div>
+                                            )}
+                                        </div>
+
+                                        <div className="space-y-6 bg-blue-50/50 p-4 rounded-2xl border border-blue-100">
+                                            <div className="space-y-2">
+                                                <label className="text-[10px] font-black text-blue-600 uppercase tracking-widest flex justify-between">
+                                                    <span>Posición Horizontal X</span>
+                                                    <span>{tplForm.posicionX ?? 237}px</span>
+                                                </label>
+                                                <input
+                                                    type="range" min="10" max="500" step="5"
+                                                    value={tplForm.posicionX ?? 237}
+                                                    onChange={(e) => setTplForm({ ...tplForm, posicionX: Number(e.target.value) })}
+                                                    className="w-full accent-blue-600"
+                                                />
+                                                <div className="flex justify-between text-[9px] text-blue-400 font-bold">
+                                                    <span>Izquierda (10)</span>
+                                                    <span>Derecha (500)</span>
+                                                </div>
+                                            </div>
+                                            <div className="space-y-2">
+                                                <label className="text-[10px] font-black text-blue-600 uppercase tracking-widest flex justify-between">
+                                                    <span>Posición Vertical Y</span>
+                                                    <span>{tplForm.posicionY}px</span>
+                                                </label>
+                                                <input
+                                                    type="range" min="10" max="800" step="5"
+                                                    value={tplForm.posicionY}
+                                                    onChange={(e) => setTplForm({ ...tplForm, posicionY: Number(e.target.value) })}
+                                                    className="w-full accent-blue-600"
+                                                />
+                                                <div className="flex justify-between text-[9px] text-blue-400 font-bold">
+                                                    <span>Fondo (10px)</span>
+                                                    <span>Alto (800px)</span>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        {/* Selector de Documento Demo y Vista Previa */}
+                                        <div className="border border-slate-200 rounded-2xl p-4 bg-slate-50">
+                                            <div className="flex items-center justify-between mb-3">
+                                                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Documento de Prueba (Opcional)</label>
+                                                {!tplDemoFile && (
+                                                    <div className="relative group overflow-hidden">
+                                                        <input
+                                                            type="file"
+                                                            accept="application/pdf"
+                                                            onChange={(e) => {
+                                                                const file = e.target.files?.[0];
+                                                                if (file) {
+                                                                    setTplDemoFile(file);
+                                                                    if (tplDemoUrl) URL.revokeObjectURL(tplDemoUrl);
+                                                                    setTplDemoUrl(URL.createObjectURL(file));
+                                                                    setTplDemoNumPages(null);
+                                                                }
+                                                            }}
+                                                            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                                                        />
+                                                        <button type="button" className="px-3 py-1.5 bg-white border border-slate-200 text-blue-600 rounded-lg text-xs font-black uppercase tracking-wider group-hover:bg-blue-50 transition-colors">
+                                                            Subir PDF
+                                                        </button>
+                                                    </div>
+                                                )}
+                                                {tplDemoFile && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                            setTplDemoFile(null);
+                                                            if (tplDemoUrl) URL.revokeObjectURL(tplDemoUrl);
+                                                            setTplDemoUrl(null);
+                                                            setTplDemoNumPages(null);
+                                                        }}
+                                                        className="p-1.5 text-slate-400 hover:text-red-500 transition-colors"
+                                                        title="Eliminar PDF de prueba"
+                                                    >
+                                                        <X size={16} />
+                                                    </button>
+                                                )}
+                                            </div>
+                                            
+                                            {tplDemoUrl && (
+                                                <div className="mt-2 bg-slate-200 border border-slate-300 rounded-xl overflow-y-auto max-h-[350px] flex justify-center p-4">
+                                                    <Document
+                                                        file={tplDemoUrl}
+                                                        onLoadSuccess={({ numPages }) => setTplDemoNumPages(numPages)}
+                                                        loading={<Loader2 className="animate-spin text-blue-500 mx-auto" size={24} />}
+                                                    >
+                                                        <div className="relative inline-block shadow-lg rounded bg-white">
+                                                            <Page
+                                                                pageNumber={tplForm.pageType === 'last' ? (tplDemoNumPages || 1) : Math.min(tplForm.pageNumber || 1, tplDemoNumPages || 1)}
+                                                                width={window.innerWidth < 640 ? window.innerWidth - 80 : 400}
+                                                                renderAnnotationLayer={false}
+                                                                renderTextLayer={false}
+                                                            />
+                                                            {/* Recuadro de vista previa de firma */}
+                                                            <div
+                                                                className="absolute bg-blue-500/30 border-2 border-dashed border-blue-600 rounded flex items-center justify-center text-[8px] font-black text-blue-800 shadow-sm backdrop-blur-sm pointer-events-none transition-all duration-75"
+                                                                style={{
+                                                                    width: `${(120 / 595.28) * 100}%`,
+                                                                    height: `${(50 / 841.89) * 100}%`,
+                                                                    bottom: `${(tplForm.posicionY / 841.89) * 100}%`, 
+                                                                    left: `${((tplForm.posicionX ?? 237) / 595.28) * 100}%`,
+                                                                }}
+                                                            >
+                                                                FIRMA Y HUELLA
+                                                            </div>
+                                                        </div>
+                                                    </Document>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
+                                        <button
+                                            onClick={() => setTplModalOpen(false)}
+                                            className="px-6 py-2.5 border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-xl text-xs font-black uppercase tracking-widest transition-all"
+                                            disabled={tplSaving}
+                                        >
+                                            Cancelar
+                                        </button>
+                                        <button
+                                            onClick={async () => {
+                                                if (!tplForm.nombre.trim()) {
+                                                    showNotification("Ingresa un nombre para la plantilla", "warning");
+                                                    return;
+                                                }
+                                                setTplSaving(true);
+                                                try {
+                                                    if (tplEditing) {
+                                                        await updateSignatureTemplate(tplEditing.id, tplForm);
+                                                        showNotification("Plantilla actualizada", "success");
+                                                    } else {
+                                                        await addSignatureTemplate(tplForm);
+                                                        showNotification("Plantilla creada", "success");
+                                                    }
+                                                    setTplModalOpen(false);
+                                                } catch (e) {
+                                                    console.error("Error guardando plantilla:", e);
+                                                    showNotification("Error al guardar la plantilla", "error");
+                                                } finally {
+                                                    setTplSaving(false);
+                                                }
+                                            }}
+                                            className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-black uppercase tracking-widest shadow-lg shadow-blue-200 transition-all flex items-center gap-2"
+                                            disabled={tplSaving}
+                                        >
+                                            {tplSaving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
+                                            {tplEditing ? 'Guardar Cambios' : 'Crear Plantilla'}
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
                     </div>
                 </div>
             )}

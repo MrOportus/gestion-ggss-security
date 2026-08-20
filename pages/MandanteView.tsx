@@ -328,7 +328,11 @@ const EstadoServicio = ({ allowedSites, guardRounds, novedades, attendanceLogs, 
                                                         <Users size={13} />
                                                     </div>
                                                     <span className="font-bold text-slate-800 text-sm">{g.name}</span>
-                                                    {idx === 0 && <Award size={13} className="text-amber-400" title="Mayor actividad" />}
+                                                    {idx === 0 && (
+                                                        <div title="Mayor actividad">
+                                                            <Award size={13} className="text-amber-400" />
+                                                        </div>
+                                                    )}
                                                 </div>
                                             </td>
                                             <td className="px-4 py-3 text-center">

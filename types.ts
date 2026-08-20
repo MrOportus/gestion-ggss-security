@@ -484,3 +484,21 @@ export interface RegistroNovedad {
   actualizadoEn?: any; // serverTimestamp() al editar
 }
 
+// ─── Plantillas de Firma ──────────────────────────────────────────────────────
+// Configuración reutilizable para posicionar la firma en un PDF.
+// El admin crea plantillas por tipo de documento para no configurar manualmente cada vez.
+
+export interface SignatureTemplate {
+  id: string;
+  nombre: string;          // Ej: "Contrato Estándar", "EPP Faena Norte"
+  docType: string;         // "Contrato" | "EPP" | "ODI" | "Anexo" | "Otro"
+  pageType: 'last' | 'specific'; // Última hoja o página específica
+  pageNumber?: number;     // Solo si pageType === 'specific'
+  position?: 'left' | 'center' | 'right'; // Posición horizontal (Legacy)
+  posicionX?: number;      // Posición horizontal (px PDF, 0-500)
+  posicionY: number;       // Distancia desde el fondo de la página (px PDF, 0-200)
+  creadoEn: string;        // ISO timestamp
+  actualizadoEn?: string;  // ISO timestamp
+}
+
+

@@ -521,7 +521,7 @@ const ShiftManagement: React.FC = () => {
                 // Interceptamos el guardado para mostrar las alertas contractuales
                 setSummaryModalState({
                     isOpen: true,
-                    result: { success: 0, conflicts: [], technicalErrors: [], newTokens: {}, failedColabIds: [] },
+                    result: { success: 0, conflicts: [], technicalErrors: [], newTokens: {}, failedColabIds: [], conflictCheckPending: false },
                     contractAlerts: currentContractAlerts
                 });
                 return;

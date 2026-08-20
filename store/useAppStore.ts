@@ -4,7 +4,7 @@ import { STORAGE_CACHE_METADATA } from '../lib/imageUtils';
 import { Network } from '@capacitor/network';
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
-import { User, Employee, Site, AttendanceLog, Document, DigitalDocument, ComparisonRecord, DailyPayment, AppNotification, AppConfirmation, ContractRecord, Advance, SupervisorTask, ChecklistTemplate, ResignationRequest, RecurringSupervisorTask, SupervisorSubTask, BoardNote, GuardRound, Loan, Vacation, Novedad, RegistroNovedad } from '../types';
+import { User, Employee, Site, AttendanceLog, Document, DigitalDocument, ComparisonRecord, DailyPayment, AppNotification, AppConfirmation, ContractRecord, Advance, SupervisorTask, ChecklistTemplate, ResignationRequest, RecurringSupervisorTask, SupervisorSubTask, BoardNote, GuardRound, Loan, Vacation, Novedad, RegistroNovedad, SignatureTemplate } from '../types';
 import { Contrato } from '../types/phase1';
 import { db, auth, secondaryAuth, storage, functions } from '../lib/firebase';
 import { httpsCallable } from 'firebase/functions';
@@ -65,6 +65,7 @@ interface AppState {
   digitalDocuments: DigitalDocument[];
   vacations: Vacation[];
   novedades: Novedad[];
+  signatureTemplates: SignatureTemplate[];
   preselectedEmployeeForDoc: string | null;
   setPreselectedEmployeeForDoc: (id: string | null) => void;
   // Auth Actions
@@ -195,6 +196,11 @@ interface AppState {
   addNovedad: (novedad: Omit<Novedad, 'id' | 'createdAt'>) => Promise<string>;
   // Registro enriquecido de Incidencias y Novedades (GG.SS.)
   addRegistroNovedad: (data: Omit<RegistroNovedad, 'id' | 'creadoEn' | 'fechaHoraServidor'>) => Promise<string>;
+  // Signature Template Actions
+  fetchSignatureTemplates: () => Promise<void>;
+  addSignatureTemplate: (tpl: Omit<SignatureTemplate, 'id' | 'creadoEn'>) => Promise<string>;
+  updateSignatureTemplate: (id: string, data: Partial<SignatureTemplate>) => Promise<void>;
+  deleteSignatureTemplate: (id: string) => Promise<void>;
 }
 
 export const useAppStore = create<AppState>()(
@@ -222,6 +228,7 @@ export const useAppStore = create<AppState>()(
       digitalDocuments: [],
       vacations: [],
       novedades: [],
+      signatureTemplates: [],
       notifications: [],
       preselectedEmployeeForDoc: null,
       setPreselectedEmployeeForDoc: (id) => set({ preselectedEmployeeForDoc: id }),
@@ -2099,6 +2106,64 @@ export const useAppStore = create<AppState>()(
           return id;
         } catch (error) {
           console.error('Error adding registro novedad:', error);
+          throw error;
+        }
+      },
+
+      // ── Signature Templates ───────────────────────────────────────────────
+      fetchSignatureTemplates: async () => {
+        try {
+          const q = query(collection(db, 'signatureTemplates'), orderBy('creadoEn', 'desc'));
+          const snapshot = await getDocs(q);
+          const templates: SignatureTemplate[] = [];
+          snapshot.forEach(d => templates.push({ ...d.data(), id: d.id } as SignatureTemplate));
+          set({ signatureTemplates: templates });
+        } catch (error) {
+          console.error('Error fetching signatureTemplates:', error);
+        }
+      },
+
+      addSignatureTemplate: async (tplData) => {
+        const id = `sigtpl_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+        const newTpl: SignatureTemplate = {
+          ...tplData,
+          id,
+          creadoEn: new Date().toISOString(),
+        };
+        try {
+          await setDoc(doc(db, 'signatureTemplates', id), newTpl);
+          set((state) => ({ signatureTemplates: [newTpl, ...state.signatureTemplates] }));
+          return id;
+        } catch (error) {
+          console.error('Error adding signatureTemplate:', error);
+          throw error;
+        }
+      },
+
+      updateSignatureTemplate: async (id, data) => {
+        try {
+          const docRef = doc(db, 'signatureTemplates', id);
+          const updateData = { ...data, actualizadoEn: new Date().toISOString() };
+          await updateDoc(docRef, updateData);
+          set((state) => ({
+            signatureTemplates: state.signatureTemplates.map(t =>
+              t.id === id ? { ...t, ...updateData } : t
+            )
+          }));
+        } catch (error) {
+          console.error('Error updating signatureTemplate:', error);
+          throw error;
+        }
+      },
+
+      deleteSignatureTemplate: async (id) => {
+        try {
+          await deleteDoc(doc(db, 'signatureTemplates', id));
+          set((state) => ({
+            signatureTemplates: state.signatureTemplates.filter(t => t.id !== id)
+          }));
+        } catch (error) {
+          console.error('Error deleting signatureTemplate:', error);
           throw error;
         }
       },
