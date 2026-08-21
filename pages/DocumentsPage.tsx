@@ -199,37 +199,6 @@ const DocumentsPage: React.FC = () => {
         return { total, pending, signed, compliance };
     }, [digitalDocuments]);
 
-    // Top Documentos con más Incumplimiento
-    const topIncumplidos = useMemo(() => {
-        const counts: Record<string, number> = {};
-        digitalDocuments.forEach(d => {
-            if (d.status === 'pending') {
-                counts[d.title] = (counts[d.title] || 0) + 1;
-            }
-        });
-        return Object.entries(counts)
-            .map(([title, count]) => ({ title, count }))
-            .sort((a, b) => b.count - a.count)
-            .slice(0, 3);
-    }, [digitalDocuments]);
-
-    // Cumplimiento por Sucursal (Site)
-    const siteCompliance = useMemo(() => {
-        return sites.map(site => {
-            const siteEmployees = employees.filter(e => e.currentSiteId === site.id);
-            const employeeIds = siteEmployees.map(e => e.id);
-            const siteDocs = digitalDocuments.filter(d => employeeIds.includes(d.assignedTo));
-            const total = siteDocs.length;
-            const signed = siteDocs.filter(d => d.status === 'signed').length;
-            const rate = total > 0 ? Math.round((signed / total) * 100) : 100;
-            return {
-                id: site.id,
-                name: site.name,
-                total,
-                rate
-            };
-        }).sort((a, b) => a.rate - b.rate); // Ordenar de menor cumplimiento a mayor cumplimiento
-    }, [sites, employees, digitalDocuments]);
 
     // Filtro principal de documentos según pestañas y búsqueda
     const filteredDocs = useMemo(() => {
@@ -717,55 +686,6 @@ const DocumentsPage: React.FC = () => {
                         </div>
                     )}
 
-                    {/* Columnas del Dashboard */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        {/* Top Documentos con más Incumplimiento */}
-                        <div className="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm space-y-4">
-                            <h3 className="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center gap-2">
-                                <Clock size={16} className="text-red-500" />
-                                Mayor Incumplimiento
-                            </h3>
-                            {topIncumplidos.length === 0 ? (
-                                <p className="text-slate-400 text-xs font-bold py-4 text-center">¡Todos los documentos al día!</p>
-                            ) : (
-                                <div className="space-y-3">
-                                    {topIncumplidos.map((doc, idx) => (
-                                        <div key={idx} className="flex justify-between items-center bg-slate-50 p-3 rounded-2xl">
-                                            <span className="text-xs font-bold text-slate-700 truncate max-w-xs">{doc.title}</span>
-                                            <span className="text-xs font-black text-rose-500 bg-rose-50 px-2 py-0.5 rounded-lg">
-                                                {doc.count} pendientes
-                                            </span>
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
-                        </div>
-
-                        {/* Cumplimiento por Sucursal */}
-                        <div className="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm space-y-4">
-                            <h3 className="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center gap-2">
-                                <Building size={16} className="text-blue-500" />
-                                Cumplimiento por Sucursal
-                            </h3>
-                            {siteCompliance.length === 0 ? (
-                                <p className="text-slate-400 text-xs font-bold py-4 text-center">No hay sucursales registradas</p>
-                            ) : (
-                                <div className="grid grid-cols-2 gap-3 max-h-[140px] overflow-y-auto pr-1">
-                                    {siteCompliance.map((site) => (
-                                        <div key={site.id} className="flex justify-between items-center p-3 bg-slate-50 rounded-2xl">
-                                            <span className="text-[11px] font-bold text-slate-700 truncate max-w-[100px]">{site.name}</span>
-                                            <span className={`text-[10px] font-black px-2 py-0.5 rounded-lg ${
-                                                site.rate >= 90 ? 'bg-emerald-50 text-emerald-600' :
-                                                site.rate >= 70 ? 'bg-amber-50 text-amber-600' : 'bg-rose-50 text-rose-600'
-                                            }`}>
-                                                {site.rate}%
-                                            </span>
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
-                        </div>
-                    </div>
                 </div>
             )}
 
