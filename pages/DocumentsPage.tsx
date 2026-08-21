@@ -30,6 +30,7 @@ import { Document, Page, pdfjs } from 'react-pdf';
 import axios from 'axios';
 import { DigitalDocument, SignatureTemplate } from '../types';
 import { normalizeText } from '../lib/textUtils';
+import { APP_VERSION } from '../components/AppUpdateBanner';
 
 // Configurar worker de react-pdf (Usando el patrón recomendado para Vite)
 pdfjs.GlobalWorkerOptions.workerSrc = new URL(
@@ -456,7 +457,7 @@ const DocumentsPage: React.FC = () => {
         const rut         = worker.rut;
         const email       = worker.email || 'N/A';
         const uniqueSigId = `SIG-${Math.random().toString(36).substring(2, 11).toUpperCase()}`;
-        const appVersion  = '3.0.6';
+        const appVersion  = APP_VERSION;
 
         // ── Sello digital estético: rectángulo doble centrado ─────────────────────
         const stamW  = 270;   // ancho del sello en pts
