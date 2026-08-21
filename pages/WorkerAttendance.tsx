@@ -34,7 +34,7 @@ import {
   BookOpen,
 } from 'lucide-react';
 
-import SignatureCanvas from 'react-signature-canvas';
+import SignatureModal from '../components/SignatureModal';
 import { PenTool, FileText } from 'lucide-react';
 import DocumentsPage from './DocumentsPage';
 import { GlobalOverlay } from '../components/GlobalOverlay';
@@ -154,75 +154,23 @@ const WorkerAttendance: React.FC = () => {
     confirmPassword: ''
   });
   const [isChangingPassword, setIsChangingPassword] = useState(false);
-  const [isSigEmpty, setIsSigEmpty] = useState(true);
-  const sigCanvasRef = useRef<SignatureCanvas | null>(null);
+  // ── Módulo de firma: solo estado para mostrar/ocultar el modal ──────────
+  const [showSignatureModal, setShowSignatureModal] = useState(false);
 
-  const handleSaveSignature = async () => {
-    if (!sigCanvasRef.current || sigCanvasRef.current.isEmpty()) {
-      showNotification("Por favor, dibuja tu firma antes de guardar.", "warning");
-      return;
-    }
-
+  const handleSaveSignature = React.useCallback(async (dataUrl: string) => {
     try {
-      const dataUrl = sigCanvasRef.current.getCanvas().toDataURL('image/png');
       await updateEmployee(currentUser!.uid, {
         signatureUrl: dataUrl,
         signatureUpdatedAt: new Date().toISOString()
       });
+      setShowSignatureModal(false);
       showNotification("Firma registrada con éxito.", "success");
-      setIsSigEmpty(true);
     } catch (e) {
       console.error("Error saving signature:", e);
       showNotification("Error al guardar la firma.", "error");
+      throw e; // Re-lanzar para que el modal no cierre en caso de error
     }
-  };
-
-  // Sincronizar resolución del canvas de "Mi Firma" con su tamaño visual real para fijar los ejes X e Y
-  useEffect(() => {
-    let resizeObserver: ResizeObserver | null = null;
-
-    const syncCanvasSize = () => {
-      if (step === 'settings' && sigCanvasRef.current) {
-        const canvas = sigCanvasRef.current.getCanvas();
-        if (canvas && canvas.parentElement) {
-          const rect = canvas.parentElement.getBoundingClientRect();
-          const w = Math.floor(rect.width);
-          const h = Math.floor(rect.height);
-          // Solo actualizar si las dimensiones difieren y son válidas
-          if (w > 0 && h > 0 && (canvas.width !== w || canvas.height !== h)) {
-            canvas.width = w;
-            canvas.height = h;
-            sigCanvasRef.current.clear();
-            setIsSigEmpty(true);
-          }
-        }
-      }
-    };
-
-    if (step === 'settings') {
-      const timer = setTimeout(() => {
-        requestAnimationFrame(() => {
-          requestAnimationFrame(syncCanvasSize);
-        });
-      }, 100);
-
-      const parent = sigCanvasRef.current?.getCanvas()?.parentElement;
-      if (parent) {
-        resizeObserver = new ResizeObserver(() => requestAnimationFrame(syncCanvasSize));
-        resizeObserver.observe(parent);
-      }
-
-      window.addEventListener('resize', syncCanvasSize);
-      window.addEventListener('orientationchange', syncCanvasSize);
-
-      return () => {
-        clearTimeout(timer);
-        window.removeEventListener('resize', syncCanvasSize);
-        window.removeEventListener('orientationchange', syncCanvasSize);
-        if (resizeObserver) resizeObserver.disconnect();
-      };
-    }
-  }, [step, employee?.signatureUrl]);
+  }, [currentUser, updateEmployee, showNotification]);
 
   useEffect(() => {
     if (employee) {
@@ -1385,100 +1333,64 @@ const WorkerAttendance: React.FC = () => {
                 </div>
 
                 {/* MI FIRMA SECTION */}
-                <div className="bg-white rounded-[2rem] p-8 shadow-sm border border-slate-100 space-y-6">
+                <div className="bg-white rounded-[2rem] p-8 shadow-sm border border-slate-100 space-y-5">
                   <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] border-b pb-2 flex items-center gap-2">
                     <PenTool size={14} className="text-slate-400" />
                     Mi Firma
                   </h4>
 
                   {employee.signatureUrl ? (
+                    /* ── Firma ya registrada ──────────────────────────── */
                     <div className="space-y-4">
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                        <div>
-                          <p className="text-xs font-black text-emerald-600 uppercase tracking-wider flex items-center gap-1.5">
-                            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                            Firma Registrada
+                      {/* Badge de estado */}
+                      <div className="flex items-center justify-between">
+                        <p className="text-xs font-black text-emerald-600 uppercase tracking-wider flex items-center gap-1.5">
+                          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                          Firma Registrada
+                        </p>
+                        {employee.signatureUpdatedAt && (
+                          <p className="text-[10px] text-slate-400">
+                            {new Date(employee.signatureUpdatedAt).toLocaleDateString('es-CL', { day: '2-digit', month: 'short', year: 'numeric' })}
                           </p>
-                          {employee.signatureUpdatedAt && (
-                            <p className="text-[10px] text-slate-400 mt-0.5">
-                              Última actualización: {new Date(employee.signatureUpdatedAt).toLocaleDateString()} a las {new Date(employee.signatureUpdatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                            </p>
-                          )}
-                        </div>
-                        <button
-                          onClick={() => {
-                            showConfirmation({
-                              title: "Actualizar Firma",
-                              message: "¿Seguro que deseas actualizar tu firma? Se eliminará la firma actual y deberás dibujar una nueva.",
-                              onConfirm: async () => {
-                                await updateEmployee(currentUser!.uid, { signatureUrl: null, signatureUpdatedAt: null });
-                                showNotification("Firma limpiada. Dibuja tu nueva firma.", "info");
-                              }
-                            });
-                          }}
-                          className="px-4 py-1.5 border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-full font-black text-[10px] uppercase tracking-wider transition-all"
-                        >
-                          Actualizar Firma
-                        </button>
+                        )}
                       </div>
 
-                      <div className="border border-slate-100 bg-slate-50/50 rounded-2xl p-4 flex items-center justify-center">
+                      {/* Preview de la firma existente */}
+                      <div className="border border-slate-100 bg-slate-50/60 rounded-2xl px-6 py-5 flex items-center justify-center min-h-[160px]">
                         <img
                           src={employee.signatureUrl}
                           alt="Mi Firma"
-                          className="max-h-32 object-contain"
+                          className="max-h-36 max-w-full object-contain"
+                          style={{ filter: 'contrast(1.1)' }}
                         />
                       </div>
+
+                      {/* Botón cambiar firma — abre modal directamente, SIN borrar la firma previa */}
+                      <button
+                        onClick={() => setShowSignatureModal(true)}
+                        className="w-full py-3 border-2 border-slate-200 hover:border-blue-300 hover:bg-blue-50/30 text-slate-600 hover:text-blue-700 rounded-2xl font-black text-xs uppercase tracking-widest active:scale-[0.98] transition-all flex items-center justify-center gap-2"
+                      >
+                        <PenTool size={14} />
+                        Cambiar Firma
+                      </button>
                     </div>
                   ) : (
+                    /* ── Sin firma registrada ─────────────────────────── */
                     <div className="space-y-4">
                       <div className="bg-blue-50/50 border border-blue-100 text-blue-800 p-4 rounded-2xl flex gap-3 items-start">
                         <Info size={18} className="shrink-0 text-blue-600 mt-0.5" />
                         <p className="text-xs font-bold leading-snug">
-                          Debes registrar tu firma una sola vez. Esta firma se utilizará automáticamente para firmar digitalmente todos tus contratos, anexos y documentos asignados sin tener que volver a dibujarla.
+                          Registra tu firma una sola vez. La utilizaremos automáticamente para firmar digitalmente tus contratos, anexos y documentos asignados.
                         </p>
                       </div>
 
-                      <div className="space-y-2">
-                        <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Dibuja tu firma en el recuadro:</label>
-                        <div className="border-2 border-dashed border-slate-200 hover:border-slate-300 bg-slate-50 rounded-2xl overflow-hidden relative aspect-[4/3] max-w-sm mx-auto">
-                          <SignatureCanvas
-                            ref={sigCanvasRef}
-                            canvasProps={{
-                              className: 'w-full h-full cursor-crosshair'
-                            }}
-                            onBegin={() => setIsSigEmpty(false)}
-                          />
-                          {isSigEmpty && (
-                            <div className="absolute inset-0 flex items-center justify-center pointer-events-none select-none opacity-40">
-                              <span className="text-xs font-black uppercase tracking-widest text-slate-400">Dibuja tu firma aquí</span>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-
-                      <div className="flex gap-3 justify-end">
-                        <button
-                          onClick={() => {
-                            if (sigCanvasRef.current) {
-                              sigCanvasRef.current.clear();
-                              setIsSigEmpty(true);
-                            }
-                          }}
-                          disabled={isSigEmpty}
-                          className="px-6 py-2 border border-slate-200 hover:bg-slate-50 disabled:opacity-40 text-slate-600 rounded-full font-black text-xs uppercase tracking-widest active:scale-95 transition-all"
-                        >
-                          Limpiar
-                        </button>
-                        <button
-                          onClick={handleSaveSignature}
-                          disabled={isSigEmpty || loading}
-                          className="px-6 py-2 bg-blue-600 text-white font-black text-xs uppercase tracking-widest hover:bg-blue-700 disabled:opacity-50 rounded-full shadow-lg shadow-blue-200 active:scale-95 transition-all flex items-center gap-2"
-                        >
-                          {loading && <Loader2 size={14} className="animate-spin" />}
-                          Guardar Firma
-                        </button>
-                      </div>
+                      <button
+                        onClick={() => setShowSignatureModal(true)}
+                        className="w-full py-4 rounded-2xl bg-blue-600 text-white font-black text-sm uppercase tracking-widest shadow-lg shadow-blue-200 active:scale-[0.98] transition-all flex items-center justify-center gap-2"
+                      >
+                        <PenTool size={16} />
+                        Registrar Mi Firma
+                      </button>
                     </div>
                   )}
                 </div>
@@ -1833,6 +1745,14 @@ const WorkerAttendance: React.FC = () => {
       {/* Banner de actualización APK */}
       <AppUpdateBanner />
       <GlobalOverlay />
+
+      {/* ── Modal de firma digital full-screen ──────────────────────────── */}
+      <SignatureModal
+        isOpen={showSignatureModal}
+        onClose={() => setShowSignatureModal(false)}
+        onSave={handleSaveSignature}
+        existingSignature={employee?.signatureUrl}
+      />
     </div>
   );
 };
