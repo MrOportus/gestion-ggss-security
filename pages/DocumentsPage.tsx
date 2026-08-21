@@ -460,8 +460,8 @@ const DocumentsPage: React.FC = () => {
         const appVersion  = APP_VERSION;
 
         // ── Sello digital estético: rectángulo doble centrado ─────────────────────
-        const stamW  = 270;   // ancho del sello en pts
-        const stamH  = 84;    // alto del sello en pts
+        const stamW  = 200;   // ancho del sello en pts (reducido ~25%)
+        const stamH  = 65;    // alto del sello en pts (reducido ~25%)
         const stamX  = (pageW - stamW) / 2;  // centrado horizontal
         const stamY  = 90;    // distancia desde el fondo de la página (pts)
 
@@ -492,8 +492,8 @@ const DocumentsPage: React.FC = () => {
         });
 
         // ── Textos dentro del sello ──────────────────────────────────
-        const pad   = 12;    // padding interno
-        const lineH = 11;    // separación entre líneas
+        const pad   = 7;     // padding interno ajustado
+        const lineH = 11;    // separación entre líneas (mantenida igual)
 
         // Línea 0 — Nombre (grande, bold)
         const nameSize   = 8.5;
