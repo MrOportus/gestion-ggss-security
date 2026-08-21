@@ -129,8 +129,23 @@ const DocumentsPage: React.FC = () => {
     // Config manual de firma (fallback si no hay plantilla)
     const [sigPageType, setSigPageType] = useState<'last' | 'specific'>('last');
     const [sigPageNumber, setSigPageNumber] = useState(1);
-    const [sigPosition, setSigPosition] = useState<'left' | 'center' | 'right'>('center');
-    const [sigPosicionY, setSigPosicionY] = useState(40);
+    const [sigPosicionX, setSigPosicionX] = useState<number>(246);
+    const [sigPosicionY, setSigPosicionY] = useState(90);
+
+    // Estado para preview manual (Vista previa real en el wizard)
+    const [manualDemoUrl, setManualDemoUrl] = useState<string | null>(null);
+    const [manualDemoNumPages, setManualDemoNumPages] = useState<number | null>(null);
+
+    useEffect(() => {
+        if (wizardFiles.length > 0) {
+            const url = URL.createObjectURL(wizardFiles[0]);
+            setManualDemoUrl(url);
+            return () => URL.revokeObjectURL(url);
+        } else {
+            setManualDemoUrl(null);
+            setManualDemoNumPages(null);
+        }
+    }, [wizardFiles]);
 
     // Gestor de Plantillas de Firma
     const [showTemplatesManager, setShowTemplatesManager] = useState(false);
@@ -319,7 +334,7 @@ const DocumentsPage: React.FC = () => {
                     ...(selectedTpl.pageType === 'specific' ? { pageNumber: selectedTpl.pageNumber } : {})
                 };
             } else {
-                signatureConfig = { page: sigPageType, position: sigPosition, posicionY: sigPosicionY };
+                signatureConfig = { page: sigPageType, posicionX: sigPosicionX, posicionY: sigPosicionY };
                 if (sigPageType === 'specific') signatureConfig.pageNumber = Number(sigPageNumber);
             }
 
@@ -399,8 +414,8 @@ const DocumentsPage: React.FC = () => {
         setWizardDocType('Contrato');
         setSelectedSigTemplateId('');
         setSigPageType('last');
-        setSigPosition('center');
-        setSigPosicionY(40);
+        setSigPosicionX(246);
+        setSigPosicionY(90);
         setSelectedEmployees([]);
         setSelectedSites([]);
         setEmployeeSearchText('');
@@ -1215,7 +1230,115 @@ const DocumentsPage: React.FC = () => {
 
                                             </div>
                                         )}
+                                        {/* Config Manual con Preview Real (visible si no se seleccionó plantilla) */}
+                                        {!selectedSigTemplateId && (
+                                            <div className="space-y-6 animate-in fade-in slide-in-from-top-2 duration-200 mt-6 pt-6 border-t border-slate-100">
+                                                <p className="text-xs font-black text-slate-800 uppercase tracking-widest flex items-center gap-2">
+                                                    <Settings size={14} className="text-blue-600" />
+                                                    Configuración Manual
+                                                </p>
+                                                
+                                                <div className="grid grid-cols-2 gap-4">
+                                                    <div className="space-y-2">
+                                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Página de Firma</label>
+                                                        <select
+                                                            className="w-full px-4 py-3 bg-slate-50 border border-slate-200 focus:border-blue-500 rounded-xl outline-none transition-all text-xs font-bold appearance-none cursor-pointer"
+                                                            value={sigPageType}
+                                                            onChange={(e) => setSigPageType(e.target.value as any)}
+                                                        >
+                                                            <option value="last">Última hoja</option>
+                                                            <option value="specific">Página específica</option>
+                                                        </select>
+                                                    </div>
+                                                    {sigPageType === 'specific' && (
+                                                        <div className="space-y-2 animate-in fade-in duration-200">
+                                                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Número de Página</label>
+                                                            <input
+                                                                type="number" min="1" required
+                                                                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 focus:border-blue-500 rounded-xl outline-none transition-all text-xs font-bold"
+                                                                value={sigPageNumber}
+                                                                onChange={(e) => setSigPageNumber(Math.max(1, parseInt(e.target.value) || 1))}
+                                                            />
+                                                        </div>
+                                                    )}
+                                                </div>
 
+                                                <div className="space-y-6 bg-blue-50/40 p-5 rounded-2xl border border-blue-100/50">
+                                                    <div className="space-y-2">
+                                                        <label className="text-[10px] font-black text-blue-600 uppercase tracking-widest flex justify-between">
+                                                            <span>Posición Horizontal X</span>
+                                                            <span>{sigPosicionX}px</span>
+                                                        </label>
+                                                        <input
+                                                            type="range" min="10" max="550" step="5"
+                                                            value={sigPosicionX}
+                                                            onChange={(e) => setSigPosicionX(Number(e.target.value))}
+                                                            className="w-full accent-blue-600"
+                                                        />
+                                                        <div className="flex justify-between text-[9px] text-blue-400 font-bold">
+                                                            <span>Izquierda (10)</span><span>Derecha (550)</span>
+                                                        </div>
+                                                    </div>
+                                                    <div className="space-y-2">
+                                                        <label className="text-[10px] font-black text-blue-600 uppercase tracking-widest flex justify-between">
+                                                            <span>Posición Vertical Y</span>
+                                                            <span>{sigPosicionY}px</span>
+                                                        </label>
+                                                        <input
+                                                            type="range" min="10" max="760" step="5"
+                                                            value={sigPosicionY}
+                                                            onChange={(e) => setSigPosicionY(Number(e.target.value))}
+                                                            className="w-full accent-blue-600"
+                                                        />
+                                                        <div className="flex justify-between text-[9px] text-blue-400 font-bold">
+                                                            <span>Fondo (10px)</span><span>Alto (760px)</span>
+                                                        </div>
+                                                    </div>
+                                                </div>
+
+                                                {/* VISTA PREVIA REAL */}
+                                                <div className="border border-slate-200 rounded-2xl p-4 bg-slate-50">
+                                                    <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-3">Vista Previa (Primer documento)</p>
+                                                    {!manualDemoUrl ? (
+                                                        <div className="p-8 border-2 border-dashed border-slate-200 rounded-xl text-center bg-white">
+                                                            <Layers className="mx-auto text-slate-300 mb-2" size={24} />
+                                                            <p className="text-xs font-bold text-slate-500">Sube un documento arriba para ver la vista previa real</p>
+                                                        </div>
+                                                    ) : (
+                                                        <div className="bg-slate-200 border border-slate-300 rounded-xl overflow-y-auto max-h-[350px] flex justify-center p-4">
+                                                            <Document
+                                                                file={manualDemoUrl}
+                                                                onLoadSuccess={({ numPages }) => setManualDemoNumPages(numPages)}
+                                                                loading={<Loader2 className="animate-spin text-blue-500 mx-auto" size={24} />}
+                                                            >
+                                                                <div className="relative inline-block shadow-lg rounded bg-white">
+                                                                    <Page
+                                                                        pageNumber={sigPageType === 'last' ? (manualDemoNumPages || 1) : Math.min(sigPageNumber || 1, manualDemoNumPages || 1)}
+                                                                        width={window.innerWidth < 640 ? window.innerWidth - 80 : 400}
+                                                                        renderAnnotationLayer={false}
+                                                                        renderTextLayer={false}
+                                                                    />
+                                                                    {/* Recuadro de vista previa de firma — Carta (612×792) */}
+                                                                    <div
+                                                                        className="absolute bg-blue-500/10 border-2 border-blue-600/50 rounded flex items-center justify-center p-[2px]"
+                                                                        style={{
+                                                                            width: `${(120 / 612) * 100}%`,
+                                                                            height: `${(50 / 792) * 100}%`,
+                                                                            bottom: `${(sigPosicionY / 792) * 100}%`,
+                                                                            left: `${(sigPosicionX / 612) * 100}%`,
+                                                                        }}
+                                                                    >
+                                                                        <div className="w-full h-full border border-blue-600/30 flex items-center justify-center text-[7px] font-black text-blue-800 uppercase tracking-tighter text-center leading-tight">
+                                                                            Firma y<br/>Huella
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+                                                            </Document>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        )}
 
                                     </div>
                                 </div>
