@@ -444,32 +444,99 @@ const DocumentsPage: React.FC = () => {
             height: 50,
         });
 
-        const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
-        const timestamp = new Date().toLocaleString();
-        const userName = `${worker.firstName} ${worker.lastNamePaterno}`;
-        const rut = worker.rut;
-        const email = worker.email || 'N/A';
+        const font     = await pdfDoc.embedFont(StandardFonts.Helvetica);
+        const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+
+        const { width: pageW } = selectedPage.getSize();
+        const timestamp = new Date().toLocaleString('es-CL', {
+            day: '2-digit', month: '2-digit', year: 'numeric',
+            hour: '2-digit', minute: '2-digit'
+        });
+        const userName    = `${worker.firstName} ${worker.lastNamePaterno}`.toUpperCase();
+        const rut         = worker.rut;
+        const email       = worker.email || 'N/A';
         const uniqueSigId = `SIG-${Math.random().toString(36).substring(2, 11).toUpperCase()}`;
-        const appVersion = '3.0.6';
-        const deviceId = navigator.userAgent.substring(0, 60);
+        const appVersion  = '3.0.6';
 
-        const line1 = `Firmado digitalmente por: ${userName} (${rut}) | Email: ${email} | Fecha: ${timestamp}`;
-        const line2 = `ID Firma: ${uniqueSigId} | IP: ${ip} | App: v${appVersion} | Dispositivo: ${deviceId}`;
+        // ── Sello digital estético: rectángulo doble centrado ─────────────────────
+        const stamW  = 270;   // ancho del sello en pts
+        const stamH  = 84;    // alto del sello en pts
+        const stamX  = (pageW - stamW) / 2;  // centrado horizontal
+        const stamY  = 90;    // distancia desde el fondo de la página (pts)
 
-        selectedPage.drawText(line1, {
-            x: 40,
-            y: 25,
-            size: 6,
-            font,
-            color: rgb(0.2, 0.2, 0.2),
+        const inkColor  = rgb(0.10, 0.23, 0.43);  // azul corporativo oscuro
+        const bgColor   = rgb(1, 1, 1);            // fondo blanco puro
+        const gap       = 3;                        // separación entre bordes
+
+        // Borde exterior
+        selectedPage.drawRectangle({
+            x: stamX,
+            y: stamY,
+            width: stamW,
+            height: stamH,
+            color: bgColor,
+            borderColor: inkColor,
+            borderWidth: 1.4,
         });
 
-        selectedPage.drawText(line2, {
-            x: 40,
-            y: 15,
-            size: 6,
-            font,
-            color: rgb(0.3, 0.3, 0.3),
+        // Borde interior (doble)
+        selectedPage.drawRectangle({
+            x: stamX + gap,
+            y: stamY + gap,
+            width: stamW - gap * 2,
+            height: stamH - gap * 2,
+            color: bgColor,
+            borderColor: inkColor,
+            borderWidth: 0.5,
+        });
+
+        // ── Textos dentro del sello ──────────────────────────────────
+        const pad   = 12;    // padding interno
+        const lineH = 11;    // separación entre líneas
+
+        // Línea 0 — Nombre (grande, bold)
+        const nameSize   = 8.5;
+        const nameWidth  = fontBold.widthOfTextAtSize(userName, nameSize);
+        const nameX      = stamX + (stamW - nameWidth) / 2;  // centrado
+        const nameY      = stamY + stamH - pad - nameSize;
+        selectedPage.drawText(userName, {
+            x: nameX, y: nameY, size: nameSize, font: fontBold, color: inkColor,
+        });
+
+        // Línea 1 — Firmado digitalmente + fecha
+        const l1 = `Firmado digitalmente · ${timestamp}`;
+        const l1Size = 6.2;
+        const l1W = font.widthOfTextAtSize(l1, l1Size);
+        selectedPage.drawText(l1, {
+            x: stamX + (stamW - l1W) / 2, y: nameY - lineH,
+            size: l1Size, font, color: inkColor,
+        });
+
+        // Línea 2 — RUT + email
+        const l2 = `RUT: ${rut}   ·   ${email}`;
+        const l2Size = 5.5;
+        const l2W = font.widthOfTextAtSize(l2, l2Size);
+        selectedPage.drawText(l2, {
+            x: stamX + (stamW - l2W) / 2, y: nameY - lineH * 2,
+            size: l2Size, font, color: inkColor,
+        });
+
+        // Línea 3 — ID Firma + IP
+        const l3 = `ID Firma: ${uniqueSigId}   ·   IP: ${ip}`;
+        const l3Size = 5.5;
+        const l3W = font.widthOfTextAtSize(l3, l3Size);
+        selectedPage.drawText(l3, {
+            x: stamX + (stamW - l3W) / 2, y: nameY - lineH * 3,
+            size: l3Size, font, color: inkColor,
+        });
+
+        // Línea 4 — Código validación + versión
+        const l4 = `Cód. Validación: ${uniqueSigId} · v${appVersion}`;
+        const l4Size = 5;
+        const l4W = font.widthOfTextAtSize(l4, l4Size);
+        selectedPage.drawText(l4, {
+            x: stamX + (stamW - l4W) / 2, y: nameY - lineH * 4,
+            size: l4Size, font, color: rgb(0.30, 0.40, 0.58),
         });
 
         const pdfBytes = await pdfDoc.save();
@@ -1839,17 +1906,17 @@ const DocumentsPage: React.FC = () => {
                                             <div className="space-y-2">
                                                 <label className="text-[10px] font-black text-blue-600 uppercase tracking-widest flex justify-between">
                                                     <span>Posición Horizontal X</span>
-                                                    <span>{tplForm.posicionX ?? 237}px</span>
+                                                    <span>{tplForm.posicionX ?? 246}px</span>
                                                 </label>
                                                 <input
-                                                    type="range" min="10" max="500" step="5"
-                                                    value={tplForm.posicionX ?? 237}
+                                                    type="range" min="10" max="550" step="5"
+                                                    value={tplForm.posicionX ?? 246}
                                                     onChange={(e) => setTplForm({ ...tplForm, posicionX: Number(e.target.value) })}
                                                     className="w-full accent-blue-600"
                                                 />
                                                 <div className="flex justify-between text-[9px] text-blue-400 font-bold">
                                                     <span>Izquierda (10)</span>
-                                                    <span>Derecha (500)</span>
+                                                    <span>Derecha (550)</span>
                                                 </div>
                                             </div>
                                             <div className="space-y-2">
@@ -1858,14 +1925,14 @@ const DocumentsPage: React.FC = () => {
                                                     <span>{tplForm.posicionY}px</span>
                                                 </label>
                                                 <input
-                                                    type="range" min="10" max="800" step="5"
+                                                    type="range" min="10" max="760" step="5"
                                                     value={tplForm.posicionY}
                                                     onChange={(e) => setTplForm({ ...tplForm, posicionY: Number(e.target.value) })}
                                                     className="w-full accent-blue-600"
                                                 />
                                                 <div className="flex justify-between text-[9px] text-blue-400 font-bold">
                                                     <span>Fondo (10px)</span>
-                                                    <span>Alto (800px)</span>
+                                                    <span>Alto (760px)</span>
                                                 </div>
                                             </div>
                                         </div>
@@ -1926,17 +1993,19 @@ const DocumentsPage: React.FC = () => {
                                                                 renderAnnotationLayer={false}
                                                                 renderTextLayer={false}
                                                             />
-                                                            {/* Recuadro de vista previa de firma */}
+                                                            {/* Recuadro de vista previa de firma — dimensiones Carta (612×792 pts) */}
                                                             <div
-                                                                className="absolute bg-blue-500/30 border-2 border-dashed border-blue-600 rounded flex items-center justify-center text-[8px] font-black text-blue-800 shadow-sm backdrop-blur-sm pointer-events-none transition-all duration-75"
+                                                                className="absolute bg-blue-500/10 border-2 border-blue-600/50 rounded flex items-center justify-center p-[2px]"
                                                                 style={{
-                                                                    width: `${(120 / 595.28) * 100}%`,
-                                                                    height: `${(50 / 841.89) * 100}%`,
-                                                                    bottom: `${(tplForm.posicionY / 841.89) * 100}%`, 
-                                                                    left: `${((tplForm.posicionX ?? 237) / 595.28) * 100}%`,
+                                                                    width: `${(120 / 612) * 100}%`,
+                                                                    height: `${(50 / 792) * 100}%`,
+                                                                    bottom: `${(tplForm.posicionY / 792) * 100}%`,
+                                                                    left: `${((tplForm.posicionX ?? 246) / 612) * 100}%`,
                                                                 }}
                                                             >
-                                                                FIRMA Y HUELLA
+                                                                <div className="w-full h-full border border-blue-600/30 flex items-center justify-center text-[7px] font-black text-blue-800 uppercase tracking-tighter text-center">
+                                                                    Firma y Huella
+                                                                </div>
                                                             </div>
                                                         </div>
                                                     </Document>
