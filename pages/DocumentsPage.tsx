@@ -1212,88 +1212,11 @@ const DocumentsPage: React.FC = () => {
                                                         </option>
                                                     ))}
                                                 </select>
-                                                {selectedSigTemplateId && (() => {
-                                                    const tpl = signatureTemplates.find(t => t.id === selectedSigTemplateId);
-                                                    if (!tpl) return null;
-                                                    return (
-                                                        <div className="mt-2 p-3 bg-blue-50 border border-blue-100 rounded-2xl">
-                                                            {/* Preview visual de la posición de la firma */}
-                                                            <p className="text-[9px] font-black text-blue-600 uppercase tracking-widest mb-2">Vista previa de posición</p>
-                                                            <div className="relative w-full h-20 bg-white border border-slate-200 rounded-xl overflow-hidden shadow-inner">
-                                                                <div className="absolute bottom-0 left-0 right-0 h-px bg-slate-100" style={{ bottom: `${Math.min((tpl.posicionY / 200) * 100, 95)}%` }} />
-                                                                <div
-                                                                    className="absolute w-16 h-6 bg-blue-500/20 border border-blue-400 rounded flex items-center justify-center text-[7px] font-black text-blue-700"
-                                                                    style={{
-                                                                        bottom: `${Math.min((tpl.posicionY / 200) * 100, 80)}%`,
-                                                                        left: tpl.position === 'left' ? '5%' : tpl.position === 'right' ? 'calc(95% - 4rem)' : 'calc(50% - 2rem)',
-                                                                    }}
-                                                                >
-                                                                    FIRMA
-                                                                </div>
-                                                                <div className="absolute top-1 right-1 text-[7px] text-slate-300 font-bold">PDF</div>
-                                                            </div>
-                                                        </div>
-                                                    );
-                                                })()}
+
                                             </div>
                                         )}
 
-                                        {/* Config Manual (visible si no se seleccionó plantilla) */}
-                                        {!selectedSigTemplateId && (
-                                            <div className="space-y-4 animate-in fade-in slide-in-from-top-2 duration-200">
-                                                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Configuración Manual</p>
-                                                <div className="grid grid-cols-2 gap-4">
-                                                    <div className="space-y-2">
-                                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Página de Firma</label>
-                                                        <select
-                                                            className="w-full px-4 py-3 bg-white border border-slate-200 focus:border-blue-500 rounded-xl outline-none transition-all text-xs font-bold appearance-none cursor-pointer"
-                                                            value={sigPageType}
-                                                            onChange={(e) => setSigPageType(e.target.value as any)}
-                                                        >
-                                                            <option value="last">Última hoja</option>
-                                                            <option value="specific">Página específica</option>
-                                                        </select>
-                                                    </div>
-                                                    <div className="space-y-2">
-                                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Posición Horizontal</label>
-                                                        <select
-                                                            className="w-full px-4 py-3 bg-white border border-slate-200 focus:border-blue-500 rounded-xl outline-none transition-all text-xs font-bold appearance-none cursor-pointer"
-                                                            value={sigPosition}
-                                                            onChange={(e) => setSigPosition(e.target.value as any)}
-                                                        >
-                                                            <option value="left">Izquierda</option>
-                                                            <option value="center">Centro</option>
-                                                            <option value="right">Derecha</option>
-                                                        </select>
-                                                    </div>
-                                                </div>
-                                                {sigPageType === 'specific' && (
-                                                    <div className="space-y-2 animate-in fade-in duration-200">
-                                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Número de Página</label>
-                                                        <input
-                                                            type="number" min="1" required
-                                                            className="w-full px-4 py-3 bg-white border border-slate-200 focus:border-blue-500 rounded-xl outline-none transition-all text-xs font-bold"
-                                                            value={sigPageNumber}
-                                                            onChange={(e) => setSigPageNumber(Math.max(1, parseInt(e.target.value) || 1))}
-                                                        />
-                                                    </div>
-                                                )}
-                                                <div className="space-y-2">
-                                                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                                                        Posición Vertical (Y desde abajo: {sigPosicionY}px)
-                                                    </label>
-                                                    <input
-                                                        type="range" min="10" max="200" step="5"
-                                                        value={sigPosicionY}
-                                                        onChange={(e) => setSigPosicionY(Number(e.target.value))}
-                                                        className="w-full accent-blue-600"
-                                                    />
-                                                    <div className="flex justify-between text-[9px] text-slate-400 font-bold">
-                                                        <span>Fondo (10px)</span><span>Alto (200px)</span>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        )}
+
                                     </div>
                                 </div>
                             )}
