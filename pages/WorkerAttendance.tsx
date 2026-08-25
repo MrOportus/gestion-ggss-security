@@ -39,7 +39,8 @@ import { PenTool, FileText } from 'lucide-react';
 import DocumentsPage from './DocumentsPage';
 import { GlobalOverlay } from '../components/GlobalOverlay';
 import { db, auth } from '../lib/firebase';
-import { collection, query, where, getDocs, getDoc, onSnapshot, doc as firestoreDoc, limit, updateDoc, setDoc, deleteDoc, Timestamp } from 'firebase/firestore';
+import { collection, query, where, getDocs, getDoc, onSnapshot, doc as firestoreDoc, limit, updateDoc, setDoc, deleteDoc, Timestamp, orderBy } from 'firebase/firestore';
+import { CompanyDocument } from '../types';
 import { EmailAuthProvider, reauthenticateWithCredential, updatePassword } from 'firebase/auth';
 
 import RoundsControl from '../components/RoundsControl';
@@ -101,6 +102,37 @@ const WorkerAttendance: React.FC = () => {
   const [validationStep, setValidationStep] = useState<'idle' | 'gps' | 'turno' | 'abierto' | 'done'>('idle');
   const [validationError, setValidationError] = useState<string | null>(null);
   const [validationErrorType, setValidationErrorType] = useState<'gps' | 'no_turno' | 'turno_abierto' | null>(null);
+
+  // ── Biblioteca Corporativa ───────────────────────────────────────────
+  const [corporateDocs, setCorporateDocs] = useState<CompanyDocument[]>([]);
+  const [loadingCorporateDocs, setLoadingCorporateDocs] = useState(false);
+
+  useEffect(() => {
+    if (step === 'company_docs') {
+      setLoadingCorporateDocs(true);
+      const q = query(collection(db, 'company_documents'), orderBy('createdAt', 'desc'));
+      const unsubscribe = onSnapshot(q, (snapshot) => {
+        const docs: CompanyDocument[] = [];
+        snapshot.forEach((docSnap) => {
+          const data = docSnap.data();
+          docs.push({
+            id: docSnap.id,
+            name: data.name,
+            description: data.description,
+            url: data.url,
+            uploadedBy: data.uploadedBy,
+            createdAt: data.createdAt?.toDate?.()?.toISOString() || new Date().toISOString()
+          });
+        });
+        setCorporateDocs(docs);
+        setLoadingCorporateDocs(false);
+      }, (err) => {
+        console.error("Error fetching company documents:", err);
+        setLoadingCorporateDocs(false);
+      });
+      return () => unsubscribe();
+    }
+  }, [step]);
   
   // ── SUCURSAL ASIGNADA DEL DÍA ────────────────────────────────────────
   const [assignedSiteId, setAssignedSiteId] = useState<string | null>(null);
@@ -997,7 +1029,7 @@ const WorkerAttendance: React.FC = () => {
                   >
                     <div className="absolute top-0 right-0 w-24 h-24 bg-white/10 rounded-full -mr-12 -mt-12 blur-xl pointer-events-none" />
                     <BookOpen size={28} />
-                    <span className="text-xl font-black tracking-wider uppercase">Incidencias</span>
+                    <span className="text-xl font-black tracking-wider uppercase">Novedades</span>
                   </button>
 
                   <button
@@ -1117,28 +1149,50 @@ const WorkerAttendance: React.FC = () => {
             </div>
 
             <div className="px-6 space-y-6">
-              <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 text-center space-y-4 shadow-sm">
-                <div className="w-16 h-16 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center mx-auto">
-                  <Building2 size={32} />
-                </div>
-                <div>
+              <div className="bg-white p-6 rounded-[2.5rem] border border-slate-100 shadow-sm space-y-4">
+                <div className="flex flex-col items-center text-center pb-4 border-b border-slate-100">
+                  <div className="w-16 h-16 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center mb-4">
+                    <Building2 size={32} />
+                  </div>
                   <h3 className="text-xl font-black text-slate-800 uppercase tracking-tight">Biblioteca Corporativa</h3>
-                  <p className="text-slate-500 font-medium">Próximamente encontrarás aquí:</p>
+                  <p className="text-slate-500 font-medium text-sm mt-1">Reglamentos, manuales y directivas para todos los colaboradores.</p>
                 </div>
-                <div className="grid grid-cols-1 gap-2 pt-2">
-                  <div className="p-4 bg-slate-50 rounded-2xl flex items-center gap-3 text-left">
-                    <FileCheck size={20} className="text-blue-500" />
-                    <span className="text-xs font-bold text-slate-600">Reglamento Interno</span>
+
+                {loadingCorporateDocs ? (
+                  <div className="py-8 flex flex-col items-center justify-center">
+                    <Loader2 size={24} className="text-blue-500 animate-spin mb-2" />
+                    <p className="text-slate-500 text-xs font-bold">Cargando biblioteca...</p>
                   </div>
-                  <div className="p-4 bg-slate-50 rounded-2xl flex items-center gap-3 text-left">
-                    <ShieldCheck size={20} className="text-blue-500" />
-                    <span className="text-xs font-bold text-slate-600">Directivas de Funcionamiento</span>
+                ) : corporateDocs.length === 0 ? (
+                  <div className="py-8 text-center">
+                    <p className="text-slate-400 font-bold">Aún no hay documentos disponibles.</p>
                   </div>
-                  <div className="p-4 bg-slate-50 rounded-2xl flex items-center gap-3 text-left">
-                    <Info size={20} className="text-blue-500" />
-                    <span className="text-xs font-bold text-slate-600">Manuales de Procedimiento</span>
+                ) : (
+                  <div className="grid grid-cols-1 gap-3 pt-2">
+                    {corporateDocs.map(doc => (
+                      <a
+                        key={doc.id}
+                        href={doc.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="p-4 bg-slate-50 hover:bg-slate-100 rounded-2xl flex items-center justify-between gap-4 transition-colors group"
+                      >
+                        <div className="flex items-center gap-4 min-w-0">
+                          <div className="p-2 bg-blue-100 text-blue-600 rounded-xl shrink-0">
+                            <FileText size={20} />
+                          </div>
+                          <div className="min-w-0">
+                            <h4 className="text-sm font-black text-slate-700 truncate">{doc.name}</h4>
+                            {doc.description && (
+                              <p className="text-xs text-slate-500 truncate mt-0.5">{doc.description}</p>
+                            )}
+                          </div>
+                        </div>
+                        <ChevronRight size={20} className="text-slate-300 group-hover:text-blue-500 shrink-0 transition-colors" />
+                      </a>
+                    ))}
                   </div>
-                </div>
+                )}
               </div>
             </div>
           </div>
@@ -1662,7 +1716,7 @@ const WorkerAttendance: React.FC = () => {
             >
               <div className="flex items-center gap-3">
                 <BookOpen size={22} className={step === 'incidencias' ? 'text-amber-600' : 'text-slate-400'} />
-                <span className="font-bold">Incidencias y Novedades</span>
+                <span className="font-bold">Novedades</span>
               </div>
               <ChevronRight size={16} className="opacity-30" />
             </button>

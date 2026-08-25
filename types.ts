@@ -501,4 +501,13 @@ export interface SignatureTemplate {
   actualizadoEn?: string;  // ISO timestamp
 }
 
+// ─── Biblioteca Corporativa ──────────────────────────────────────────────────
+export interface CompanyDocument {
+  id: string;
+  name: string;            // Ej: "Reglamento Interno"
+  description?: string;    // Ej: "Versión 2026 actualizada"
+  url: string;             // Firebase Storage URL
+  uploadedBy: string;      // Nombre/Rol del admin que lo subió
+  createdAt: string;       // ISO timestamp
+}
 

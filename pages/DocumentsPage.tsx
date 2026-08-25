@@ -31,6 +31,7 @@ import axios from 'axios';
 import { DigitalDocument, SignatureTemplate } from '../types';
 import { normalizeText } from '../lib/textUtils';
 import { APP_VERSION } from '../components/AppUpdateBanner';
+import CorporateDocsManager from '../components/phase5/CorporateDocsManager';
 
 // Configurar worker de react-pdf (Usando el patrón recomendado para Vite)
 pdfjs.GlobalWorkerOptions.workerSrc = new URL(
@@ -62,7 +63,7 @@ const DocumentsPage: React.FC = () => {
         deleteSignatureTemplate,
     } = useAppStore();
 
-    const [activeTab, setActiveTab] = useState<'pending' | 'signed' | 'all'>('pending');
+    const [activeTab, setActiveTab] = useState<'pending' | 'signed' | 'all' | 'corporate'>('pending');
     const [searchTerm, setSearchTerm] = useState('');
     const [showUploadModal, setShowUploadModal] = useState(false);
     const [selectedDocToSign, setSelectedDocToSign] = useState<DigitalDocument | null>(null);
@@ -209,8 +210,8 @@ const DocumentsPage: React.FC = () => {
             docs = docs.filter(d => d.assignedTo === currentUser?.uid);
         }
 
-        // Filtro por Tab de firma
-        if (activeTab !== 'all') {
+        // Filter by tab status (ignore for corporate)
+        if (activeTab !== 'all' && activeTab !== 'corporate') {
             docs = docs.filter(d => d.status === activeTab);
         }
 
@@ -735,6 +736,14 @@ const DocumentsPage: React.FC = () => {
                         >
                             Todos
                         </button>
+                        {currentUser?.role === 'admin' && (
+                            <button
+                                onClick={() => setActiveTab('corporate')}
+                                className={`flex-1 sm:px-6 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all ${activeTab === 'corporate' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                            >
+                                Biblioteca Corporativa
+                            </button>
+                        )}
                     </div>
                 </div>
 
@@ -751,7 +760,9 @@ const DocumentsPage: React.FC = () => {
             </div>
 
             {/* VISTA DE DOCUMENTOS */}
-            {currentUser?.role !== 'admin' ? (
+            {activeTab === 'corporate' && currentUser?.role === 'admin' ? (
+                <CorporateDocsManager />
+            ) : currentUser?.role !== 'admin' ? (
                 /* VISTA FLAT DIRECTA PARA TRABAJADORES */
                 <div className="bg-white rounded-[2rem] border border-slate-100 shadow-sm overflow-hidden p-6 space-y-4">
                     {filteredDocs.length === 0 ? (

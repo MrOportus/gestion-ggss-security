@@ -692,21 +692,24 @@ const RoundsControl: React.FC<RoundsControlProps> = ({ onBack }) => {
                         </div>
 
                         {/* Textarea notas compacto */}
-                        <div className="px-5 pt-3 pb-2">
+                        <div className="px-5 pt-3 pb-2 flex flex-col gap-1">
                             <textarea
                                 value={roundNotes}
                                 onChange={(e) => setRoundNotes(e.target.value)}
-                                placeholder="Notas opcionales..."
+                                placeholder="Debes ingresar al menos 10 caracteres..."
                                 className="w-full p-3 bg-slate-50 border border-slate-100 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none resize-none h-16 placeholder:text-slate-300 font-medium"
                             />
+                            <p className={`text-[9px] font-bold text-right px-1 ${roundNotes.trim().length < 10 ? 'text-rose-500' : 'text-emerald-500'}`}>
+                                {roundNotes.trim().length}/10 caracteres mínimos
+                            </p>
                         </div>
 
                         {/* Botones resultado - compactos */}
                         <div className="px-5 pb-2 flex flex-col gap-2">
                             <button
                                 onClick={() => confirmStopRound('SIN_NOVEDAD')}
-                                disabled={loading}
-                                className="flex items-center gap-3 px-4 py-3 bg-emerald-50 text-emerald-700 rounded-xl active:scale-95 transition-all border border-emerald-100"
+                                disabled={loading || roundNotes.trim().length < 10}
+                                className="flex items-center gap-3 px-4 py-3 bg-emerald-50 text-emerald-700 rounded-xl active:scale-95 transition-all border border-emerald-100 disabled:opacity-50 disabled:cursor-not-allowed disabled:grayscale"
                             >
                                 <ShieldCheck size={20} className="shrink-0" />
                                 <div className="text-left">
@@ -717,8 +720,8 @@ const RoundsControl: React.FC<RoundsControlProps> = ({ onBack }) => {
 
                             <button
                                 onClick={() => confirmStopRound('SOSPECHA')}
-                                disabled={loading}
-                                className="flex items-center gap-3 px-4 py-3 bg-amber-50 text-amber-700 rounded-xl active:scale-95 transition-all border border-amber-100"
+                                disabled={loading || roundNotes.trim().length < 10}
+                                className="flex items-center gap-3 px-4 py-3 bg-amber-50 text-amber-700 rounded-xl active:scale-95 transition-all border border-amber-100 disabled:opacity-50 disabled:cursor-not-allowed disabled:grayscale"
                             >
                                 <AlertCircle size={20} className="shrink-0" />
                                 <div className="text-left">
@@ -729,8 +732,8 @@ const RoundsControl: React.FC<RoundsControlProps> = ({ onBack }) => {
 
                             <button
                                 onClick={() => confirmStopRound('CON_NOVEDAD')}
-                                disabled={loading}
-                                className="flex items-center gap-3 px-4 py-3 bg-rose-50 text-rose-700 rounded-xl active:scale-95 transition-all border border-rose-100"
+                                disabled={loading || roundNotes.trim().length < 10}
+                                className="flex items-center gap-3 px-4 py-3 bg-rose-50 text-rose-700 rounded-xl active:scale-95 transition-all border border-rose-100 disabled:opacity-50 disabled:cursor-not-allowed disabled:grayscale"
                             >
                                 <ShieldAlert size={20} className="shrink-0" />
                                 <div className="text-left">

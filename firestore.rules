@@ -61,6 +61,12 @@ service cloud.firestore {
       allow create, update, delete: if isAdmin();
     }
     
+    // Documentos Corporativos (Biblioteca)
+    match /company_documents/{docId} {
+      allow read: if request.auth != null;
+      allow create, update, delete: if isAdmin();
+    }
+    
     // Índice para RUTs (Evita duplicados)
     match /RutIndex/{rut} {
       allow read, write: if isAdmin();

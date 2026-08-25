@@ -742,7 +742,7 @@ const IncidenciasPage: React.FC<IncidenciasPageProps> = ({ onBack, activeLog, cu
       </div>
 
       {/* Lista de registros */}
-      <div className="px-4 pb-28 space-y-3 mt-4">
+      <div className="px-4 pb-28 space-y-1.5 mt-4">
         <div className="flex items-center justify-between px-1 mb-1">
           <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
             Registros de la sucursal
@@ -783,73 +783,56 @@ const IncidenciasPage: React.FC<IncidenciasPageProps> = ({ onBack, activeLog, cu
             <button
               key={reg.id}
               onClick={() => { setRegistroDetalle(reg); setVista('detalle'); }}
-              className={`w-full rounded-[1.5rem] p-5 text-left transition-all active:scale-[0.98] space-y-3 shadow-sm hover:shadow-md ${
+              className={`w-full rounded-xl px-3 py-2 text-left transition-all active:scale-[0.98] shadow-sm hover:shadow-md ${
                 esPropio
                   ? 'bg-blue-50 border-2 border-blue-100'
                   : 'bg-white border border-slate-100'
               }`}
             >
-              {/* Fila superior: tipo + prioridad + hora */}
-              <div className="flex items-start justify-between gap-2">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${
+              {/* Fila 1: tipo + prioridad + (mi registro) + hora */}
+              <div className="flex items-center justify-between gap-1.5">
+                <div className="flex items-center gap-1 min-w-0 overflow-hidden">
+                  <span className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-widest shrink-0 ${
                     reg.tipoRegistro === 'incidencia' ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'
                   }`}>
                     {reg.tipoRegistro}
                   </span>
-                  <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${prio.bg} ${prio.color}`}>
+                  <span className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-widest shrink-0 ${prio.bg} ${prio.color}`}>
                     {prio.label}
                   </span>
                   {esPropio && (
-                    <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-widest bg-blue-600 text-white">
+                    <span className="px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-widest bg-blue-600 text-white shrink-0">
                       Mi registro
                     </span>
                   )}
                 </div>
                 {fechaHora && (
-                  <div className="text-right shrink-0">
-                    <p className="text-[10px] font-black text-slate-400 flex items-center gap-1 justify-end">
-                      <Clock size={11} />
+                  <div className="shrink-0 flex items-center gap-1 text-slate-400">
+                    <Clock size={10} />
+                    <span className="text-[9px] font-black">
                       {fechaHora.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    </p>
-                    <p className="text-[10px] text-slate-300 font-bold mt-0.5">
+                    </span>
+                    <span className="text-[9px] font-bold text-slate-300">
                       {fechaHora.toLocaleDateString([], { day: '2-digit', month: '2-digit' })}
-                    </p>
+                    </span>
                   </div>
                 )}
               </div>
 
-              {/* Categoría y descripción */}
-              <div>
-                <p className="text-xs font-black text-slate-500 flex items-center gap-1">
-                  <span>{catIcon}</span> {catLabel}
-                  {reg.ubicacionInstalacion && (
-                    <span className="text-slate-300 font-normal"> · {reg.ubicacionInstalacion}</span>
-                  )}
-                </p>
-                <p className="text-sm text-slate-700 font-medium mt-1.5 line-clamp-2 leading-relaxed">{reg.descripcion}</p>
-              </div>
-
-              {/* Fila inferior: estado + autor + fotos */}
-              <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-100/70">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className={`text-[10px] font-black px-2.5 py-1 rounded-full uppercase tracking-widest ${
-                    reg.estado === 'registrada' ? 'bg-emerald-50 text-emerald-600' :
-                    reg.estado === 'en_revision' ? 'bg-yellow-50 text-yellow-600' :
-                    reg.estado === 'resuelta' ? 'bg-slate-100 text-slate-500' :
-                    'bg-orange-50 text-orange-600'
-                  }`}>
-                    {reg.estado}
-                  </span>
-                  <span className="text-[10px] font-bold text-slate-400 truncate max-w-[120px]">
-                    {esPropio ? 'Tú' : reg.autorNombre}
-                  </span>
-                </div>
-                {reg.evidencias && reg.evidencias.length > 0 && (
-                  <span className="text-[10px] font-bold text-slate-400 flex items-center gap-1 shrink-0">
-                    <Camera size={12} /> {reg.evidencias.length} foto{reg.evidencias.length > 1 ? 's' : ''}
-                  </span>
-                )}
+              {/* Fila 2: icono + categoría · descripción — autor */}
+              <div className="flex items-center gap-2 mt-1.5 min-w-0">
+                <span className="text-base shrink-0">{catIcon}</span>
+                <span className="text-sm font-black text-slate-700 shrink-0">{catLabel}</span>
+                <span className="text-sm text-slate-300 shrink-0">·</span>
+                <span className="text-sm text-slate-700 font-medium truncate flex-1">{reg.descripcion}</span>
+                <span className={`text-[10px] font-black px-2 py-0.5 rounded-full uppercase shrink-0 ${
+                  reg.estado === 'registrada' ? 'bg-emerald-50 text-emerald-600' :
+                  reg.estado === 'en_revision' ? 'bg-yellow-50 text-yellow-600' :
+                  reg.estado === 'resuelta' ? 'bg-slate-100 text-slate-500' :
+                  'bg-orange-50 text-orange-600'
+                }`}>
+                  {esPropio ? 'Tú' : reg.autorNombre}
+                </span>
               </div>
             </button>
           );

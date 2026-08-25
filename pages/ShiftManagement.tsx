@@ -34,6 +34,7 @@ import ShiftTransferModal from '../components/phase4/ShiftTransferModal';
 import ShiftActionModal from '../components/phase4/ShiftActionModal';
 import AdditionalShiftModal from '../components/phase4/AdditionalShiftModal';
 import VacancyCoverageModal from '../components/phase4/VacancyCoverageModal';
+import ShiftInfoModal from '../components/phase4/ShiftInfoModal';
 import { ArrowRightLeft } from 'lucide-react';
 
 // --- Types ---
@@ -156,6 +157,16 @@ const ShiftManagement: React.FC = () => {
         vacanteTurnoId: string;
         sucursalId: string | number;
         fecha: string;
+    } | null>(null);
+
+    // Info modal (solo lectura — se abre al hacer clic en modo vista)
+    const [infoModal, setInfoModal] = useState<{
+        isOpen: boolean;
+        empId: string;
+        fecha: string;
+        shiftStatus: 'programado' | 'noche' | 'descanso' | 'trasladado';
+        shiftDetails?: Record<string, any>;
+        isConflict?: boolean;
     } | null>(null);
 
     // Init default site
@@ -413,15 +424,14 @@ const ShiftManagement: React.FC = () => {
                 });
             } else if ((status.type === 'programado' || status.type === 'noche' || status.type === 'descanso' || status.type === 'trasladado') && status.details) {
                 const emp = employees.find(e => e.id === empId);
-                const site = sites.find(s => s.id == selectedSiteId);
-                if (emp && site && currentUser?.role !== 'rrhh') {
-                    setActionModal({
+                if (emp) {
+                    // Siempre mostrar modal informativo (solo lectura)
+                    setInfoModal({
                         isOpen: true,
                         empId: emp.id,
                         fecha: formatDateKey(day),
-                        shiftStatus: status.type,
-                        requiereCobertura: status.details.requiereCobertura === true,
-                        shiftId: status.details.id,
+                        shiftStatus: status.type as 'programado' | 'noche' | 'descanso' | 'trasladado',
+                        shiftDetails: status.details,
                         isConflict: conflictingCells.has(`${emp.id}_${formatDateKey(day)}`)
                     });
                 }
@@ -1577,6 +1587,27 @@ const ShiftManagement: React.FC = () => {
                     fecha={additionalModal.fecha}
                 />
             )}
+
+            {/* Modal Informativo de Turno (solo lectura) */}
+            {infoModal && (() => {
+                const emp = employees.find(e => e.id === infoModal.empId);
+                const site = sites.find(s => s.id == selectedSiteId);
+                return (
+                    <ShiftInfoModal
+                        isOpen={infoModal.isOpen}
+                        onClose={() => setInfoModal(null)}
+                        colaboradorNombre={emp ? `${emp.firstName} ${emp.lastNamePaterno}` : 'Desconocido'}
+                        colaboradorRut={emp?.rut}
+                        colaboradorCargo={emp?.cargo}
+                        colaboradorEmail={emp?.email}
+                        fecha={infoModal.fecha}
+                        shiftStatus={infoModal.shiftStatus}
+                        sucursalNombre={site?.name}
+                        isConflict={infoModal.isConflict}
+                        shiftDetails={infoModal.shiftDetails}
+                    />
+                );
+            })()}
 
             {coverageModal && (
                 <VacancyCoverageModal
