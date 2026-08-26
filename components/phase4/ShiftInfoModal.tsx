@@ -36,6 +36,11 @@ interface ShiftInfoModalProps {
   isConflict?: boolean;
   /** Datos extra del documento de programación */
   shiftDetails?: Record<string, any>;
+  /** Nota opcional de la casilla */
+  nota?: {
+    autor: string;
+    texto: string;
+  };
 }
 
 const STATUS_CONFIG = {
@@ -106,6 +111,7 @@ const ShiftInfoModal: React.FC<ShiftInfoModalProps> = ({
   sucursalNombre,
   isConflict,
   shiftDetails,
+  nota,
 }) => {
   if (!isOpen) return null;
 
@@ -266,6 +272,20 @@ const ShiftInfoModal: React.FC<ShiftInfoModalProps> = ({
                   <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-xl p-3 text-sm text-emerald-700">
                     <CheckCircle2 size={14} className="shrink-0" />
                     <span className="font-medium">Jornada de descanso programada.</span>
+                  </div>
+                )}
+
+                {/* Render de Nota */}
+                {nota && (
+                  <div className="mt-4 p-3 rounded-xl bg-amber-50 border border-amber-200">
+                    <div className="flex flex-col">
+                      <span className="text-[10px] font-black uppercase text-amber-700 tracking-wider mb-1">
+                        Nota adjunta ({nota.autor})
+                      </span>
+                      <p className="text-sm text-amber-900 font-medium whitespace-pre-wrap">
+                        {nota.texto}
+                      </p>
+                    </div>
                   </div>
                 )}
               </div>

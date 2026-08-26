@@ -196,6 +196,10 @@ service cloud.firestore {
       allow write: if isAdmin() || isSupervisor();
     }
 
+    match /notas_turnos/{docId} {
+      allow read, write: if request.auth != null;
+    }
+
     match /HistoricoContratos/{id} {
       allow read: if request.auth != null;
       allow write: if isAdmin() || isSupervisor();

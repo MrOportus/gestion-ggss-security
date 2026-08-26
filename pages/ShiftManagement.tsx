@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useAppStore } from '../store/useAppStore';
 import { normalizeText } from '../lib/textUtils';
 import { db } from '../lib/firebase';
-import { collection, query, where, onSnapshot, doc, updateDoc, Timestamp, getDocs, deleteDoc as firestoreDeleteDoc } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, doc, updateDoc, Timestamp, getDocs, deleteDoc as firestoreDeleteDoc, setDoc } from 'firebase/firestore';
 import {
     Calendar as CalendarIcon,
     MapPin,
@@ -21,7 +21,8 @@ import {
     UserMinus,
     Circle,
     AlertTriangle,
-    AlertCircle
+    AlertCircle,
+    StickyNote
 } from 'lucide-react';
 import ManageStaffModal from '../components/ManageStaffModal';
 import { useShiftManagementFacade } from '../lib/phase2/useShiftManagementFacade';
@@ -92,6 +93,9 @@ const ShiftManagement: React.FC = () => {
             baseSites = sites.filter(s => currentEmp?.assignedSites?.includes(s.id));
         }
         return baseSites.filter(s => {
+            // No mostrar sucursales inactivas
+            if (s.active === false) return false;
+
             const isFalabella = normalizeText(s.empresa || '').includes('falabella') || normalizeText(s.name || '').includes('falabella');
             
             if (onlyFalabella) {
@@ -114,22 +118,25 @@ const ShiftManagement: React.FC = () => {
     // Click and Drag State
     const [isDragging, setIsDragging] = useState(false);
     const [dragEmployeeId, setDragEmployeeId] = useState<string | null>(null);
-    const [activeTool, setActiveTool] = useState<'programado' | 'noche' | 'descanso' | 'asistio_manual' | 'ausente' | 'eraser'>('programado');
+    const [activeTool, setActiveTool] = useState<'programado' | 'noche' | 'descanso' | 'asistio_manual' | 'ausente' | 'eraser' | 'nota'>('programado');
 
     // Data State
     const [programmingMap, setProgrammingMap] = useState<Record<string, ProgramacionDoc>>({});
     const [digitalAttendanceMap, setDigitalAttendanceMap] = useState<Record<string, AsistenciaDigitalDoc>>({});
     const [manualAttendanceMap, setManualAttendanceMap] = useState<Record<string, AsistenciaManualDoc>>({});
+    const [notasMap, setNotasMap] = useState<Record<string, { id: string, nota: string, author: string }>>({});
 
     // Local Changes for Edit Mode (before save)
     const [pendingChanges, setPendingChanges] = useState<Record<string, ShiftStatus>>({});
     const [conflictError, setConflictError] = useState<string | null>(null);
 
     // Modal State
+    const [noteModal, setNoteModal] = useState<{ isOpen: boolean, empId: string, day: Date, currentNote: string, id?: string, key: string } | null>(null);
     const [detailModal, setDetailModal] = useState<{
         isOpen: boolean;
         data: AsistenciaDigitalDoc | null;
         employeeName: string;
+        nota?: { autor: string, texto: string };
     }>({ isOpen: false, data: null, employeeName: '' });
 
     const [manualEntryPrompt, setManualEntryPrompt] = useState<{
@@ -172,7 +179,6 @@ const ShiftManagement: React.FC = () => {
         fecha: string;
     } | null>(null);
 
-    // Info modal (solo lectura — se abre al hacer clic en modo vista)
     const [infoModal, setInfoModal] = useState<{
         isOpen: boolean;
         empId: string;
@@ -180,6 +186,7 @@ const ShiftManagement: React.FC = () => {
         shiftStatus: 'programado' | 'noche' | 'descanso' | 'trasladado';
         shiftDetails?: Record<string, any>;
         isConflict?: boolean;
+        nota?: { autor: string, texto: string };
     } | null>(null);
 
     // Init default site
@@ -280,10 +287,27 @@ const ShiftManagement: React.FC = () => {
             setManualAttendanceMap(map);
         });
 
+        // 4. Listen to Notas
+        const notasQuery = query(
+            collection(db, 'notas_turnos'),
+            where('date', '>=', firstDay),
+            where('date', '<=', lastDay)
+        );
+        const unsubNotas = onSnapshot(notasQuery, (snapshot) => {
+            const map: Record<string, any> = {};
+            snapshot.docs.forEach(doc => {
+                const data = doc.data();
+                const key = `${data.siteId}_${data.empId}_${data.date}`;
+                map[key] = { ...data, id: doc.id };
+            });
+            setNotasMap(map);
+        });
+
         return () => {
             unsubProg();
             unsubDig();
             unsubMan();
+            unsubNotas();
         };
     }, [firstDay, lastDay, selectedSiteId]);
 
@@ -325,7 +349,15 @@ const ShiftManagement: React.FC = () => {
     } => {
         const dateKey = formatDateKey(day);
         const key = getCellKey(empId, day);
-        const progStatus = programmingMap[key]?.status;
+        
+        let progStatus = programmingMap[key]?.status;
+        if (programmingMap[key]) {
+            const prog = programmingMap[key] as any;
+            const turno = String(prog.turno || prog.codigoTurno || '').trim().toUpperCase();
+            if (progStatus === 'noche' || turno === 'N' || turno === 'NOCHE') {
+                progStatus = 'noche';
+            }
+        }
 
         if (pendingChanges[key] !== undefined) {
             if (pendingChanges[key] === 'programado') return { type: 'programado' };
@@ -375,6 +407,7 @@ const ShiftManagement: React.FC = () => {
         else if (activeTool === 'asistio_manual') nextStatus = 'asistio_manual';
         else if (activeTool === 'ausente') nextStatus = 'ausente';
         else if (activeTool === 'eraser') nextStatus = null;
+        else if (activeTool === 'nota') return;
 
         setPendingChanges(prev => ({
             ...prev,
@@ -384,12 +417,26 @@ const ShiftManagement: React.FC = () => {
 
     const handleCellMouseDown = (empId: string, day: Date, currentStatus: string) => {
         if (!isEditMode) return;
+        const key = getCellKey(empId, day);
+
+        if (activeTool === 'nota') {
+            const existingNota = notasMap[key];
+            setNoteModal({
+                isOpen: true,
+                empId,
+                day,
+                currentNote: existingNota ? existingNota.nota : '',
+                id: existingNota ? existingNota.id : undefined,
+                key
+            });
+            return;
+        }
 
         setIsDragging(true);
         setDragEmployeeId(empId);
 
         // Initial Cycle logic on first click
-        const key = getCellKey(empId, day);
+
         let nextState: ShiftStatus = 'programado';
 
         if (activeTool === 'eraser') {
@@ -428,24 +475,40 @@ const ShiftManagement: React.FC = () => {
     const handleCellClick = (empId: string, day: Date) => {
         if (!isEditMode) {
             const status = getCellStatus(empId, day);
+            const key = getCellKey(empId, day);
+            const notaForCell = notasMap[key];
+            const notaData = notaForCell ? { autor: notaForCell.author || 'Usuario', texto: notaForCell.nota } : undefined;
+
             if (status.type === 'digital' && status.details) {
                 const emp = employees.find(e => e.id === empId);
                 setDetailModal({
                     isOpen: true,
                     data: status.details,
-                    employeeName: emp ? `${emp.firstName} ${emp.lastNamePaterno}` : 'Desconocido'
+                    employeeName: emp ? `${emp.firstName} ${emp.lastNamePaterno}` : 'Desconocido',
+                    nota: notaData
                 });
-            } else if ((status.type === 'programado' || status.type === 'noche' || status.type === 'descanso' || status.type === 'trasladado') && status.details) {
+            } else if (
+                (status.type === 'programado' || status.type === 'noche' || status.type === 'descanso' || status.type === 'trasladado' || status.type === 'manual_present' || status.type === 'manual_absent' || status.type === 'empty') && 
+                (status.details || notaData)
+            ) {
                 const emp = employees.find(e => e.id === empId);
                 if (emp) {
+                    let modalStatus: 'programado' | 'noche' | 'descanso' | 'trasladado' = 'programado';
+                    if (['programado', 'noche', 'descanso', 'trasladado'].includes(status.type)) {
+                        modalStatus = status.type as any;
+                    } else if (status.type === 'manual_present' || status.type === 'manual_absent') {
+                        modalStatus = (status.programmedStatus as any) === 'noche' ? 'noche' : 'programado';
+                    }
+
                     // Siempre mostrar modal informativo (solo lectura)
                     setInfoModal({
                         isOpen: true,
                         empId: emp.id,
                         fecha: formatDateKey(day),
-                        shiftStatus: status.type as 'programado' | 'noche' | 'descanso' | 'trasladado',
+                        shiftStatus: modalStatus,
                         shiftDetails: status.details,
-                        isConflict: conflictingCells.has(`${emp.id}_${formatDateKey(day)}`)
+                        isConflict: conflictingCells.has(`${emp.id}_${formatDateKey(day)}`),
+                        nota: notaData
                     });
                 }
             }
@@ -599,6 +662,43 @@ const ShiftManagement: React.FC = () => {
             setIsEditMode(false);
             setConflictError(null);
             setSavedTokens({});
+        }
+    };
+
+    const handleSaveNote = async () => {
+        if (!noteModal) return;
+        try {
+            const docId = noteModal.id || noteModal.key;
+            const ref = doc(db, 'notas_turnos', docId);
+            
+            const emp = employees.find(e => e.id === noteModal.empId);
+            const currentUserObj = employees.find(e => e.id === currentUser?.uid);
+            const author = currentUserObj ? `${currentUserObj.firstName} ${currentUserObj.lastNamePaterno}` : 'Admin';
+            
+            await setDoc(ref, {
+                siteId: selectedSiteId,
+                empId: noteModal.empId,
+                date: formatDateKey(noteModal.day),
+                nota: noteModal.currentNote,
+                author,
+                createdAt: Timestamp.now()
+            });
+            setNoteModal(null);
+        } catch (e) {
+            console.error("Error saving note:", e);
+        }
+    };
+
+    const handleDeleteNote = async () => {
+        if (!noteModal || !noteModal.id) {
+            setNoteModal(null);
+            return;
+        }
+        try {
+            await firestoreDeleteDoc(doc(db, 'notas_turnos', noteModal.id));
+            setNoteModal(null);
+        } catch (e) {
+            console.error("Error deleting note:", e);
         }
     };
 
@@ -952,10 +1052,17 @@ const ShiftManagement: React.FC = () => {
                                 </button>
                                 <button
                                     onClick={() => setActiveTool('eraser')}
-                                    className={`px-2 py-2 rounded-lg text-xs font-black transition-all ${activeTool === 'eraser' ? 'bg-slate-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-200'}`}
-                                    title="Borrador"
+                                    className={`px-3 py-2 rounded-lg text-xs font-black transition-all ${activeTool === 'eraser' ? 'bg-red-500 text-white shadow-md' : 'text-slate-500 hover:bg-slate-200'}`}
+                                    title="Borrar (Erase)"
                                 >
-                                    <Eraser size={14} />
+                                    <Eraser size={16} />
+                                </button>
+                                <button
+                                    onClick={() => setActiveTool('nota')}
+                                    className={`px-3 py-2 rounded-lg text-xs font-black transition-all ml-1 ${activeTool === 'nota' ? 'bg-amber-500 text-white shadow-md' : 'text-amber-600 hover:bg-amber-100'}`}
+                                    title="Añadir Nota"
+                                >
+                                    <StickyNote size={16} />
                                 </button>
                             </div>
 
@@ -1175,6 +1282,8 @@ const ShiftManagement: React.FC = () => {
                                         const dateStr = formatDateKey(day);
                                         const isConflict = conflictingCells.has(`${emp.id}_${dateStr}`);
                                         const isWeekend = day.getDay() === 0 || day.getDay() === 6;
+                                        const cellKey = getCellKey(emp.id, day);
+                                        const notaForCell = notasMap[cellKey];
                                         return (
                                             <td
                                                 key={day.toISOString()}
@@ -1182,11 +1291,19 @@ const ShiftManagement: React.FC = () => {
                                                 onMouseEnter={() => handleCellMouseEnter(emp.id, day)}
                                                 onClick={() => handleCellClick(emp.id, day)}
                                                 className={`
-                                            p-1 text-center border-r border-slate-50 cursor-pointer transition-all duration-200
+                                            p-1 text-center border-r border-slate-50 cursor-pointer transition-all duration-200 relative
                                             ${isEditMode ? 'hover:bg-blue-50 cursor-crosshair' : 'hover:bg-slate-100'}
                                             ${isWeekend && status.type === 'empty' ? 'bg-red-50/30' : ''}
                                         `}
                                             >
+                                                {/* Indicador de Nota */}
+                                                {notaForCell && (
+                                                    <div 
+                                                        className="absolute top-1 right-1 w-0 h-0 border-t-[8px] border-t-amber-500 border-l-[8px] border-l-transparent z-10 pointer-events-auto"
+                                                        title={`Nota de ${notaForCell.author || 'Usuario'}:\n${notaForCell.nota}`}
+                                                    ></div>
+                                                )}
+
                                                 <div className={`w-full h-10 flex items-center justify-center rounded-lg relative group pointer-events-none ${isConflict ? 'ring-2 ring-red-500 bg-red-50' : ''}`}>
                                                     {isConflict && (
                                                         <div className="absolute -top-1 -right-1 z-10 text-red-500 bg-white rounded-full p-px shadow-sm" title="Conflicto de turno detectado con otra instalación">
@@ -1379,6 +1496,20 @@ const ShiftManagement: React.FC = () => {
                                 </div>
                             </div>
                         </div>
+
+                        {detailModal.nota && (
+                            <div className="mx-6 mb-4 p-3 rounded-xl bg-amber-50 border border-amber-200">
+                                <div className="flex flex-col">
+                                    <span className="text-[10px] font-black uppercase text-amber-700 tracking-wider mb-1">
+                                        Nota adjunta ({detailModal.nota.autor})
+                                    </span>
+                                    <p className="text-sm text-amber-900 font-medium whitespace-pre-wrap">
+                                        {detailModal.nota.texto}
+                                    </p>
+                                </div>
+                            </div>
+                        )}
+
                         <div className="p-4 bg-slate-50 border-t border-slate-100 text-center">
                             <button
                                 onClick={() => setDetailModal(prev => ({ ...prev, isOpen: false }))}
@@ -1646,6 +1777,7 @@ const ShiftManagement: React.FC = () => {
                         sucursalNombre={site?.name}
                         isConflict={infoModal.isConflict}
                         shiftDetails={infoModal.shiftDetails}
+                        nota={infoModal.nota}
                     />
                 );
             })()}
@@ -1748,6 +1880,55 @@ const ShiftManagement: React.FC = () => {
                             >
                                 Cerrar
                             </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+            {/* Note Modal */}
+            {noteModal && (
+                <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden animate-in fade-in duration-200">
+                        <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-amber-50">
+                            <h3 className="text-sm font-bold text-amber-900 flex items-center gap-2">
+                                <StickyNote size={16} />
+                                {noteModal.id ? 'Editar Nota' : 'Añadir Nota'}
+                            </h3>
+                            <button onClick={() => setNoteModal(null)} className="text-amber-500 hover:text-amber-700">
+                                <XCircle size={18} />
+                            </button>
+                        </div>
+                        <div className="p-4">
+                            <p className="text-xs text-slate-500 mb-2 font-medium">
+                                Escribe los detalles o recordatorios para esta casilla.
+                            </p>
+                            <textarea
+                                value={noteModal.currentNote}
+                                onChange={(e) => setNoteModal(prev => prev ? { ...prev, currentNote: e.target.value } : null)}
+                                className="w-full border border-slate-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-amber-500 outline-none resize-none min-h-[100px] shadow-inner text-slate-700"
+                                placeholder="Escribe aquí..."
+                                autoFocus
+                            ></textarea>
+                        </div>
+                        <div className="p-4 border-t border-slate-100 flex justify-between items-center bg-slate-50">
+                            {noteModal.id ? (
+                                <button
+                                    onClick={handleDeleteNote}
+                                    className="text-red-500 hover:text-red-600 text-xs font-bold px-3 py-2 rounded hover:bg-red-50 transition"
+                                >
+                                    Eliminar Nota
+                                </button>
+                            ) : <div></div>}
+                            
+                            <div className="flex gap-2">
+                                <button onClick={() => setNoteModal(null)} className="px-4 py-2 text-slate-500 text-xs font-bold hover:bg-slate-200 rounded-lg">Cancelar</button>
+                                <button
+                                    onClick={handleSaveNote}
+                                    disabled={!noteModal.currentNote.trim()}
+                                    className="px-4 py-2 bg-amber-500 hover:bg-amber-600 disabled:opacity-50 text-white text-xs font-bold rounded-lg shadow-sm"
+                                >
+                                    Guardar Nota
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>

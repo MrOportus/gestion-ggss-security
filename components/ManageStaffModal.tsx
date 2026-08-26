@@ -38,9 +38,17 @@ const ManageStaffModal: React.FC<ManageStaffModalProps> = ({ isOpen, onClose, cu
 
     const currentSiteName = sites.find(s => s.id == currentSiteId)?.name || 'la sucursal';
 
-    const filteredEmployees = employees.filter(emp => {
-        return matchesEmployeeSearch(searchTerm, emp);
-    });
+    const filteredEmployees = employees
+        .filter(emp => matchesEmployeeSearch(searchTerm, emp))
+        .sort((a, b) => {
+            const aSelected = selectedIds.has(a.id);
+            const bSelected = selectedIds.has(b.id);
+            if (aSelected && !bSelected) return -1;
+            if (!aSelected && bSelected) return 1;
+            const aName = `${a.firstName} ${a.lastNamePaterno}`.toLowerCase();
+            const bName = `${b.firstName} ${b.lastNamePaterno}`.toLowerCase();
+            return aName.localeCompare(bName);
+        });
 
     const toggleSelection = (id: string) => {
         const newSet = new Set(selectedIds);
