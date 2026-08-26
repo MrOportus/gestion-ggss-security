@@ -17,7 +17,9 @@ import {
     AlertCircle,
     ShieldAlert,
     Trash2,
-    X
+    X,
+    ChevronLeft,
+    ChevronRight
 } from 'lucide-react';
 import RouteMapModal from '../components/RouteMapModal';
 
@@ -30,6 +32,14 @@ const RoundsAdminPage: React.FC = () => {
     const [endDateFilter, setEndDateFilter] = useState('');
     const [selectedSiteId, setSelectedSiteId] = useState<string | 'all'>('all');
     const [selectedRound, setSelectedRound] = useState<any | null>(null);
+
+    // Pagination state
+    const [currentPage, setCurrentPage] = useState(1);
+    const [itemsPerPage, setItemsPerPage] = useState(20);
+
+    React.useEffect(() => {
+        setCurrentPage(1);
+    }, [searchTerm, notesSearch, resultFilter, startDateFilter, endDateFilter, selectedSiteId, itemsPerPage]);
 
     // Test mode state
     const [showTestModal, setShowTestModal] = useState(false);
@@ -99,6 +109,10 @@ const RoundsAdminPage: React.FC = () => {
 
         return matchesSearch && matchesNotes && matchesResult && matchesDate && matchesSite;
     });
+
+    const totalPages = Math.ceil(filteredRounds.length / itemsPerPage);
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    const paginatedRounds = filteredRounds.slice(startIndex, startIndex + itemsPerPage);
 
     return (
         <div className="flex flex-col h-full bg-slate-50 min-h-screen relative">
@@ -196,7 +210,7 @@ const RoundsAdminPage: React.FC = () => {
                     </div>
                 ) : (
                     <div className="grid grid-cols-1 gap-4">
-                        {filteredRounds.map((round) => {
+                        {paginatedRounds.map((round) => {
                             const duration = round.endTime
                                 ? Math.floor((new Date(round.endTime).getTime() - new Date(round.startTime).getTime()) / 60000)
                                 : null;
@@ -353,6 +367,73 @@ const RoundsAdminPage: React.FC = () => {
                                 </div>
                             );
                         })}
+                    </div>
+                )}
+
+                {/* Pagination Controls */}
+                {filteredRounds.length > 0 && (
+                    <div className="mt-8 flex flex-col sm:flex-row items-center justify-between gap-4 bg-white p-4 rounded-2xl shadow-sm border border-slate-100">
+                        <div className="flex items-center gap-2">
+                            <span className="text-sm font-bold text-slate-500">Mostrar:</span>
+                            <select
+                                className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none font-bold text-slate-700"
+                                value={itemsPerPage}
+                                onChange={(e) => setItemsPerPage(Number(e.target.value))}
+                            >
+                                <option value={20}>20</option>
+                                <option value={50}>50</option>
+                            </select>
+                            <span className="text-[10px] sm:text-xs font-bold text-slate-500 ml-2">
+                                {startIndex + 1} - {Math.min(startIndex + itemsPerPage, filteredRounds.length)} de {filteredRounds.length}
+                            </span>
+                        </div>
+                        
+                        <div className="flex items-center gap-2">
+                            <button
+                                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                                disabled={currentPage === 1}
+                                className="p-2 rounded-lg bg-slate-50 border border-slate-200 text-slate-600 hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                            >
+                                <ChevronLeft size={18} />
+                            </button>
+                            
+                            <div className="flex items-center gap-1">
+                                {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                                    let pageNum = currentPage;
+                                    if (totalPages <= 5) {
+                                        pageNum = i + 1;
+                                    } else if (currentPage <= 3) {
+                                        pageNum = i + 1;
+                                    } else if (currentPage >= totalPages - 2) {
+                                        pageNum = totalPages - 4 + i;
+                                    } else {
+                                        pageNum = currentPage - 2 + i;
+                                    }
+                                    
+                                    return (
+                                        <button
+                                            key={pageNum}
+                                            onClick={() => setCurrentPage(pageNum)}
+                                            className={`w-8 h-8 rounded-lg text-sm font-bold transition-colors ${
+                                                currentPage === pageNum 
+                                                    ? 'bg-blue-600 text-white shadow-md shadow-blue-200' 
+                                                    : 'bg-slate-50 border border-slate-200 text-slate-600 hover:bg-slate-100'
+                                            }`}
+                                        >
+                                            {pageNum}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+
+                            <button
+                                onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                                disabled={currentPage === totalPages}
+                                className="p-2 rounded-lg bg-slate-50 border border-slate-200 text-slate-600 hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                            >
+                                <ChevronRight size={18} />
+                            </button>
+                        </div>
                     </div>
                 )}
             </main>

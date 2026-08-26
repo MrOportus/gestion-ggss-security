@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import { Employee, Document } from '../types';
 import { useAppStore } from '../store/useAppStore';
-import { X, FileText, Edit2, Save, MapPin, User, Shield, Briefcase, Heart, AlertCircle, Trash2, AlertTriangle } from 'lucide-react';
+import { X, FileText, Edit2, Save, MapPin, User, Shield, Briefcase, Heart, AlertCircle, Trash2, AlertTriangle, Download } from 'lucide-react';
 import GeneratePasswordButton from './GeneratePasswordButton';
 
 interface EmployeeModalProps {
@@ -84,24 +84,16 @@ const DataField = ({ label, value, name, type = "text", options = null, searchab
 };
 
 const EmployeeModal: React.FC<EmployeeModalProps> = ({ employee, onClose }) => {
-  const { documents, uploadDocument, updateEmployee, deleteEmployee, sites } = useAppStore();
-  const [docType, setDocType] = useState<Document['type']>('Otro');
+  const { updateEmployee, deleteEmployee, sites, contractHistory } = useAppStore();
   const [isEditing, setIsEditing] = useState(false);
   const [editData, setEditData] = useState<Employee>(employee);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
-  const empDocuments = documents.filter(d => d.employeeId === employee.id);
-
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    uploadDocument({
-      employeeId: employee.id,
-      type: docType,
-      fileName: file.name
-    });
-  };
+  const employeeFullName = `${employee.firstName} ${employee.lastNamePaterno}`;
+  const employeeContracts = (contractHistory || [])
+    .filter(c => c.workerName.toLowerCase() === employeeFullName.toLowerCase())
+    .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+    .slice(0, 10);
 
   const calculateAge = (dateString?: string) => {
     if (!dateString) return 'N/A';
@@ -407,52 +399,62 @@ const EmployeeModal: React.FC<EmployeeModalProps> = ({ employee, onClose }) => {
 
           </div>
 
-          {/* ÁREA DE DOCUMENTOS - ESTILO LISTA LIMPIA */}
-          <div className="bg-slate-50 border border-slate-200 rounded-2xl p-6">
-            <div className="flex flex-col md:flex-row justify-between items-center gap-4 mb-6">
-              <h3 className="flex items-center gap-2 text-xs font-black text-slate-800 uppercase tracking-widest">
-                <FileText size={16} className="text-blue-600" /> Historial Documental
+          {/* ÁREA DE DOCUMENTOS - ÚLTIMOS CONTRATOS */}
+          <div className="bg-slate-50 border border-slate-200 rounded-2xl p-6 flex flex-col items-center">
+            <div className="w-full lg:w-4/5">
+              <h3 className="flex items-center gap-2 text-xs font-black text-slate-800 uppercase tracking-widest mb-6">
+                <FileText size={16} className="text-blue-600" /> Registro de Contratos Previos
               </h3>
-
-              {!isEditing && (
-                <div className="flex gap-2 w-full md:w-auto">
-                  <select
-                    className="flex-1 md:w-40 bg-white border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold focus:ring-2 focus:ring-blue-500 outline-none shadow-sm"
-                    value={docType}
-                    onChange={(e) => setDocType(e.target.value as any)}
-                  >
-                    <option value="Contrato">Contrato</option>
-                    <option value="OS10">Curso OS10</option>
-                    <option value="EPP">Registro EPP</option>
-                    <option value="Foto">Fotografía</option>
-                    <option value="Otro">Otro Doc.</option>
-                  </select>
-                  <label className="cursor-pointer bg-blue-600 text-white hover:bg-blue-700 text-xs font-bold py-2 px-6 rounded-xl flex items-center gap-2 transition shadow-md shadow-blue-100">
-                    <FileText size={14} /> Subir Archivo
-                    <input type="file" className="hidden" onChange={handleFileUpload} />
-                  </label>
-                </div>
-              )}
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {empDocuments.length === 0 ? (
-                <div className="col-span-full py-12 flex flex-col items-center justify-center bg-white rounded-xl border-2 border-dashed border-slate-200">
+              
+              {employeeContracts.length === 0 ? (
+                <div className="py-12 flex flex-col items-center justify-center bg-white rounded-xl border-2 border-dashed border-slate-200">
                   <FileText size={40} className="text-slate-200 mb-2" />
-                  <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Sin documentos adjuntos</p>
+                  <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Sin contratos generados</p>
                 </div>
               ) : (
-                empDocuments.map(doc => (
-                  <div key={doc.id} className="flex items-center gap-3 p-3 bg-white border border-slate-100 rounded-xl hover:border-blue-300 transition-all shadow-sm">
-                    <div className="p-2 bg-blue-50 rounded-lg text-blue-600">
-                      <FileText size={18} />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-bold text-slate-800 truncate">{doc.fileName}</p>
-                      <p className="text-[9px] text-slate-400 font-black uppercase">{doc.type} • {new Date(doc.uploadDate).toLocaleDateString()}</p>
-                    </div>
-                  </div>
-                ))
+                <div className="flex flex-col gap-3">
+                  {employeeContracts.map(contract => {
+                    const fileIdMatch = contract.downloadUrl.match(/[\w-]{33,}/);
+                    const directDownloadUrl = fileIdMatch ? `https://drive.google.com/uc?export=download&id=${fileIdMatch[0]}` : contract.downloadUrl;
+                    
+                    return (
+                      <div key={contract.id} className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 p-4 bg-white border border-slate-100 rounded-xl hover:border-blue-300 transition-all shadow-sm">
+                        <div className="flex items-center gap-3">
+                          <div className="p-2 bg-blue-50 rounded-lg text-blue-600">
+                            <FileText size={20} />
+                          </div>
+                          <div>
+                            <p className="text-sm font-bold text-slate-800">{contract.siteName}</p>
+                            <p className="text-[10px] text-slate-500 font-bold uppercase mt-0.5">
+                              Generado: {new Date(contract.timestamp).toLocaleDateString()} 
+                              {contract.fechaInicio && ` • Inicio: ${new Date(contract.fechaInicio).toLocaleDateString()}`}
+                            </p>
+                          </div>
+                        </div>
+                        
+                        <div className="flex w-full sm:w-auto items-center gap-2 shrink-0">
+                          <a 
+                            href={contract.downloadUrl} 
+                            target="_blank" 
+                            rel="noopener noreferrer"
+                            className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-bold text-xs transition-colors"
+                          >
+                            <FileText size={14} /> Ver
+                          </a>
+                          <a 
+                            href={directDownloadUrl} 
+                            target="_blank" 
+                            rel="noopener noreferrer"
+                            download={`Contrato_${employee.firstName}_${employee.lastNamePaterno}.pdf`}
+                            className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold text-xs transition-colors shadow-sm"
+                          >
+                            <Download size={14} /> Descargar
+                          </a>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
               )}
             </div>
           </div>

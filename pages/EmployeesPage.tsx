@@ -3,7 +3,7 @@ import React, { useState, useRef } from 'react';
 import { useAppStore } from '../store/useAppStore';
 import { normalizeText, matchesEmployeeSearch } from '../lib/textUtils';
 
-import { Search, Plus, UserCheck, UserX, Eye, FileSpreadsheet, Loader2, Building2, Sparkles } from 'lucide-react';
+import { Search, Plus, UserCheck, UserX, Eye, FileSpreadsheet, Loader2, Building2, Sparkles, AlertCircle } from 'lucide-react';
 import EmployeeModal from '../components/EmployeeModal';
 import AddEmployeeModal from '../components/AddEmployeeModal';
 import { AIEmployeeModal } from '../components/AIEmployeeModal';
@@ -14,6 +14,7 @@ const EmployeesPage: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState<'all' | 'active' | 'inactive'>('all');
   const [filterCompany, setFilterCompany] = useState<string>(''); // Nuevo estado para filtro empresa
+  const [filterMissingData, setFilterMissingData] = useState<string>(''); // Filtro datos faltantes
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<string | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showAIModal, setShowAIModal] = useState(false);
@@ -44,7 +45,22 @@ const EmployeesPage: React.FC = () => {
       return assignedSite?.empresa === filterCompany;
     })();
 
-    return matchesSearch && matchesStatus && matchesCompany;
+    // 4. Filtro Datos Faltantes / Roles
+    const matchesMissingData = (() => {
+      if (filterMissingData === 'birthdate') {
+        return !e.fechaNacimiento || e.fechaNacimiento.trim() === '' || e.fechaNacimiento.toUpperCase() === 'N/A';
+      }
+      if (filterMissingData === 'os10') {
+        return !e.fechaVencimientoOS10 || e.fechaVencimientoOS10.trim() === '' || e.fechaVencimientoOS10.toUpperCase() === 'N/A';
+      }
+      if (filterMissingData.startsWith('role_')) {
+        const roleStr = filterMissingData.replace('role_', '');
+        return e.role === roleStr;
+      }
+      return true;
+    })();
+
+    return matchesSearch && matchesStatus && matchesCompany && matchesMissingData;
   });
 
   // Utilidad para parsear fechas de Excel (serial o string)
@@ -296,6 +312,33 @@ const EmployeesPage: React.FC = () => {
               {uniqueCompanies.map((company, idx) => (
                 <option key={idx} value={company}>{company}</option>
               ))}
+            </select>
+            <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none">
+              <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
+            </div>
+          </div>
+
+          {/* Filtro Datos Faltantes / Roles */}
+          <div className="relative w-full md:w-64">
+            <AlertCircle className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
+            <select
+              value={filterMissingData}
+              onChange={(e) => setFilterMissingData(e.target.value)}
+              className="w-full pl-9 pr-8 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none bg-white text-slate-900 appearance-none cursor-pointer"
+            >
+              <option value="">Toda la Información / Roles</option>
+              <optgroup label="Datos Faltantes">
+                <option value="birthdate">Falta Fecha de Nacimiento</option>
+                <option value="os10">Falta Curso OS10</option>
+              </optgroup>
+              <optgroup label="Roles de Sistema">
+                <option value="role_admin">Administrador</option>
+                <option value="role_supervisor">Supervisor</option>
+                <option value="role_rrhh">RRHH</option>
+                <option value="role_mandante">Mandante</option>
+                <option value="role_jefe_operaciones">Jefe de Operaciones</option>
+                <option value="role_worker">Guardia / Operativo</option>
+              </optgroup>
             </select>
             <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none">
               <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
