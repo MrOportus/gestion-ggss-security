@@ -81,15 +81,28 @@ const formatDateKey = (date: Date) => {
 const ShiftManagement: React.FC = () => {
     const { sites, employees, currentUser, fetchInitialData, showConfirmation, contratos, fetchContratos } = useAppStore();
 
+    // --- State ---
+    const [includeFalabella, setIncludeFalabella] = useState(false);
+    const [onlyFalabella, setOnlyFalabella] = useState(false);
+
     const filteredSitesForUser = useMemo(() => {
+        let baseSites = sites;
         if (currentUser?.role === 'supervisor') {
             const currentEmp = employees.find(e => e.id === currentUser?.uid);
-            return sites.filter(s => currentEmp?.assignedSites?.includes(s.id));
+            baseSites = sites.filter(s => currentEmp?.assignedSites?.includes(s.id));
         }
-        return sites;
-    }, [sites, currentUser, employees]);
-
-    // --- State ---
+        return baseSites.filter(s => {
+            const isFalabella = normalizeText(s.empresa || '').includes('falabella') || normalizeText(s.name || '').includes('falabella');
+            
+            if (onlyFalabella) {
+                return isFalabella;
+            }
+            if (!includeFalabella) {
+                return !isFalabella;
+            }
+            return true;
+        });
+    }, [sites, currentUser, employees, includeFalabella, onlyFalabella]);
     const [currentDate, setCurrentDate] = useState(new Date());
     const [selectedSiteId, setSelectedSiteId] = useState<string | number>('');
     const [siteInputValue, setSiteInputValue] = useState('');
@@ -1004,51 +1017,79 @@ const ShiftManagement: React.FC = () => {
 
                     <div className="h-10 w-px bg-slate-200 mx-2 hidden md:block"></div>
 
-                    <div className="relative flex items-center" ref={siteSearchRef}>
-                        <MapPin className="absolute left-3 text-slate-400 w-4 h-4 z-10" />
-                        <input
-                            type="text"
-                            className="pl-9 pr-4 py-2 border border-slate-200 rounded-lg text-sm w-64 focus:ring-2 focus:ring-blue-500 outline-none bg-white text-slate-800 font-medium cursor-pointer"
-                            placeholder="Buscar sucursal..."
-                            value={siteInputValue}
-                            onFocus={() => {
-                                setSiteInputValue('');
-                                setShowSiteList(true);
-                            }}
-                            onChange={(e) => {
-                                setSiteInputValue(e.target.value);
-                                setShowSiteList(true);
-                                const selectedSite = filteredSitesForUser.find(s => s.name === e.target.value);
-                                if (selectedSite) {
-                                    setSelectedSiteId(selectedSite.id);
-                                }
-                            }}
-                        />
-                        {showSiteList && (
-                            <div className="absolute top-full left-0 w-full mt-1 bg-white border border-slate-200 rounded-lg shadow-2xl max-h-[400px] overflow-y-auto z-[120]">
-                                {filteredSitesForUser
-                                    .filter(s => normalizeText(s.name).includes(normalizeText(siteInputValue)))
-                                    .map(site => (
-                                    <div
-                                        key={site.id}
-                                        className="px-4 py-2 hover:bg-blue-50 cursor-pointer border-b border-slate-50 last:border-0"
-                                        onClick={() => {
-                                            setSelectedSiteId(site.id);
-                                            setSiteInputValue(site.name);
-                                            setShowSiteList(false);
-                                        }}
-                                    >
-                                        <div className="text-sm font-bold text-slate-700">{site.name}</div>
-                                        <div className="text-[10px] text-slate-400">{site.address}</div>
-                                    </div>
-                                ))}
-                                {filteredSitesForUser.filter(s => normalizeText(s.name).includes(normalizeText(siteInputValue))).length === 0 && (
-                                    <div className="p-4 text-xs text-slate-400 italic text-center">
-                                        No hay sucursales que coincidan
-                                    </div>
-                                )}
-                            </div>
-                        )}
+                    <div className="flex flex-col gap-2">
+                        <div className="relative flex items-center" ref={siteSearchRef}>
+                            <MapPin className="absolute left-3 text-slate-400 w-4 h-4 z-10" />
+                            <input
+                                type="text"
+                                className="pl-9 pr-4 py-2 border border-slate-200 rounded-lg text-sm w-64 focus:ring-2 focus:ring-blue-500 outline-none bg-white text-slate-800 font-medium cursor-pointer"
+                                placeholder="Buscar sucursal..."
+                                value={siteInputValue}
+                                onFocus={() => {
+                                    setSiteInputValue('');
+                                    setShowSiteList(true);
+                                }}
+                                onChange={(e) => {
+                                    setSiteInputValue(e.target.value);
+                                    setShowSiteList(true);
+                                    const selectedSite = filteredSitesForUser.find(s => s.name === e.target.value);
+                                    if (selectedSite) {
+                                        setSelectedSiteId(selectedSite.id);
+                                    }
+                                }}
+                            />
+                            {showSiteList && (
+                                <div className="absolute top-full left-0 w-full mt-1 bg-white border border-slate-200 rounded-lg shadow-2xl max-h-[70vh] overflow-y-auto z-[120]">
+                                    {filteredSitesForUser
+                                        .filter(s => normalizeText(s.name).includes(normalizeText(siteInputValue)))
+                                        .map(site => (
+                                        <div
+                                            key={site.id}
+                                            className="px-4 py-2 hover:bg-blue-50 cursor-pointer border-b border-slate-50 last:border-0"
+                                            onClick={() => {
+                                                setSelectedSiteId(site.id);
+                                                setSiteInputValue(site.name);
+                                                setShowSiteList(false);
+                                            }}
+                                        >
+                                            <div className="text-sm font-bold text-slate-700">{site.name}</div>
+                                            <div className="text-[10px] text-slate-400">{site.address}</div>
+                                        </div>
+                                    ))}
+                                    {filteredSitesForUser.filter(s => normalizeText(s.name).includes(normalizeText(siteInputValue))).length === 0 && (
+                                        <div className="p-4 text-xs text-slate-400 italic text-center">
+                                            No hay sucursales que coincidan
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+                        <div className="flex items-center gap-3 px-1 text-xs text-slate-600 font-medium">
+                            <label className="flex items-center gap-1.5 cursor-pointer hover:text-blue-600 transition-colors">
+                                <input 
+                                    type="checkbox" 
+                                    className="rounded text-blue-600 focus:ring-blue-500"
+                                    checked={includeFalabella}
+                                    onChange={(e) => {
+                                        setIncludeFalabella(e.target.checked);
+                                        if (!e.target.checked) setOnlyFalabella(false);
+                                    }}
+                                />
+                                Incluir Falabella
+                            </label>
+                            <label className="flex items-center gap-1.5 cursor-pointer hover:text-blue-600 transition-colors">
+                                <input 
+                                    type="checkbox" 
+                                    className="rounded text-blue-600 focus:ring-blue-500"
+                                    checked={onlyFalabella}
+                                    onChange={(e) => {
+                                        setOnlyFalabella(e.target.checked);
+                                        if (e.target.checked) setIncludeFalabella(true);
+                                    }}
+                                />
+                                Solo Falabella
+                            </label>
+                        </div>
                     </div>
 
                     <div className="flex items-center bg-white border border-slate-200 rounded-lg p-1">
