@@ -44,7 +44,10 @@ const Login: React.FC = () => {
     setRecoverySuccess(false);
 
     try {
-      await sendPasswordResetEmail(auth, recoveryEmail);
+      await sendPasswordResetEmail(auth, recoveryEmail, {
+        url: 'https://app.asprochile.cl',
+        handleCodeInApp: false,
+      });
       setRecoverySuccess(true);
     } catch (err: any) {
       console.error(err);

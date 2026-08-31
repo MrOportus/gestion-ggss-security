@@ -338,14 +338,15 @@ const App: React.FC = () => {
   if (!authInitialized) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50">
-        <div className="flex flex-col items-center gap-4">
+        <div className="flex flex-col items-center gap-6">
           <div className="relative">
-            <img src="/logo-transparencia.png" alt="GGSS Logo" className="w-16 h-16 object-contain animate-pulse" />
+            <img src="/logo-transparencia.png" alt="Sistema Aspro" className="w-48 h-48 object-contain animate-pulse" />
             <Loader2 className="animate-spin text-blue-600 absolute -bottom-2 -right-2 bg-white rounded-full p-0.5" size={24} />
           </div>
           <div className="text-center">
-            <h2 className="text-lg font-bold text-slate-800 tracking-tight">GGSS SECURITY</h2>
-            <p className="text-slate-500 font-medium text-[10px] uppercase tracking-widest">Iniciando sistema...</p>
+            <h2 className="text-2xl font-black text-slate-900 leading-none">SISTEMA</h2>
+            <h2 className="text-2xl font-black text-blue-600 leading-none mt-1">ASPRO</h2>
+            <p className="text-slate-500 font-medium text-[10px] uppercase tracking-widest mt-3">Iniciando...</p>
           </div>
         </div>
       </div>
@@ -415,11 +416,10 @@ const App: React.FC = () => {
       {/* SIDEBAR DESKTOP */}
       <aside className="w-64 bg-white hidden md:flex flex-col shadow-xl z-20 border-r border-slate-200 shrink-0">
         <div className="p-6 border-b border-slate-100 flex items-center gap-3">
-          <img src="/logo-transparencia.png" alt="GGSS Logo" className="w-10 h-10 object-contain" />
+          <img src="/logo-transparencia.png" alt="Sistema Aspro" className="w-[72px] h-[72px] object-contain" />
           <div>
-            <h1 className="text-lg font-black tracking-tighter text-slate-900 leading-none">GGSS</h1>
-            <h1 className="text-lg font-black tracking-tighter text-blue-600 leading-none">SECURITY</h1>
-            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">Gestión</p>
+            <h1 className="text-xl font-black tracking-tighter text-slate-900 leading-none">Sistema</h1>
+            <h1 className="text-xl font-black tracking-tighter text-blue-600 leading-none mt-0.5">Aspro</h1>
           </div>
         </div>
 
@@ -569,12 +569,10 @@ const App: React.FC = () => {
         {/* HEADER MÓVIL */}
         <header className="md:hidden bg-white text-slate-800 p-4 flex justify-between items-center shadow-sm border-b border-slate-200 z-30 shrink-0">
           <div className="flex items-center gap-2 overflow-hidden">
-            <img src="/logo-transparencia.png" alt="GGSS Logo" className="w-8 h-8 object-contain shrink-0" />
+            <img src="/logo-transparencia.png" alt="Sistema Aspro" className="w-[58px] h-[58px] object-contain shrink-0" />
             <div className="flex flex-col min-w-0">
-              <div className="flex items-baseline gap-1">
-                <span className="font-black text-slate-900 text-sm leading-none tracking-tight">GGSS</span>
-                <span className="font-black text-blue-600 text-sm leading-none tracking-tight">SECURITY</span>
-              </div>
+              <span className="font-black text-slate-900 text-base leading-none tracking-tight">Sistema</span>
+              <span className="font-black text-blue-600 text-base leading-none tracking-tight mt-0.5">Aspro</span>
               <span className="text-[10px] text-slate-400 font-bold uppercase tracking-widest leading-none mt-1 truncate">
                 {currentView === 'dashboard' ? 'Panel General' :
                   currentView === 'employees' ? 'Empleados' :
