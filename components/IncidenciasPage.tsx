@@ -656,8 +656,8 @@ const IncidenciasPage: React.FC<IncidenciasPageProps> = ({ onBack, activeLog, cu
                   onClick={() => setForm(f => ({ ...f, categoria: 'emergencia' as RegistroCategoria, prioridad: 'critica' }))}
                   className={`py-4 px-3 rounded-2xl border-2 flex flex-col items-center justify-center gap-1.5 transition-all active:scale-95 font-black ${
                     form.categoria === 'emergencia'
-                      ? 'border-red-600 bg-red-600 text-white shadow-lg shadow-red-300 scale-[1.02]'
-                      : 'border-red-400 bg-red-500 text-white shadow-md shadow-red-200 hover:bg-red-600'
+                      ? 'border-red-600 bg-red-50 text-red-700 shadow-md shadow-red-200 scale-[1.02]'
+                      : 'border-red-200 bg-white text-red-600 shadow-sm hover:bg-red-50'
                   }`}
                 >
                   <span className="text-2xl">🆘</span>
