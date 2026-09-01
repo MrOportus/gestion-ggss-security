@@ -2,7 +2,7 @@ import localforage from 'localforage';
 
 export interface QueueItem {
     id: string;
-    actionType: 'ADD_ROUND' | 'UPDATE_ROUND' | 'UPLOAD_EVIDENCE';
+    actionType: 'ADD_ROUND' | 'UPDATE_ROUND' | 'UPLOAD_EVIDENCE' | 'ADD_NOVEDAD' | 'UPLOAD_NOVEDAD_PHOTO';
     payload: any;
     status: 'PENDING';
     timestamp: string;

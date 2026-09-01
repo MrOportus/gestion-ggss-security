@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { useAppStore } from '../store/useAppStore';
 import { useNetworkStatus } from '../hooks/useNetworkStatus';
@@ -14,23 +14,29 @@ import {
     Navigation,
     CheckCircle,
     Camera,
-    Trash2,
-    UploadCloud,
     AlertCircle,
     ShieldAlert,
     ShieldCheck,
     WifiOff,
     RefreshCw,
-    X
 } from 'lucide-react';
-import { GuardRound, RoundEvidence } from '../types';
+import { GuardRound } from '../types';
 import { noSleep } from '../lib/noSleep';
 import { compressImage } from '../lib/imageUtils';
-import { roundsDB } from '../lib/roundsDB';
+import { roundsDB, PendingEvidence } from '../lib/roundsDB';
 import { Capacitor } from '@capacitor/core';
 import { Camera as CapacitorCamera } from '@capacitor/camera';
 import { useSecurityGeolocation } from '../hooks/useSecurityGeolocation';
 import { isValidLocation, GpsPoint } from '../lib/gpsUtils';
+
+/** Lightweight local representation of a photo taken during the round. */
+interface LocalEvidence {
+    idbKey: number;       // IDB auto-increment key for later deletion
+    blobUrl: string;      // Revocable blob: URL for instant preview
+    lat: number;
+    lng: number;
+    timestamp: string;
+}
 
 
 // --- CONFIGURACIÓN DE API EXTERNA ---
@@ -59,6 +65,12 @@ const RoundsControl: React.FC<RoundsControlProps> = ({ onBack }) => {
     const [roundNotes, setRoundNotes] = useState('');
     const [tempEndLocation, setTempEndLocation] = useState<{ lat: number; lng: number; accuracy: number } | null>(null);
     const [gpsStatus, setGpsStatus] = useState<'OK' | 'SABOTEADO' | 'PERDIDA_SENAL'>('OK');
+    /**
+     * Local-only evidence list. This is the single source of truth for the
+     * photo counter during an active round. Photos are stored as Blob URLs
+     * pointing to IndexedDB data — never affected by Firestore onSnapshot.
+     */
+    const [localEvidences, setLocalEvidences] = useState<LocalEvidence[]>([]);
 
     const timerRef = useRef<NodeJS.Timeout | null>(null);
     // gpsIntervalRef is kept for the web error-path retryGPS call only
@@ -91,10 +103,25 @@ const RoundsControl: React.FC<RoundsControlProps> = ({ onBack }) => {
             setElapsedTime(Math.floor((now - start) / 1000));
             // Reactivar WakeLock si se recarga la página
             noSleep.enable();
+            // Restore local evidences from IDB in case of page reload mid-round
+            roundsDB.getPendingEvidences(inProgress.id).then(saved => {
+                if (saved.length > 0) {
+                    const restored: LocalEvidence[] = saved.map(e => ({
+                        idbKey: e.id!,
+                        blobUrl: URL.createObjectURL(e.blob),
+                        lat: e.lat,
+                        lng: e.lng,
+                        timestamp: e.timestamp,
+                    }));
+                    setLocalEvidences(restored);
+                }
+            }).catch(err => console.warn('[RoundsControl] Could not restore evidences from IDB:', err));
         } else {
             // Si no hay ronda en curso en el store, nos aseguramos de limpiar el estado local
             setActiveRound(null);
         }
+    // Note: localEvidences intentionally excluded — we only want this on round change
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [guardRounds, currentUser?.uid]);
 
     // ── GPS position callback — called by useSecurityGeolocation with normalized points ──
@@ -147,6 +174,11 @@ const RoundsControl: React.FC<RoundsControlProps> = ({ onBack }) => {
             setElapsedTime(0);
             // Reset the Bouncer's last-point memory when the round ends
             lastSavedPointRef.current = null;
+            // Revoke all local blob URLs to free memory
+            setLocalEvidences(prev => {
+                prev.forEach(e => URL.revokeObjectURL(e.blobUrl));
+                return [];
+            });
         }
         return () => {
             if (timerRef.current) clearInterval(timerRef.current);
@@ -363,8 +395,10 @@ const RoundsControl: React.FC<RoundsControlProps> = ({ onBack }) => {
     const confirmStopRound = async (result: 'SIN_NOVEDAD' | 'CON_NOVEDAD' | 'SOSPECHA') => {
         if (!activeRound) return;
         setLoading(true);
+        const roundId = activeRound.id;
         try {
-            await updateGuardRound(activeRound.id, {
+            // ── 1. Finalizar la ronda en el store / cola ─────────────────────
+            await updateGuardRound(roundId, {
                 endTime: new Date().toISOString(),
                 endLocation: tempEndLocation || undefined,
                 status: 'COMPLETED',
@@ -372,26 +406,47 @@ const RoundsControl: React.FC<RoundsControlProps> = ({ onBack }) => {
                 notes: roundNotes.trim() || undefined
             });
 
+            // ── 2. Encolar todas las evidencias pendientes en IDB ────────────
+            //    Esto se hace DESPUÉS de cerrar la ronda para garantizar que
+            //    ADD_ROUND y UPDATE_ROUND ya están en la cola antes de los uploads.
+            const pendingEvidences: PendingEvidence[] = await roundsDB.getPendingEvidences(roundId);
+            if (pendingEvidences.length > 0) {
+                console.log(`[RoundsControl] Encolando ${pendingEvidences.length} evidencias para sincronización...`);
+                for (const ev of pendingEvidences) {
+                    // Convert Blob → base64 for the SyncQueue (localforage stores JSON)
+                    const base64 = await new Promise<string>((res, rej) => {
+                        const reader = new FileReader();
+                        reader.onloadend = () => res(reader.result as string);
+                        reader.onerror = rej;
+                        reader.readAsDataURL(ev.blob);
+                    });
+                    await SyncQueueService.enqueue('UPLOAD_EVIDENCE', {
+                        roundId,
+                        photoBase64: base64,
+                        lat: ev.lat,
+                        lng: ev.lng,
+                        timestamp: ev.timestamp,
+                    });
+                }
+                // Clean IDB now that items are safely in the sync queue
+                await roundsDB.clearPendingEvidences(roundId);
+            }
+
             setActiveRound(null);
             setShowResultModal(false);
             setRoundNotes('');
             setTempEndLocation(null);
             await noSleep.disable();
-            showNotification("Ronda finalizada con éxito", "success");
-            syncOfflineData();
+            showNotification("Ronda finalizada. Subiendo evidencias...", "success");
+
+            // ── 3. Flush queue to Firebase (background, transparent to user) ─
+            useAppStore.getState().processSyncQueue();
+
         } catch (error) {
             showNotification("Error al cerrar ronda", "error");
         } finally {
             setLoading(false);
         }
-    };
-
-    const syncOfflineData = async () => {
-        const points = await roundsDB.getAllPoints();
-        if (points.length === 0) return;
-
-        console.log(`Intentando sincronizar ${points.length} puntos offline...`);
-        // Aquí iría la lógica para enviar estos puntos al backend cuando haya red
     };
 
     const handlePhotoClick = async () => {
@@ -411,98 +466,79 @@ const RoundsControl: React.FC<RoundsControlProps> = ({ onBack }) => {
         fileInputRef.current?.click();
     };
 
-    const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    /**
+     * OFFLINE-FIRST photo handler.
+     *
+     * Flow during an active round:
+     *   1. Compress + watermark (canvas, local only)
+     *   2. Save Blob to IndexedDB → get IDB key
+     *   3. Create a revocable blob: URL for instant preview
+     *   4. Append to localEvidences (the counter's source of truth)
+     *
+     * NO Firestore / Firebase Storage calls happen here.
+     * Everything is flushed to the cloud in confirmStopRound().
+     */
+    const handleFileChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
-        if (!file) return;
+        if (!file || !activeRound) return;
 
         setLoading(true);
+        const roundId = activeRound.id;
+        const captureTimestamp = new Date().toISOString();
+
+        // Snapshot GPS coords at capture time (non-blocking)
+        const photoLat = currentPos?.coords.latitude ?? 0;
+        const photoLng = currentPos?.coords.longitude ?? 0;
+
         try {
-            // --- PREPARAR DATOS DE MARCA DE AGUA ---
+            // ── 1. Build watermark data ───────────────────────────────────────
             const now = new Date();
             const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
             const dateStr = now.toLocaleDateString('es-CL', { day: '2-digit', month: 'short', year: 'numeric' }).replace(/\./g, '');
-            const dayStr = now.toLocaleDateString('es-CL', { weekday: 'short' }).replace(/\./g, '');
-            
-            // Ubicación: Usamos el nombre de la sucursal y las coordenadas GPS
-            const locationName = site?.name || "Ubicación Protegida";
-            const coordsStr = currentPos 
-                ? `${currentPos.coords.latitude.toFixed(7)}, ${currentPos.coords.longitude.toFixed(7)}`
-                : "GPS No disponible";
-            
-            // Código de verificación único para esta captura
-            const verifyCode = `${activeRound?.id.slice(-4).toUpperCase() || 'RND'}${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
+            const dayStr  = now.toLocaleDateString('es-CL', { weekday: 'short' }).replace(/\./g, '');
+            const locationName = site?.name ?? 'Ubicación Protegida';
+            const coordsStr = photoLat !== 0
+                ? `${photoLat.toFixed(7)}, ${photoLng.toFixed(7)}`
+                : 'GPS No disponible';
+            const verifyCode = `${roundId.slice(-4).toUpperCase()}${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
 
-            // Comprimir imagen y aplicar marca de agua
+            // ── 2. Compress + watermark (pure canvas — no network) ────────────
             const compressedBlob = await compressImage(file, 0.7, 1024, {
                 time: timeStr,
                 date: dateStr,
                 day: dayStr.charAt(0).toUpperCase() + dayStr.slice(1),
                 location: locationName,
                 coords: coordsStr,
-                verifyCode: verifyCode
+                verifyCode,
             });
 
-            // --- PROCESAR SUBIDA Y REGISTRO AUTOMÁTICO ---
-            let photoPos = currentPos;
-
-            // Si no tenemos posición del watch, intentamos una rápida
-            if (!photoPos) {
-                console.log("currentPos es null, intentando obtener ubicación rápida...");
-                try {
-                    const pos = await new Promise<GeolocationPosition>((resolve, reject) => {
-                        navigator.geolocation.getCurrentPosition(resolve, reject, {
-                            enableHighAccuracy: true,
-                            timeout: 5000
-                        });
-                    });
-                    photoPos = pos;
-                } catch (err) {
-                    console.warn("No se pudo obtener ubicación para la foto, usando 0,0", err);
-                }
-            }
-
-            const base64Photo = await new Promise<string>((resolve, reject) => {
-                const reader = new FileReader();
-                reader.onloadend = () => resolve(reader.result as string);
-                reader.onerror = reject;
-                reader.readAsDataURL(compressedBlob);
+            // ── 3. Persist Blob to IndexedDB (offline-safe) ───────────────────
+            const idbKey = await roundsDB.savePendingEvidence({
+                roundId,
+                blob: compressedBlob,
+                lat: photoLat,
+                lng: photoLng,
+                timestamp: captureTimestamp,
             });
 
-            const evidencePayload = {
-                roundId: activeRound!.id,
-                photoBase64: base64Photo,
-                lat: photoPos?.coords.latitude || 0,
-                lng: photoPos?.coords.longitude || 0,
-                timestamp: new Date().toISOString()
-            };
+            // ── 4. Update local counter immediately (no Firestore involved) ───
+            const blobUrl = URL.createObjectURL(compressedBlob);
+            setLocalEvidences(prev => [
+                ...prev,
+                { idbKey, blobUrl, lat: photoLat, lng: photoLng, timestamp: captureTimestamp },
+            ]);
 
-            await SyncQueueService.enqueue('UPLOAD_EVIDENCE', evidencePayload);
-
-            const localUrl = URL.createObjectURL(compressedBlob);
-            const newEvidence: RoundEvidence = {
-                photoUrl: localUrl,
-                lat: photoPos?.coords.latitude || 0,
-                lng: photoPos?.coords.longitude || 0,
-                timestamp: evidencePayload.timestamp
-            };
-
-            const updatedEvidences = [...(activeRound!.evidences || []), newEvidence];
-            
-            // Actualizar el estado local
-            setActiveRound(prev => prev ? { ...prev, evidences: updatedEvidences } : null);
-
-            showNotification("Evidencia registrada con éxito", "success");
+            showNotification(`Foto ${localEvidences.length + 1} guardada ✓`, 'success');
 
         } catch (err) {
-            console.error("Error al procesar/subir foto:", err);
-            showNotification("Error al guardar foto", "error");
+            console.error('[RoundsControl] Error al procesar foto:', err);
+            showNotification('Error al guardar foto', 'error');
         } finally {
             setLoading(false);
-            if (e.target) {
-                e.target.value = '';
-            }
+            if (e.target) e.target.value = '';
         }
-    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [activeRound, currentPos, site?.name, localEvidences.length]);
 
     const formatTime = (seconds: number) => {
         const hrs = Math.floor(seconds / 3600);
@@ -559,10 +595,15 @@ const RoundsControl: React.FC<RoundsControlProps> = ({ onBack }) => {
                             {formatTime(elapsedTime)}
                         </div>
 
-                        {/* Contador simple de fotos de la ronda */}
+                        {/* Contador de fotos — fuente de verdad: estado local (nunca retrocede) */}
                         <div className="bg-slate-50 rounded-2xl py-3 px-4 border border-slate-100 flex items-center justify-center gap-2">
                             <span className="text-slate-400 text-xs font-black uppercase tracking-widest">Foto Nº:</span>
-                            <span className="text-blue-600 text-base font-black tracking-tight">{activeRound.evidences?.length || 0}</span>
+                            <span className="text-blue-600 text-base font-black tracking-tight">{localEvidences.length}</span>
+                            {localEvidences.length > 0 && (
+                                <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">
+                                    · se sube al finalizar
+                                </span>
+                            )}
                         </div>
 
                         <div className="grid grid-cols-2 gap-4">

@@ -289,18 +289,54 @@ export const useAppStore = create<AppState>()(
                 });
                 await SyncQueueService.markCompleted(item.id);
                 console.log(`[SyncQueue] UPLOAD_EVIDENCE ${item.id} sincronizado. URL: ${downloadUrl}`);
+
+              } else if (item.actionType === 'ADD_NOVEDAD') {
+                // Persistir el documento de novedad en Firestore.
+                // ADD_NOVEDAD debe completarse antes de los UPLOAD_NOVEDAD_PHOTO
+                // del mismo registro; si falla hacemos break para mantener el orden.
+                const { registroId, data } = item.payload;
+                await setDoc(doc(db, 'novedades', registroId), data);
+                await SyncQueueService.markCompleted(item.id);
+                // Quitar el badge offline del store local
+                set(state => ({
+                  novedades: state.novedades.map((n: any) =>
+                    n.id === registroId ? { ...n, _pendingSync: false } : n
+                  )
+                }));
+                console.log(`[SyncQueue] ADD_NOVEDAD ${registroId} sincronizado.`);
+
+              } else if (item.actionType === 'UPLOAD_NOVEDAD_PHOTO') {
+                // Subir una foto de evidencia de novedad y añadir la URL al documento.
+                const { registroId, photoBase64, photoIndex } = item.payload;
+
+                if (!photoBase64 || typeof photoBase64 !== 'string' || photoBase64.length < 100) {
+                  console.error(`[SyncQueue] UPLOAD_NOVEDAD_PHOTO ${item.id}: base64 corrupto. Descartando.`);
+                  await SyncQueueService.markCompleted(item.id);
+                  continue;
+                }
+
+                const isWebP = photoBase64.startsWith('data:image/webp');
+                const ext = isWebP ? 'webp' : 'jpg';
+                const uid = get().currentUser?.uid || 'offline';
+                const fileName = `novedades/${uid}/${registroId}/foto_${photoIndex}_${Date.now()}.${ext}`;
+                const downloadUrl = await get().uploadBase64(photoBase64, fileName);
+
+                await updateDoc(doc(db, 'novedades', registroId), {
+                  evidencias: arrayUnion(downloadUrl)
+                });
+                await SyncQueueService.markCompleted(item.id);
+                console.log(`[SyncQueue] UPLOAD_NOVEDAD_PHOTO ${item.id} sincronizado. URL: ${downloadUrl}`);
               }
 
             } catch (err: any) {
               console.error(`[SyncQueue] Error procesando item ${item.id} (${item.actionType}):`, err);
               await SyncQueueService.incrementRetry(item);
 
-              // Solo detenemos el proceso para ADD_ROUND ya que los UPDATE/UPLOAD
-              // son independientes y no deben bloquearse entre sí.
-              if (item.actionType === 'ADD_ROUND') {
+              // Detener la cola para ADD_ROUND y ADD_NOVEDAD (dependencias de orden).
+              // Para el resto: continuar con los demás items independientes.
+              if (item.actionType === 'ADD_ROUND' || item.actionType === 'ADD_NOVEDAD') {
                 break;
               }
-              // Para UPDATE_ROUND y UPLOAD_EVIDENCE: continuar con los demás.
             }
           }
         } finally {
@@ -1773,8 +1809,11 @@ export const useAppStore = create<AppState>()(
             guardRounds: state.guardRounds.map(r => r.id === id ? { ...r, ...cleanData } : r)
           }));
 
-          // Intentar procesar la cola
-          get().processSyncQueue();
+          // NOTE: processSyncQueue() is intentionally NOT called here.
+          // GPS path updates during an active round are queued locally and
+          // flushed only when the round is finalized (confirmStopRound).
+          // This prevents mid-round Firestore onSnapshot events from
+          // overwriting the local evidence counter.
         } catch (error) { console.error("Error updating round:", error); }
       },
 
@@ -2090,24 +2129,36 @@ export const useAppStore = create<AppState>()(
       },
 
       addRegistroNovedad: async (data) => {
-        const id = `reg_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-        const { serverTimestamp } = await import('firebase/firestore');
-        const ts = serverTimestamp();
-        const newRegistro: RegistroNovedad & { timestamp?: string; siteId?: string | number } = {
+        const registroId = `reg_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+
+        // Usar serverTimestamp-compatible placeholder para campos de tiempo.
+        // El valor real lo escribe Firestore cuando el queue se procesa online.
+        const now = new Date().toISOString();
+        const firestorePayload: any = {
           ...data,
-          id,
-          fechaHoraServidor: ts,
-          creadoEn: ts,
-          timestamp: data.fechaHoraDispositivo, // Compatibilidad con modelo antiguo
-          siteId: data.sucursalId,              // Compatibilidad con modelo antiguo
+          id: registroId,
+          fechaHoraServidor: now,   // Se sobreescribirá con serverTimestamp en processSyncQueue
+          creadoEn: now,
+          timestamp: data.fechaHoraDispositivo,
+          siteId: data.sucursalId,
         };
-        try {
-          await setDoc(doc(db, 'novedades', id), newRegistro);
-          return id;
-        } catch (error) {
-          console.error('Error adding registro novedad:', error);
-          throw error;
-        }
+
+        // ── 1. Encolar escritura en Firestore (offline-safe) ─────────────────
+        await SyncQueueService.enqueue('ADD_NOVEDAD', {
+          registroId,
+          data: firestorePayload,
+        });
+
+        // ── 2. Actualizar estado local inmediatamente (feedback visual) ──────
+        // El campo _pendingSync desaparece tras la sincronización exitosa.
+        set(state => ({
+          novedades: [{ ...firestorePayload, _pendingSync: true }, ...(state.novedades || [])]
+        }));
+
+        // ── 3. Intentar sincronizar en background ────────────────────────────
+        get().processSyncQueue();
+
+        return registroId;
       },
 
       // ── Signature Templates ───────────────────────────────────────────────

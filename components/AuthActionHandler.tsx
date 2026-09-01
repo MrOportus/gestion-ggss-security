@@ -78,7 +78,7 @@ const AuthActionHandler: React.FC<AuthActionHandlerProps> = ({ mode, oobCode }) 
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4 font-sans">
         <div className="bg-white p-8 rounded-2xl shadow-2xl w-full max-w-md text-center space-y-4 border border-slate-100">
-          <div className="w-24 h-24 rounded-3xl flex items-center justify-center mx-auto mb-6">
+          <div className="w-32 h-32 rounded-3xl flex items-center justify-center mx-auto mb-6">
             <img src="/logo-transparencia.png" alt="GGSS Logo" className="w-full h-full object-contain animate-pulse" />
           </div>
           <Loader2 className="animate-spin text-yellow-500 w-8 h-8 mx-auto" />
@@ -94,10 +94,10 @@ const AuthActionHandler: React.FC<AuthActionHandlerProps> = ({ mode, oobCode }) 
         
         {/* Header */}
         <div className="text-center">
-          <div className="w-20 h-20 rounded-3xl flex items-center justify-center mx-auto mb-4">
+          <div className="w-28 h-28 rounded-3xl flex items-center justify-center mx-auto mb-4">
             <img src="/logo-transparencia.png" alt="GGSS Logo" className="w-full h-full object-contain" />
           </div>
-          <h2 className="text-2xl font-black text-slate-900 tracking-tight">GGSS Security</h2>
+          <h2 className="text-2xl font-black text-slate-900 tracking-tight">Sistema Aspro</h2>
           <p className="text-slate-400 font-bold text-[10px] uppercase tracking-widest mt-1">
             Restablecer Contraseña
           </p>
@@ -211,7 +211,7 @@ const AuthActionHandler: React.FC<AuthActionHandlerProps> = ({ mode, oobCode }) 
 
         <div className="text-center text-xs text-slate-400 mt-6 pt-4 border-t border-slate-100">
           <p className="font-medium">Solo personal autorizado</p>
-          <p>GGSS Security Services © {new Date().getFullYear()}</p>
+          <p>Sistema Aspro Spa © {new Date().getFullYear()}</p>
         </div>
 
       </div>

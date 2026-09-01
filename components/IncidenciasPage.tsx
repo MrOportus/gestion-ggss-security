@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import {
   AlertTriangle,
   ArrowLeft,
@@ -16,8 +17,13 @@ import {
   BookOpen,
   ClipboardCheck,
   Activity,
+  WifiOff,
+  RefreshCw,
+  CloudOff,
 } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
+import { SyncQueueService } from '../lib/SyncQueueService';
+import { useNetworkStatus } from '../hooks/useNetworkStatus';
 import {
   RegistroTipo,
   RegistroCategoria,
@@ -129,8 +135,9 @@ interface IncidenciasPageProps {
 const IncidenciasPage: React.FC<IncidenciasPageProps> = ({ onBack, activeLog, currentSite, employee }) => {
   const currentUser = useAppStore(state => state.currentUser);
   const addRegistroNovedad = useAppStore(state => state.addRegistroNovedad);
-  const uploadFile = useAppStore(state => state.uploadFile);
   const showNotification = useAppStore(state => state.showNotification);
+  const isSyncing = useAppStore(state => state.isSyncing);
+  const { connected } = useNetworkStatus();
 
   const [vista, setVista] = useState<VistaInterna>('lista');
   const [registros, setRegistros] = useState<RegistroListItem[]>([]);
@@ -142,6 +149,7 @@ const IncidenciasPage: React.FC<IncidenciasPageProps> = ({ onBack, activeLog, cu
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitSuccess, setSubmitSuccess] = useState(false);
+  const [pendingCount, setPendingCount] = useState(0);
 
   const [form, setForm] = useState<FormState>({
     tipoRegistro: 'novedad',
@@ -238,6 +246,11 @@ const IncidenciasPage: React.FC<IncidenciasPageProps> = ({ onBack, activeLog, cu
     cargarRegistros();
   }, [cargarRegistros]);
 
+  // Actualizar contador de pendientes al montar y cuando cambia el estado de sincronización
+  useEffect(() => {
+    SyncQueueService.getPendingCount().then(setPendingCount).catch(() => {});
+  }, [isSyncing]);
+
   // ── Resetear prioridad según tipo (eliminado porque siempre es novedad) ──
 
   // ── Tomar/seleccionar foto ───────────────────────────────────────────────
@@ -283,7 +296,7 @@ const IncidenciasPage: React.FC<IncidenciasPageProps> = ({ onBack, activeLog, cu
   // ── Validación del formulario ────────────────────────────────────────────
   const formValido = form.categoria !== '' && form.descripcion.trim().length >= 10;
 
-  // ── Guardar registro ─────────────────────────────────────────────────────
+  // ── Guardar registro (OFFLINE-FIRST) ────────────────────────────────────
   const handleConfirmarRegistro = async () => {
     if (submitting) return;
     if (!currentUser || !employee) return;
@@ -293,61 +306,59 @@ const IncidenciasPage: React.FC<IncidenciasPageProps> = ({ onBack, activeLog, cu
     setSubmitError(null);
 
     try {
-      // 1. Subir fotos
-      const evidenciaUrls: string[] = [];
-      for (let i = 0; i < form.fotosBlob.length; i++) {
-        const blob = form.fotosBlob[i];
-        const path = `novedades/${currentUser.uid}/${Date.now()}_${i}.jpg`;
-        try {
-          const url = await uploadFile(blob, path);
-          evidenciaUrls.push(url);
-        } catch (uploadErr) {
-          console.warn('[IncidenciasPage] Error subiendo foto:', uploadErr);
-          // Continuar sin la foto si falla
-        }
-      }
-
-      // 2. Construir datos del registro
       const categoria = form.categoria as RegistroCategoria;
       const fechaOp = calcularFechaOperacional(activeLog?.timestamp);
       const autorNombre = `${employee.firstName} ${employee.lastNamePaterno}`;
+      const registroId = `reg_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
 
-      // Firestore rechaza `undefined` — omitir campos opcionales con spread condicional
+      // ── 1. Construir payload del registro (sin evidencias aún) ───────────
       const data: Omit<RegistroNovedad, 'id' | 'creadoEn' | 'fechaHoraServidor'> = {
-        // Identificación operacional
         sucursalId: activeLog?.siteId ?? currentSite?.id ?? '',
         sucursalNombre: activeLog?.siteName || currentSite?.name || 'Sin sucursal',
         fechaOperacional: fechaOp,
-        // Clasificación
         tipoRegistro: form.tipoRegistro,
         categoria,
         descripcion: form.descripcion.trim(),
         prioridad: form.prioridad,
-        // Autor
         autorUid: currentUser.uid,
         colaboradorId: employee.id,
         autorNombre,
         autorRol: currentUser.role,
-        // Tiempos
         fechaHoraDispositivo: new Date().toISOString(),
         zonaHoraria: 'America/Santiago',
-        // Estado
         estado: 'registrada',
         visibleParaMandante: calcularVisibilidadMandante(categoria, form.tipoRegistro),
-        // Campos opcionales — solo se incluyen si tienen valor (undefined rompe Firestore)
         ...(activeLog?.id ? { turnoId: activeLog.id } : {}),
         ...(form.ubicacionInstalacion ? { ubicacionInstalacion: form.ubicacionInstalacion } : {}),
-        ...(evidenciaUrls.length > 0 ? { evidencias: evidenciaUrls } : {}),
       };
 
-
+      // ── 2. Guardar el registro (offline-first vía addRegistroNovedad) ────
+      //    addRegistroNovedad encola internamente y actualiza estado local.
       await addRegistroNovedad(data);
 
-      // 3. Éxito
-      setSubmitSuccess(true);
-      showNotification('Registro guardado correctamente.', 'success');
+      // ── 3. Encolar fotos (si las hay) como UPLOAD_NOVEDAD_PHOTO ─────────
+      //    Convertir cada Blob a base64 en memoria (sin red) y encolar.
+      if (form.fotosBlob.length > 0) {
+        for (let i = 0; i < form.fotosBlob.length; i++) {
+          const blob = form.fotosBlob[i];
+          const base64 = await new Promise<string>((res, rej) => {
+            const reader = new FileReader();
+            reader.onloadend = () => res(reader.result as string);
+            reader.onerror = rej;
+            reader.readAsDataURL(blob);
+          });
+          await SyncQueueService.enqueue('UPLOAD_NOVEDAD_PHOTO', {
+            registroId,
+            photoBase64: base64,
+            photoIndex: i,
+          });
+        }
+      }
 
-      // Volver a lista después de 2 segundos
+      // ── 4. Éxito inmediato ────────────────────────────────────────
+      setSubmitSuccess(true);
+      showNotification('Registro guardado. Se sincronizará automáticamente.', 'success');
+
       setTimeout(() => {
         setSubmitSuccess(false);
         setForm({
@@ -360,12 +371,15 @@ const IncidenciasPage: React.FC<IncidenciasPageProps> = ({ onBack, activeLog, cu
           fotosBlob: [],
         });
         setVista('lista');
-        cargarRegistros();
-      }, 2000);
+        // Refrescar lista desde Firestore solo si hay red; si no, la lista local ya tiene el item
+        if (connected) cargarRegistros();
+        // Actualizar contador de pendientes
+        SyncQueueService.getPendingCount().then(setPendingCount).catch(() => {});
+      }, 1500);
 
     } catch (err: any) {
       console.error('[IncidenciasPage] Error guardando registro:', err);
-      setSubmitError('No fue posible guardar el registro. Revisa tu conexión e inténtalo nuevamente.');
+      setSubmitError('Error inesperado. El registro se guardará cuando haya conexión.');
     } finally {
       setSubmitting(false);
     }
@@ -394,8 +408,13 @@ const IncidenciasPage: React.FC<IncidenciasPageProps> = ({ onBack, activeLog, cu
           <CheckCircle size={56} className="text-emerald-500" />
         </div>
         <div className="text-center space-y-2">
-          <h2 className="text-2xl font-black text-slate-800 tracking-tight">¡Registrado!</h2>
-          <p className="text-slate-500 font-medium">Registro guardado correctamente.</p>
+          <h2 className="text-2xl font-black text-slate-800 tracking-tight">¡Registrado! ✓</h2>
+          <p className="text-slate-500 font-medium">Guardado localmente.</p>
+          {!connected && (
+            <p className="text-xs text-amber-600 font-bold bg-amber-50 px-3 py-1.5 rounded-full inline-flex items-center gap-1.5">
+              <WifiOff size={12} /> Se sincronizará al recuperar señal
+            </p>
+          )}
         </div>
         <div className="px-6 py-3 bg-emerald-50 rounded-2xl border border-emerald-100 text-xs font-black uppercase tracking-widest text-emerald-600">
           Volviendo al historial...
@@ -545,9 +564,9 @@ const IncidenciasPage: React.FC<IncidenciasPageProps> = ({ onBack, activeLog, cu
 
   // ─── RENDER: Formulario de registro ──────────────────────────────────────
   if (vista === 'formulario') {
-    return (
-      <div className="flex flex-col min-h-screen bg-slate-50">
-        <div className="bg-white p-4 flex items-center gap-4 sticky top-0 z-30 shadow-sm border-b">
+    const modalContent = (
+      <div className="fixed inset-0 z-[100] h-[100dvh] w-full flex flex-col bg-slate-50 animate-in slide-in-from-bottom-4 duration-300">
+        <div className="bg-white p-4 flex items-center gap-4 shadow-sm border-b shrink-0">
           <button onClick={() => setVista('lista')} className="p-2 text-slate-500 hover:bg-slate-100 rounded-xl transition-all">
             <ArrowLeft size={24} />
           </button>
@@ -557,24 +576,94 @@ const IncidenciasPage: React.FC<IncidenciasPageProps> = ({ onBack, activeLog, cu
           </div>
         </div>
 
-        <div className="p-6 space-y-6 max-w-lg mx-auto w-full pb-28">
+        <div className="flex-1 overflow-y-auto p-6 space-y-6 max-w-lg mx-auto w-full pb-8">
 
           {/* ── TIPO DE REGISTRO (eliminado, siempre es novedad) ── */}
 
-          {/* ── CATEGORÍA ── */}
+          {/* ── CATEGORÍA — 3 secciones útiles ── */}
           <div className="space-y-3">
             <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Categoría *</label>
-            <div className="grid grid-cols-2 gap-2">
-              {CATEGORIAS.map(cat => (
+
+            {/* SECCIÓN: ACCESOS — Uso constante, botones grandes */}
+            <div>
+              <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.15em] mb-1.5 ml-0.5">Accesos</p>
+              <div className="grid grid-cols-2 gap-2">
+                {[{value: 'acceso_personas', label: 'Acceso Personas', icon: '🧍🏽'}, {value: 'acceso_vehiculos', label: 'Acceso Vehículos', icon: '🚗'}].map(cat => (
+                  <button
+                    key={cat.value}
+                    onClick={() => setForm(f => ({ ...f, categoria: cat.value as RegistroCategoria }))}
+                    className={`py-5 px-4 rounded-2xl border-2 flex flex-col items-center justify-center gap-1.5 transition-all active:scale-95 ${
+                      form.categoria === cat.value
+                        ? 'border-blue-500 bg-blue-50 shadow-md shadow-blue-100'
+                        : 'border-slate-200 bg-white'
+                    }`}
+                  >
+                    <span className="text-3xl">{cat.icon}</span>
+                    <span className={`text-xs font-black leading-tight text-center ${
+                      form.categoria === cat.value ? 'text-blue-700' : 'text-slate-600'
+                    }`}>{cat.label}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* SECCIÓN: NOVEDADES — Uso ocasional */}
+            <div>
+              <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.15em] mb-1.5 ml-0.5">Novedades</p>
+              <div className="grid grid-cols-2 gap-2">
+                {[
+                  {value: 'daño_desperfecto', label: 'Falla o Daños', icon: '🚧'},
+                  {value: 'otro', label: 'Otro', icon: '📝'},
+                ].map(cat => (
+                  <button
+                    key={cat.value}
+                    onClick={() => setForm(f => ({ ...f, categoria: cat.value as RegistroCategoria }))}
+                    className={`py-4 px-3 rounded-2xl border-2 flex flex-col items-center justify-center gap-1.5 transition-all active:scale-95 ${
+                      form.categoria === cat.value
+                        ? 'border-blue-500 bg-blue-50 shadow-md shadow-blue-100'
+                        : 'border-slate-200 bg-white'
+                    }`}
+                  >
+                    <span className="text-2xl">{cat.icon}</span>
+                    <span className={`text-xs font-black leading-tight text-center ${
+                      form.categoria === cat.value ? 'text-blue-700' : 'text-slate-600'
+                    }`}>{cat.label}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* SECCIÓN: INCIDENTES — Uso crítico, fondo rojizo */}
+            <div className="bg-red-50/60 border border-red-100 rounded-2xl p-3">
+              <p className="text-[9px] font-black text-red-400 uppercase tracking-[0.15em] mb-2 ml-0.5">Incidentes</p>
+              <div className="grid grid-cols-2 gap-2">
                 <button
-                  key={cat.value}
-                  onClick={() => setForm(f => ({ ...f, categoria: cat.value }))}
-                  className={`p-3 rounded-2xl border-2 flex items-center gap-2 transition-all active:scale-95 text-left ${form.categoria === cat.value ? 'border-blue-500 bg-blue-50' : 'border-slate-200 bg-white'}`}
+                  onClick={() => setForm(f => ({ ...f, categoria: 'alarma' as RegistroCategoria }))}
+                  className={`py-4 px-3 rounded-2xl border-2 flex flex-col items-center justify-center gap-1.5 transition-all active:scale-95 ${
+                    form.categoria === 'alarma'
+                      ? 'border-orange-500 bg-orange-50 shadow-md shadow-orange-100'
+                      : 'border-red-200 bg-white'
+                  }`}
                 >
-                  <span className="text-xl flex-shrink-0">{cat.icon}</span>
-                  <span className={`text-xs font-bold leading-tight ${form.categoria === cat.value ? 'text-blue-700' : 'text-slate-600'}`}>{cat.label}</span>
+                  <span className="text-2xl">🚨</span>
+                  <span className={`text-xs font-black text-center ${
+                    form.categoria === 'alarma' ? 'text-orange-700' : 'text-slate-600'
+                  }`}>Alarmas</span>
                 </button>
-              ))}
+
+                {/* SOS EMERGENCIA — Botón destacado */}
+                <button
+                  onClick={() => setForm(f => ({ ...f, categoria: 'emergencia' as RegistroCategoria, prioridad: 'critica' }))}
+                  className={`py-4 px-3 rounded-2xl border-2 flex flex-col items-center justify-center gap-1.5 transition-all active:scale-95 font-black ${
+                    form.categoria === 'emergencia'
+                      ? 'border-red-600 bg-red-600 text-white shadow-lg shadow-red-300 scale-[1.02]'
+                      : 'border-red-400 bg-red-500 text-white shadow-md shadow-red-200 hover:bg-red-600'
+                  }`}
+                >
+                  <span className="text-2xl">🆘</span>
+                  <span className="text-xs font-black tracking-wider text-center">SOS Emergencia</span>
+                </button>
+              </div>
             </div>
           </div>
 
@@ -614,8 +703,6 @@ const IncidenciasPage: React.FC<IncidenciasPageProps> = ({ onBack, activeLog, cu
               })}
             </div>
           </div>
-
-          {/* ── UBICACIÓN DENTRO DE LA INSTALACIÓN (eliminado) ── */}
 
           {/* ── FOTOGRAFÍAS (opcional) ── */}
           <div className="space-y-3">
@@ -662,8 +749,8 @@ const IncidenciasPage: React.FC<IncidenciasPageProps> = ({ onBack, activeLog, cu
           </div>
         </div>
 
-        {/* ── BARRA INFERIOR FIJA ── */}
-        <div className="fixed bottom-0 left-0 right-0 p-6 bg-white/95 backdrop-blur-sm border-t border-slate-100">
+        {/* ── BARRA INFERIOR ── */}
+        <div className="shrink-0 p-6 bg-white border-t border-slate-100 shadow-[0_-8px_20px_-5px_rgba(0,0,0,0.1)] pb-[calc(1.5rem+env(safe-area-inset-bottom,0px))]">
           {submitError && (
             <div className="mb-4 bg-red-50 border border-red-200 rounded-2xl p-4 flex gap-3 items-start">
               <AlertCircle size={20} className="text-red-500 shrink-0 mt-0.5" />
@@ -689,11 +776,29 @@ const IncidenciasPage: React.FC<IncidenciasPageProps> = ({ onBack, activeLog, cu
         </div>
       </div>
     );
+
+    if (typeof document !== 'undefined') {
+      return createPortal(modalContent, document.body);
+    }
+    return null;
   }
 
   // ─── RENDER: Lista principal (Libro de Novedades de la Sucursal) ─────────
   return (
     <div className="flex flex-col min-h-screen bg-slate-50">
+      {/* Banner Offline */}
+      {!connected && (
+        <div className="bg-slate-800 text-amber-400 px-4 py-2 flex items-center justify-center gap-2 text-xs font-black uppercase tracking-widest sticky top-0 z-50">
+          <WifiOff size={13} />
+          Modo Offline — Los registros se sincronizarán al recuperar señal
+        </div>
+      )}
+      {isSyncing && connected && (
+        <div className="bg-blue-600 text-white px-4 py-2 flex items-center justify-center gap-2 text-xs font-black uppercase tracking-widest sticky top-0 z-50">
+          <RefreshCw size={13} className="animate-spin" />
+          Sincronizando registros pendientes...
+        </div>
+      )}
       {/* Header */}
       <div className="bg-white p-4 flex items-center gap-4 sticky top-0 z-30 shadow-sm border-b">
         <button onClick={onBack} className="p-2 text-slate-500 hover:bg-slate-100 rounded-xl transition-all">
@@ -705,13 +810,20 @@ const IncidenciasPage: React.FC<IncidenciasPageProps> = ({ onBack, activeLog, cu
             {activeLog?.siteName || currentSite?.name || 'Mi sucursal'}
           </p>
         </div>
-        <button
-          onClick={cargarRegistros}
-          disabled={loadingRegistros}
-          className="p-2 text-slate-400 hover:bg-slate-100 rounded-xl transition-all shrink-0"
-        >
-          <Activity size={18} className={loadingRegistros ? 'animate-spin text-blue-500' : ''} />
-        </button>
+        <div className="flex items-center gap-1">
+          {pendingCount > 0 && (
+            <span className="px-2 py-0.5 bg-amber-100 text-amber-700 rounded-full text-[9px] font-black uppercase tracking-widest">
+              {pendingCount} pendiente{pendingCount !== 1 ? 's' : ''}
+            </span>
+          )}
+          <button
+            onClick={cargarRegistros}
+            disabled={loadingRegistros}
+            className="p-2 text-slate-400 hover:bg-slate-100 rounded-xl transition-all shrink-0"
+          >
+            <Activity size={18} className={loadingRegistros ? 'animate-spin text-blue-500' : ''} />
+          </button>
+        </div>
       </div>
 
       {/* Banner informativo de la sucursal */}
@@ -803,6 +915,11 @@ const IncidenciasPage: React.FC<IncidenciasPageProps> = ({ onBack, activeLog, cu
                   {esPropio && (
                     <span className="px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-widest bg-blue-600 text-white shrink-0">
                       Mi registro
+                    </span>
+                  )}
+                  {(reg as any)._pendingSync && (
+                    <span className="px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-widest bg-amber-100 text-amber-700 shrink-0 flex items-center gap-0.5">
+                      <CloudOff size={9} /> pendiente
                     </span>
                   )}
                 </div>

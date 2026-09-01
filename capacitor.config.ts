@@ -5,7 +5,7 @@ const config: CapacitorConfig = {
   appId: 'com.ggss.security',
 
   // Nombre visible de la app en el dispositivo
-  appName: 'GGSS Security',
+  appName: 'Sistema Aspro',
 
   // Directorio de salida de Vite (build de producción)
   webDir: 'dist',
