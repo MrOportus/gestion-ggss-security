@@ -277,18 +277,42 @@ export const useAppStore = create<AppState>()(
                   continue;
                 }
 
-                console.log(`[SyncQueue] Subiendo foto para ronda ${roundId}, base64 len: ${photoBase64.length}`);
-                // Detectar extensión del formato (WebP o JPEG fallback)
+                console.log(`[SyncQueue] Subiendo foto a Bunny.net para ronda ${roundId}, base64 len: ${photoBase64.length}`);
+                
                 const isWebP = photoBase64.startsWith('data:image/webp');
                 const ext = isWebP ? 'webp' : 'jpg';
-                const fileName = `evidencias/${get().currentUser?.uid || 'offline'}/${roundId}/foto_${Date.now()}.${ext}`;
-                const downloadUrl = await get().uploadBase64(photoBase64, fileName);
+                const fileName = `foto_${Date.now()}.${ext}`;
+                const folder = `evidencias/${get().currentUser?.uid || 'offline'}/${roundId}`;
+                const contentType = isWebP ? 'image/webp' : 'image/jpeg';
+                
+                // 1. Convertir Base64 a Blob
+                const res = await fetch(photoBase64);
+                const blob = await res.blob();
+                
+                // 2. Pedir Presigned URL a Bunny.net a través de Firebase Functions
+                const generateBunnyUploadUrl = httpsCallable<{fileName: string, folder: string, contentType: string}, {uploadUrl: string, finalUrl: string}>(functions, 'generateBunnyUploadUrl');
+                const bunnyRes = await generateBunnyUploadUrl({ fileName, folder, contentType });
+                const { uploadUrl, finalUrl } = bunnyRes.data;
 
+                // 3. Subir el Blob a Bunny.net usando la URL prefirmada
+                const uploadRes = await fetch(uploadUrl, {
+                  method: 'PUT',
+                  body: blob,
+                  headers: {
+                    'Content-Type': contentType
+                  }
+                });
+
+                if (!uploadRes.ok) {
+                  throw new Error(`Error subiendo a Bunny.net: ${uploadRes.statusText}`);
+                }
+
+                // 4. Guardar URL final de la CDN en Firestore
                 await updateDoc(doc(db, "Rondas", roundId), {
-                  evidences: arrayUnion({ photoUrl: downloadUrl, lat, lng, timestamp })
+                  evidences: arrayUnion({ photoUrl: finalUrl, lat, lng, timestamp })
                 });
                 await SyncQueueService.markCompleted(item.id);
-                console.log(`[SyncQueue] UPLOAD_EVIDENCE ${item.id} sincronizado. URL: ${downloadUrl}`);
+                console.log(`[SyncQueue] UPLOAD_EVIDENCE ${item.id} sincronizado en Bunny. URL: ${finalUrl}`);
 
               } else if (item.actionType === 'ADD_NOVEDAD') {
                 // Persistir el documento de novedad en Firestore.

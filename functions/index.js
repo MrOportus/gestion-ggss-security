@@ -31,6 +31,9 @@ exports.logContractShadowDiagnostic = logContractShadowDiagnostic;
 const { loginWithRut } = require('./src/auth/loginWithRut');
 exports.loginWithRut = loginWithRut;
 
+const { generateBunnyUploadUrl } = require('./src/bunny/generateBunnyUploadUrl');
+exports.generateBunnyUploadUrl = generateBunnyUploadUrl;
+
 // Función para generar contratos (vía Apps Script)
 exports.generarContrato = onRequest(
     { 
