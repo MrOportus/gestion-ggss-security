@@ -118,6 +118,12 @@ export interface DigitalDocument {
   status: 'pending' | 'signed';
   originalUrl: string;
   signedUrl?: string;
+  /** Path interno en Firebase Storage del PDF firmado (ej. "signed_docs/signed_digdoc_123.pdf").
+   *  Lo guarda el cliente al firmar; lo usa la Cloud Function para calcular el SHA-256. */
+  signedStoragePath?: string;
+  /** ID público de validación generado por la Cloud Function (ej. "ASP-8F4K29A1B2C3D4E5").
+   *  Nunca lo escribe el cliente. Protegido por Firestore Rules. */
+  validationId?: string;
   createdAt: string;
   signedAt?: string;
   signatureConfig?: {
@@ -129,6 +135,16 @@ export interface DigitalDocument {
     ip?: string;
     rut?: string;
     browserInfo?: string;
+    /** Nombre completo del firmante, para mostrar en la página de validación. */
+    signerName?: string;
+  };
+  /** Metadatos de integridad SHA-256. Solo los escribe la Cloud Function.
+   *  El cliente no puede modificar estos campos (protegidos por Firestore Rules). */
+  integridad?: {
+    algoritmo: 'SHA-256';
+    hash: string;
+    hashGeneradoAt: string; // ISO string (serverTimestamp serializado)
+    estado: 'VALIDO' | 'NO_VERIFICADO';
   };
 }
 

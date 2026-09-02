@@ -52,7 +52,21 @@ service cloud.firestore {
     // Reglas para la colección de documentos digitales (Signatures)
     match /documents/{docId} {
       allow create, delete: if isAdmin();
-      allow update, read: if isAdmin() || (request.auth != null && resource.data.assignedTo == request.auth.uid);
+
+      // Lectura: admin o el dueño del documento (asignado a él)
+      allow read: if isAdmin() || (request.auth != null && resource.data.assignedTo == request.auth.uid);
+
+      // Actualización: el admin o el propio trabajador pueden actualizar,
+      // PERO ningún cliente puede escribir los campos de integridad (protegidos por backend).
+      allow update: if (isAdmin() || (request.auth != null && resource.data.assignedTo == request.auth.uid))
+        && !request.resource.data.diff(resource.data).affectedKeys()
+            .hasAny(['validationId', 'integridad']);
+    }
+
+    // Auditoría de validaciones de integridad (solo Cloud Functions pueden escribir)
+    match /validacionesDocumentos/{docId} {
+      allow read: if isAdmin();
+      allow write: if false;
     }
 
     // Plantillas de firma (SignatureTemplates)

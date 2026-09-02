@@ -63,8 +63,19 @@ import { PushNotifications } from '@capacitor/push-notifications';
 
 
 import HRContractsDashboard from './pages/HRContractsDashboard';
+import ValidacionPage from './pages/ValidacionPage';
 
 const App: React.FC = () => {
+  // ── Ruta pública de validación de documentos (/validar/{validationId}) ──────
+  // Se evalúa ANTES del guard de autenticación para permitir acceso sin login.
+  const pathname = window.location.pathname;
+  if (pathname.startsWith('/validar/')) {
+    const validationId = pathname.replace('/validar/', '').replace(/\/+$/, '').trim();
+    if (validationId) {
+      return <ValidacionPage validationId={validationId} />;
+    }
+  }
+
   const { currentUser, logout, fetchInitialData, isLoading, initializeAuthListener, registerFCMToken, showNotification, processSyncQueue, authInitialized, showConfirmation } = useAppStore();
   const [currentView, setCurrentView] = useState<'dashboard' | 'employees' | 'tasks' | 'sites' | 'payments' | 'supervisor_mgmt' | 'mandante_mgmt' | 'notes' | 'attendance' | 'rounds' | 'shift_management' | 'loans' | 'documents' | 'solicitudes_turnos_extra' | 'hr_contracts' | 'attendance_shadow_qa'>('dashboard');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);

@@ -1,7 +1,8 @@
 console.log("=== INDEX.JS LOADED ===");
 const { onRequest, onCall, HttpsError } = require('firebase-functions/v2/https');
-const { onDocumentCreated } = require('firebase-functions/v2/firestore');
+const { onDocumentCreated, onDocumentUpdated } = require('firebase-functions/v2/firestore');
 const { onSchedule } = require('firebase-functions/v2/scheduler');
+const crypto = require('crypto');
 const functionsV1 = require('firebase-functions/v1');
 const logger = require('firebase-functions/logger');
 const admin = require('firebase-admin');
@@ -731,3 +732,152 @@ exports.shadowAttendanceResolver = functionsV1.firestore.document('Asistencia/{a
   }
 });
 
+
+// ─── Integridad Documental ────────────────────────────────────────────────────
+
+/**
+ * calcularHashDocumentoFirmado
+ * Trigger: se activa cuando un documento de la colección 'documents' es actualizado.
+ * Condición: el campo 'status' pasa de cualquier valor a 'signed' y aún no tiene hash.
+ * Acción: descarga el PDF firmado desde Storage, calcula SHA-256, guarda el hash
+ * y un validationId único en Firestore. Nunca lo ejecuta el cliente.
+ */
+exports.calcularHashDocumentoFirmado = onDocumentUpdated(
+    { document: 'documents/{docId}', region: 'us-central1' },
+    async (event) => {
+        const before = event.data.before.data();
+        const after  = event.data.after.data();
+
+        // Solo actuar cuando el documento pasa a 'signed' por primera vez
+        if (before.status === 'signed' || after.status !== 'signed') return;
+        // Evitar recalcular si ya tiene hash (idempotencia)
+        if (after.integridad && after.integridad.hash) {
+            logger.info(`[IntegridadDoc] docId=${event.params.docId} ya tiene hash. Omitiendo.`);
+            return;
+        }
+
+        const storagePath = after.signedStoragePath;
+        if (!storagePath) {
+            logger.error(`[IntegridadDoc] docId=${event.params.docId}: falta signedStoragePath. No se puede calcular hash.`);
+            return;
+        }
+
+        try {
+            logger.info(`[IntegridadDoc] Calculando SHA-256 para docId=${event.params.docId}, path=${storagePath}`);
+
+            // Descargar el PDF firmado desde Firebase Storage usando el Admin SDK
+            const [fileBuffer] = await admin.storage().bucket().file(storagePath).download();
+
+            // Calcular SHA-256 (nunca MD5 ni SHA-1)
+            const hash = crypto.createHash('sha256').update(fileBuffer).digest('hex');
+
+            // Generar un validationId único e impredecible
+            const validationId = 'ASP-' + crypto.randomBytes(10).toString('hex').toUpperCase();
+
+            await event.data.after.ref.update({
+                validationId,
+                integridad: {
+                    algoritmo: 'SHA-256',
+                    hash,
+                    hashGeneradoAt: admin.firestore.FieldValue.serverTimestamp(),
+                    estado: 'VALIDO'
+                }
+            });
+
+            logger.info(`[IntegridadDoc] Hash SHA-256 registrado para docId=${event.params.docId}. validationId=${validationId}`);
+        } catch (err) {
+            logger.error('[IntegridadDoc] Error calculando hash:', err);
+        }
+    }
+);
+
+/**
+ * validateSignedDocument
+ * Callable: accesible desde la página pública /validar/{validationId}.
+ * Recibe: { validationId: string }
+ * Acción: busca el documento, descarga el PDF actual desde Storage, recalcula
+ * el SHA-256 y lo compara con el hash registrado. Determina si el doc está íntegro.
+ * Nunca confía en información del cliente para determinar el resultado.
+ */
+exports.validateSignedDocument = onCall(
+    { region: 'us-central1', allowInvalidAppCheckToken: true },
+    async (request) => {
+        const { validationId } = request.data || {};
+
+        if (!validationId || typeof validationId !== 'string' || validationId.length < 5) {
+            throw new HttpsError('invalid-argument', 'validationId inválido o faltante.');
+        }
+
+        // Buscar el documento por validationId (campo indexado)
+        const snap = await admin.firestore()
+            .collection('documents')
+            .where('validationId', '==', validationId)
+            .limit(1)
+            .get();
+
+        if (snap.empty) {
+            throw new HttpsError('not-found', 'No se encontró ningún documento con ese ID de validación.');
+        }
+
+        const docSnap = snap.docs[0];
+        const docData = docSnap.data();
+
+        // Verificar que el documento tiene datos de integridad
+        if (!docData.integridad || !docData.integridad.hash || !docData.signedStoragePath) {
+            logger.warn(`[ValidateDoc] validationId=${validationId}: sin datos de integridad aún.`);
+            return {
+                valid: false,
+                status: 'PENDING_INTEGRITY',
+                validationId,
+                message: 'El registro de integridad aún está siendo procesado. Intente nuevamente en unos segundos.'
+            };
+        }
+
+        try {
+            // Descargar el archivo ACTUAL desde Storage y recalcular hash
+            const [fileBuffer] = await admin.storage().bucket().file(docData.signedStoragePath).download();
+            const currentHash = crypto.createHash('sha256').update(fileBuffer).digest('hex');
+            const registeredHash = docData.integridad.hash;
+            const valid = currentHash === registeredHash;
+
+            logger.info(`[ValidateDoc] validationId=${validationId}: ${valid ? 'VÁLIDO' : 'ALTERADO'}`);
+
+            // Auditoría de la validación (opcional, no bloquea la respuesta)
+            try {
+                await admin.firestore().collection('validacionesDocumentos').add({
+                    validationId,
+                    documentoId: docSnap.id,
+                    resultado: valid ? 'VALIDO' : 'ALTERADO',
+                    fecha: admin.firestore.FieldValue.serverTimestamp(),
+                    userAgent: (request.rawRequest && request.rawRequest.headers
+                        ? (request.rawRequest.headers['user-agent'] || 'unknown')
+                        : 'unknown').substring(0, 200)
+                });
+            } catch (auditErr) {
+                logger.warn('[ValidateDoc] Error registrando auditoría (no crítico):', auditErr);
+            }
+
+            // Enmascarar parcialmente el RUT para privacidad (mostrar solo últimos 4 chars)
+            const rawRut = docData.metadata && docData.metadata.rut ? docData.metadata.rut : '';
+            const maskedRut = rawRut.length > 4
+                ? rawRut.slice(0, -4).replace(/\d/g, 'X') + rawRut.slice(-4)
+                : rawRut;
+
+            return {
+                valid,
+                status: valid ? 'VALID' : 'ALTERED',
+                algorithm: 'SHA-256',
+                validationId,
+                documentTitle: docData.title || 'Documento',
+                signerName:    (docData.metadata && docData.metadata.signerName) ? docData.metadata.signerName : '',
+                signerRut:     maskedRut,
+                signedAt:      docData.signedAt || '',
+                integrityStatus: valid ? 'DOCUMENTO ÍNTEGRO' : 'POSIBLE ALTERACIÓN DETECTADA',
+                ...(valid ? {} : { reason: 'HASH_MISMATCH' })
+            };
+        } catch (err) {
+            logger.error('[ValidateDoc] Error en validación:', err);
+            throw new HttpsError('internal', 'Error al validar el documento.');
+        }
+    }
+);

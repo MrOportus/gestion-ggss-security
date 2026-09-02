@@ -184,7 +184,7 @@ interface AppState {
   // Digital Document Actions
   fetchDigitalDocuments: () => Promise<void>;
   addDigitalDocument: (doc: Omit<DigitalDocument, 'id' | 'createdAt' | 'status'>) => Promise<void>;
-  signDigitalDocument: (id: string, signedUrl: string, metadata: DigitalDocument['metadata']) => Promise<void>;
+  signDigitalDocument: (id: string, signedUrl: string, metadata: DigitalDocument['metadata'], signedStoragePath?: string) => Promise<void>;
   deleteDigitalDocument: (id: string) => Promise<void>;
   unsubDigitalDocuments: () => void;
   // Vacation Actions
@@ -2005,14 +2005,19 @@ export const useAppStore = create<AppState>()(
         } catch (error) { console.error("Error adding digital document:", error); }
       },
 
-      signDigitalDocument: async (id, signedUrl, metadata) => {
+      signDigitalDocument: async (id, signedUrl, metadata, signedStoragePath?) => {
         const signedAt = new Date().toISOString();
-        const updateData = {
+        const updateData: Record<string, any> = {
           status: 'signed' as const,
           signedUrl,
           signedAt,
           metadata
         };
+        // Guardar el path de Storage para que la Cloud Function pueda calcular el SHA-256
+        // sin depender de la URL pública (que podría cambiar de formato).
+        if (signedStoragePath) {
+          updateData.signedStoragePath = signedStoragePath;
+        }
         try {
           const docRef = doc(db, "documents", id);
           await updateDoc(docRef, updateData);

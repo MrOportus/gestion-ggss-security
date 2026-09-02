@@ -528,13 +528,16 @@ const DocumentsPage: React.FC = () => {
         const pdfBytes = await pdfDoc.save();
         const signedFileName = `signed_${docToSign.id}.pdf`;
         const signedBlob = new Blob([pdfBytes as any], { type: 'application/pdf' });
-        const signedUrl = await uploadFile(signedBlob, `signed_docs/${signedFileName}`);
+        // Guardamos el path antes de subir para pasárselo al store (y de ahí a la CF)
+        const signedStoragePath = `signed_docs/${signedFileName}`;
+        const signedUrl = await uploadFile(signedBlob, signedStoragePath);
 
         await signDigitalDocument(docToSign.id, signedUrl, {
             ip,
             rut,
-            browserInfo: navigator.userAgent
-        });
+            browserInfo: navigator.userAgent,
+            signerName: `${worker.firstName} ${worker.lastNamePaterno}`,
+        }, signedStoragePath);
     };
 
     const handleSignIndividual = async (docToSign: DigitalDocument) => {
