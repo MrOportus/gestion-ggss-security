@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { db } from '../lib/firebase';
+import { collection, query, orderBy, limit, onSnapshot } from 'firebase/firestore';
 import { useAppStore } from '../store/useAppStore';
 import ThumbnailImage from '../components/ThumbnailImage';
 import RouteMapModal from '../components/RouteMapModal';
@@ -440,7 +442,7 @@ const EstadoServicio = ({ allowedSites, guardRounds, novedades, attendanceLogs, 
 };
 
 // ─── Libro de Novedades ───────────────────────────────────────────────────────
-const LibroNovedades = ({ allowedSites, guardRounds, novedades }: any) => {
+const LibroNovedades = ({ allowedSites, guardRounds, novedades, allowedSiteIds }: any) => {
     const [startDate, setStartDate] = useState(() => {
         const d = new Date(); d.setDate(d.getDate() - 7);
         return d.toISOString().split('T')[0];
@@ -453,9 +455,59 @@ const LibroNovedades = ({ allowedSites, guardRounds, novedades }: any) => {
     const [page, setPage] = useState(1);
     const itemsPerPage = 20;
 
+    // ── Estado local para novedades en tiempo real ──────────────────────────
+    // Se inicializa con los datos ya cargados del store (priming inmediato)
+    // y se actualiza automáticamente via onSnapshot cuando hay cambios en Firestore.
+    const [localNovedades, setLocalNovedades] = useState<any[]>(novedades);
+
     useEffect(() => {
         setPage(1);
     }, [startDate, endDate, tipoFilter, siteFilter, prioridadFilter]);
+
+    // ── Listener en tiempo real — solo mientras el componente esté montado ──
+    useEffect(() => {
+        if (!allowedSiteIds || allowedSiteIds.length === 0) {
+            // Sin sucursales asignadas: usar datos del store como fallback
+            setLocalNovedades(novedades);
+            return;
+        }
+
+        // La query replica exactamente el patrón de fetchNovedades:
+        // sin filtro where (para evitar índice compuesto), filtrando client-side.
+        const q = query(
+            collection(db, 'novedades'),
+            orderBy('timestamp', 'desc'),
+            limit(200)
+        );
+
+        const unsubscribe = onSnapshot(
+            q,
+            (snapshot) => {
+                const all: any[] = [];
+                snapshot.forEach(d => all.push({ ...d.data(), id: d.id }));
+                // Filtro client-side idéntico al de fetchNovedades:
+                // solo novedades de las sucursales asignadas al Mandante
+                const filtered = all.filter(n =>
+                    allowedSiteIds.includes(String(n.siteId)) ||
+                    allowedSiteIds.includes(String(n.sucursalId))
+                );
+                setLocalNovedades(filtered);
+            },
+            (error) => {
+                console.error('[LibroNovedades] onSnapshot error:', error);
+                // En caso de error, mantener los datos actuales sin cambios
+            }
+        );
+
+        // Cleanup obligatorio: destruye el listener al desmontar el componente
+        // o cuando cambian las sucursales asignadas
+        return () => {
+            unsubscribe();
+        };
+    // allowedSiteIds.join(',') garantiza que un cambio en las sucursales asignadas
+    // destruye el listener anterior y crea uno nuevo (evita listeners duplicados)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [allowedSiteIds.join(',')]);
 
     const timelineItems = useMemo(() => {
         const roundItems = guardRounds
@@ -472,7 +524,8 @@ const LibroNovedades = ({ allowedSites, guardRounds, novedades }: any) => {
                 estado: r.endTime ? 'resuelto' : 'activo',
             }));
 
-        const novedadItems = novedades
+        // Usa localNovedades (tiempo real via onSnapshot) en lugar de la prop novedades
+        const novedadItems = localNovedades
             .filter((n: any) => allowedSites.some((s: any) => String(s.id) === String(n.siteId || n.sucursalId)))
             .map((n: any) => ({
                 id: n.id,
@@ -489,7 +542,7 @@ const LibroNovedades = ({ allowedSites, guardRounds, novedades }: any) => {
             }));
 
         return [...roundItems, ...novedadItems].sort((a: any, b: any) => b.timestamp.localeCompare(a.timestamp));
-    }, [guardRounds, novedades, allowedSites]);
+    }, [guardRounds, localNovedades, allowedSites]);
 
     const filtered = timelineItems.filter((item: any) => {
         const dateStr = item.timestamp.substring(0, 10);
@@ -1114,7 +1167,12 @@ const MandanteView: React.FC = () => {
                                 fetchInitialData={fetchInitialData}
                             />}
                         {activeSection === 'novedades' && (
-                            <LibroNovedades allowedSites={allowedSites} guardRounds={guardRounds} novedades={novedades} />
+                            <LibroNovedades
+                                allowedSites={allowedSites}
+                                guardRounds={guardRounds}
+                                novedades={novedades}
+                                allowedSiteIds={assignedSites}
+                            />
                         )}
                         {activeSection === 'rondas' && (
                             <RegistroRondas allowedSites={allowedSites} guardRounds={guardRounds} showConfirmation={showConfirmation} />
