@@ -133,10 +133,11 @@ export interface DigitalDocument {
   };
   metadata?: {
     ip?: string;
-    rut?: string;
-    browserInfo?: string;
-    /** Nombre completo del firmante, para mostrar en la página de validación. */
+    userAgent?: string;
     signerName?: string;
+    rut?: string;
+    sigId?: string; // ID de firma impreso en el documento (ej. SIG-...)
+    [key: string]: any;
   };
   /** Metadatos de integridad SHA-256. Solo los escribe la Cloud Function.
    *  El cliente no puede modificar estos campos (protegidos por Firestore Rules). */

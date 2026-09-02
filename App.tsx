@@ -69,11 +69,9 @@ const App: React.FC = () => {
   // ── Ruta pública de validación de documentos (/validar/{validationId}) ──────
   // Se evalúa ANTES del guard de autenticación para permitir acceso sin login.
   const pathname = window.location.pathname;
-  if (pathname.startsWith('/validar/')) {
-    const validationId = pathname.replace('/validar/', '').replace(/\/+$/, '').trim();
-    if (validationId) {
-      return <ValidacionPage validationId={validationId} />;
-    }
+  if (pathname.startsWith('/validar')) {
+    const validationId = pathname.replace('/validar', '').replace(/^\/+/, '').replace(/\/+$/, '').trim();
+    return <ValidacionPage initialValidationId={validationId} />;
   }
 
   const { currentUser, logout, fetchInitialData, isLoading, initializeAuthListener, registerFCMToken, showNotification, processSyncQueue, authInitialized, showConfirmation } = useAppStore();

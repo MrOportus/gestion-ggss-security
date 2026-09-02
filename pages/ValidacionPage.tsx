@@ -39,10 +39,11 @@ interface ValidationResult {
     integrityStatus?: string;
     reason?: string;
     message?: string;
+    downloadUrl?: string;
 }
 
 interface ValidacionPageProps {
-    validationId: string;
+    initialValidationId?: string;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -64,14 +65,18 @@ function formatDate(isoString: string): string {
 
 // ── Componente ────────────────────────────────────────────────────────────────
 
-const ValidacionPage: React.FC<ValidacionPageProps> = ({ validationId }) => {
-    const [state, setState] = useState<'loading' | 'done' | 'error'>('loading');
+const ValidacionPage: React.FC<ValidacionPageProps> = ({ initialValidationId = '' }) => {
+    const [state, setState] = useState<'idle' | 'loading' | 'done' | 'error'>(initialValidationId ? 'loading' : 'idle');
     const [result, setResult] = useState<ValidationResult | null>(null);
     const [errorMsg, setErrorMsg] = useState('');
+    const [searchInput, setSearchInput] = useState(initialValidationId);
+    const [validationId, setValidationId] = useState(initialValidationId);
 
-    const validate = useCallback(async () => {
+    const validate = useCallback(async (idToValidate: string) => {
+        if (!idToValidate) return;
         setState('loading');
         setErrorMsg('');
+        setValidationId(idToValidate);
         try {
             // Obtener la app de Firebase ya inicializada (o inicializar si no existe)
             const existingApp = getApps().find(a => a.name === '[DEFAULT]');
@@ -90,7 +95,7 @@ const ValidacionPage: React.FC<ValidacionPageProps> = ({ validationId }) => {
                 functions,
                 'validateSignedDocument'
             );
-            const response = await validateFn({ validationId });
+            const response = await validateFn({ validationId: idToValidate });
             setResult(response.data);
             setState('done');
         } catch (err: any) {
@@ -105,11 +110,66 @@ const ValidacionPage: React.FC<ValidacionPageProps> = ({ validationId }) => {
             }
             setState('error');
         }
-    }, [validationId]);
+    }, []);
 
     useEffect(() => {
-        validate();
-    }, [validate]);
+        if (initialValidationId) {
+            validate(initialValidationId);
+        }
+    }, [initialValidationId, validate]);
+
+    const handleSearch = (e: React.FormEvent) => {
+        e.preventDefault();
+        const cleaned = searchInput.trim().toUpperCase();
+        if (cleaned) {
+            window.history.pushState({}, '', `/validar/${cleaned}`);
+            validate(cleaned);
+        }
+    };
+
+    const handleReset = () => {
+        setState('idle');
+        setSearchInput('');
+        setValidationId('');
+        setResult(null);
+        window.history.pushState({}, '', `/validar`);
+    };
+
+    // ── Estado: ingreso manual (idle) ─────────────────────────────────────────
+    if (state === 'idle') {
+        return (
+            <div style={styles.page}>
+                <div style={styles.card}>
+                    <div style={styles.logoRow}>
+                        <img src="/logo-transparencia.png" alt="ASPRO" style={styles.logo} onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                        <span style={styles.logoText}>ASPRO</span>
+                    </div>
+                    <p style={styles.subtitle}>Validación de Documentos Firmados</p>
+                    <div style={styles.divider} />
+                    
+                    <div style={{ padding: '16px 0', textAlign: 'center' }}>
+                        <p style={{ color: '#64748b', fontSize: 14, marginBottom: 24, lineHeight: 1.5 }}>
+                            Ingresa el código de validación impreso en el documento para comprobar su integridad y ver la copia original.
+                        </p>
+                        <form onSubmit={handleSearch} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                            <input
+                                type="text"
+                                placeholder="Ej: SIG-ABCD123"
+                                value={searchInput}
+                                onChange={(e) => setSearchInput(e.target.value.toUpperCase())}
+                                style={styles.inputField}
+                                required
+                            />
+                            <button type="submit" style={styles.submitButton} disabled={!searchInput.trim()}>
+                                <ShieldCheck size={18} />
+                                Validar Documento
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        );
+    }
 
     // ── Estado: cargando ──────────────────────────────────────────────────────
     if (state === 'loading') {
@@ -152,9 +212,14 @@ const ValidacionPage: React.FC<ValidacionPageProps> = ({ validationId }) => {
                         </div>
                         <p style={{ color: '#374151', fontSize: 15, fontWeight: 700, textAlign: 'center' }}>No se pudo validar</p>
                         <p style={{ color: '#64748b', fontSize: 13, textAlign: 'center', lineHeight: 1.5, maxWidth: 300 }}>{errorMsg}</p>
-                        <button onClick={validate} style={styles.retryButton}>
-                            <RefreshCw size={14} /> Intentar nuevamente
-                        </button>
+                        <div style={{ display: 'flex', gap: 12, marginTop: 12 }}>
+                            <button onClick={handleReset} style={styles.secondaryButton}>
+                                Volver
+                            </button>
+                            <button onClick={() => validate(validationId)} style={styles.retryButton}>
+                                <RefreshCw size={14} /> Reintentar
+                            </button>
+                        </div>
                     </div>
                     <div style={styles.validationIdRow}>
                         <Hash size={12} style={{ color: '#94a3b8' }} />
@@ -238,6 +303,21 @@ const ValidacionPage: React.FC<ValidacionPageProps> = ({ validationId }) => {
                     </div>
                 )}
 
+                {/* Botón Ver Original */}
+                {!isPending && isValid && result?.downloadUrl && (
+                    <div style={{ marginTop: 24, display: 'flex', justifyContent: 'center' }}>
+                        <a
+                            href={result.downloadUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            style={styles.downloadButton}
+                        >
+                            <FileText size={16} />
+                            Ver Documento Original
+                        </a>
+                    </div>
+                )}
+
                 <div style={styles.divider} />
 
                 {/* ID de validación */}
@@ -245,6 +325,12 @@ const ValidacionPage: React.FC<ValidacionPageProps> = ({ validationId }) => {
                     <Hash size={12} style={{ color: '#94a3b8' }} />
                     <span style={styles.validationIdLabel}>ID de validación:</span>
                     <span style={{ ...styles.validationIdText, userSelect: 'all' as const }}>{validationId}</span>
+                </div>
+                
+                <div style={{ display: 'flex', justifyContent: 'center', marginTop: 16 }}>
+                    <button onClick={handleReset} style={{ ...styles.secondaryButton, fontSize: 13 }}>
+                        Validar otro documento
+                    </button>
                 </div>
 
                 {/* Aviso legal */}

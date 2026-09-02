@@ -507,8 +507,8 @@ const DocumentsPage: React.FC = () => {
             size: l2Size, font, color: inkColor,
         });
 
-        // Línea 3 — ID Firma + IP
-        const l3 = `ID Firma: ${uniqueSigId}   ·   IP: ${ip}`;
+        // Línea 3 — IP
+        const l3 = `Dirección IP: ${ip}`;
         const l3Size = 5.5;
         const l3W = font.widthOfTextAtSize(l3, l3Size);
         selectedPage.drawText(l3, {
@@ -537,6 +537,7 @@ const DocumentsPage: React.FC = () => {
             rut,
             browserInfo: navigator.userAgent,
             signerName: `${worker.firstName} ${worker.lastNamePaterno}`,
+            sigId: uniqueSigId
         }, signedStoragePath);
     };
 

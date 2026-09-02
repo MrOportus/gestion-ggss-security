@@ -345,16 +345,6 @@
           "order": "DESCENDING"
         }
       ]
-    },
-    {
-      "collectionGroup": "documents",
-      "queryScope": "COLLECTION",
-      "fields": [
-        {
-          "fieldPath": "validationId",
-          "order": "ASCENDING"
-        }
-      ]
     }
   ],
   "fieldOverrides": []

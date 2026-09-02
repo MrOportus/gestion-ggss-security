@@ -771,8 +771,9 @@ exports.calcularHashDocumentoFirmado = onDocumentUpdated(
             // Calcular SHA-256 (nunca MD5 ni SHA-1)
             const hash = crypto.createHash('sha256').update(fileBuffer).digest('hex');
 
-            // Generar un validationId único e impredecible
-            const validationId = 'ASP-' + crypto.randomBytes(10).toString('hex').toUpperCase();
+            // Generar un validationId único e impredecible (o usar el que viene del PDF)
+            const sigIdFromClient = (after.metadata && after.metadata.sigId) ? after.metadata.sigId : null;
+            const validationId = sigIdFromClient || ('ASP-' + crypto.randomBytes(10).toString('hex').toUpperCase());
 
             await event.data.after.ref.update({
                 validationId,
@@ -863,6 +864,16 @@ exports.validateSignedDocument = onCall(
                 ? rawRut.slice(0, -4).replace(/\d/g, 'X') + rawRut.slice(-4)
                 : rawRut;
 
+            // Generar Signed URL de lectura si es válido (expira en 30 minutos)
+            let downloadUrl = null;
+            if (valid) {
+                const [url] = await admin.storage().bucket().file(docData.signedStoragePath).getSignedUrl({
+                    action: 'read',
+                    expires: Date.now() + 30 * 60 * 1000 // 30 minutos
+                });
+                downloadUrl = url;
+            }
+
             return {
                 valid,
                 status: valid ? 'VALID' : 'ALTERED',
@@ -873,7 +884,8 @@ exports.validateSignedDocument = onCall(
                 signerRut:     maskedRut,
                 signedAt:      docData.signedAt || '',
                 integrityStatus: valid ? 'DOCUMENTO ÍNTEGRO' : 'POSIBLE ALTERACIÓN DETECTADA',
-                ...(valid ? {} : { reason: 'HASH_MISMATCH' })
+                ...(valid ? {} : { reason: 'HASH_MISMATCH' }),
+                ...(downloadUrl ? { downloadUrl } : {})
             };
         } catch (err) {
             logger.error('[ValidateDoc] Error en validación:', err);
