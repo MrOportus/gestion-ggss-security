@@ -874,18 +874,18 @@ const WorkerAttendance: React.FC = () => {
             {pendingDocsCount > 0 && (
               <button
                 onClick={() => setStep('documents')}
-                className="w-full max-w-sm p-4 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-[2rem] text-left flex items-center gap-4 transition-all active:scale-95 shadow-sm animate-bounce"
+                className="w-full max-w-sm px-3 py-3 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-2xl text-left flex items-center gap-3 transition-colors active:scale-95 shadow-sm"
               >
-                <div className="w-12 h-12 bg-amber-100 text-amber-600 rounded-2xl flex items-center justify-center shrink-0">
-                  <FileText size={24} />
+                <div className="w-9 h-9 bg-amber-100 text-amber-600 rounded-xl flex items-center justify-center shrink-0">
+                  <FileText size={18} />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-xs font-bold text-amber-800 uppercase tracking-wider">Firma Pendiente</p>
-                  <p className="text-sm font-black text-amber-900 mt-0.5">
+                  <p className="text-[10px] font-bold text-amber-800 uppercase tracking-wider">Firma Pendiente</p>
+                  <p className="text-xs font-black text-amber-900 mt-0.5">
                     Tiene {pendingDocsCount} {pendingDocsCount === 1 ? 'documento pendiente' : 'documentos pendientes'} de firma.
                   </p>
                 </div>
-                <ChevronRight className="text-amber-500" size={20} />
+                <ChevronRight className="text-amber-500" size={16} />
               </button>
             )}
 

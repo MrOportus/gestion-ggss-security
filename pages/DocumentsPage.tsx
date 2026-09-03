@@ -24,6 +24,9 @@ import {
     Settings,
     Save,
     Edit3,
+    ZoomIn,
+    ZoomOut,
+    Minimize2,
 } from 'lucide-react';
 import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
 import { Document, Page, pdfjs } from 'react-pdf';
@@ -72,6 +75,7 @@ const DocumentsPage: React.FC = () => {
     // Visualizador de PDF
     const [viewingDoc, setViewingDoc] = useState<DigitalDocument | null>(null);
     const [numPages, setNumPages] = useState<number | null>(null);
+    const [pdfZoom, setPdfZoom] = useState<number>(1.0);
 
     // Firma masiva (Worker)
     const [isBulkSigning, setIsBulkSigning] = useState(false);
@@ -1594,22 +1598,56 @@ const DocumentsPage: React.FC = () => {
                 <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-md z-[100] flex items-center justify-center p-0 md:p-4 animate-in fade-in duration-300">
                     <div className="bg-white rounded-none md:rounded-[2.5rem] w-full max-w-4xl h-full md:h-[90vh] shadow-2xl overflow-hidden flex flex-col animate-in zoom-in-95 duration-300">
                         {/* Header */}
-                        <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-white shrink-0">
-                            <div>
-                                <h2 className="text-base font-black text-slate-800 tracking-tight truncate max-w-md">{viewingDoc.title}</h2>
+                        <div className="p-4 md:p-6 border-b border-slate-100 flex justify-between items-center bg-white shrink-0 gap-3">
+                            <div className="min-w-0 flex-1">
+                                <h2 className="text-base font-black text-slate-800 tracking-tight truncate">{viewingDoc.title}</h2>
                                 <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest leading-none mt-1">Revisión de Documento</p>
                             </div>
+                            {/* Zoom Controls */}
+                            <div className="flex items-center gap-1 bg-slate-100 rounded-2xl p-1 shrink-0">
+                                <button
+                                    onClick={() => setPdfZoom(z => Math.max(0.5, parseFloat((z - 0.25).toFixed(2))))}
+                                    disabled={pdfZoom <= 0.5}
+                                    title="Reducir zoom"
+                                    className="p-2 hover:bg-white rounded-xl transition-all text-slate-600 disabled:opacity-30 disabled:cursor-not-allowed active:scale-90"
+                                >
+                                    <ZoomOut size={16} />
+                                </button>
+                                <button
+                                    onClick={() => setPdfZoom(1.0)}
+                                    title="Restablecer zoom"
+                                    className="px-2 py-1.5 hover:bg-white rounded-xl transition-all text-[11px] font-black text-slate-600 min-w-[44px] text-center active:scale-90"
+                                >
+                                    {Math.round(pdfZoom * 100)}%
+                                </button>
+                                <button
+                                    onClick={() => setPdfZoom(z => Math.min(3.0, parseFloat((z + 0.25).toFixed(2))))}
+                                    disabled={pdfZoom >= 3.0}
+                                    title="Aumentar zoom"
+                                    className="p-2 hover:bg-white rounded-xl transition-all text-slate-600 disabled:opacity-30 disabled:cursor-not-allowed active:scale-90"
+                                >
+                                    <ZoomIn size={16} />
+                                </button>
+                            </div>
                             <button
-                                onClick={() => { setViewingDoc(null); setNumPages(null); }}
-                                className="p-2 hover:bg-slate-100 rounded-full transition-colors text-slate-400"
+                                onClick={() => { setViewingDoc(null); setNumPages(null); setPdfZoom(1.0); }}
+                                className="p-2 hover:bg-slate-100 rounded-full transition-colors text-slate-400 shrink-0"
                             >
                                 <X size={24} />
                             </button>
                         </div>
 
                         {/* PDF Viewer Scrollable */}
-                        <div className="flex-1 overflow-y-auto bg-slate-100 p-4 flex justify-center">
-                            <div className="w-full max-w-2xl">
+                        {/* NOTA: NO usar flex+justify-center aquí — cuando el contenido desborda,
+                             el scroll solo cubre el lado derecho y el izquierdo queda cortado.
+                             Usamos min-width:100% + margin:auto en el hijo para centrar sin ese bug. */}
+                        <div className="flex-1 overflow-auto bg-slate-100 p-4">
+                            <div style={{
+                                width: `${Math.max(window.innerWidth < 768 ? (window.innerWidth - 32) : 700, 1) * pdfZoom}px`,
+                                minWidth: 'min-content',
+                                margin: '0 auto',
+                                transition: 'width 0.2s ease',
+                            }}>
                                 <Document
                                     file={viewingDoc.originalUrl}
                                     onLoadSuccess={({ numPages }) => setNumPages(numPages)}
@@ -1624,7 +1662,7 @@ const DocumentsPage: React.FC = () => {
                                         <div key={`viewpage_${index}`} className="relative mb-6 shadow-lg rounded-lg overflow-hidden flex flex-col items-center bg-white">
                                             <Page
                                                 pageNumber={index + 1}
-                                                width={window.innerWidth < 768 ? window.innerWidth - 32 : 700}
+                                                width={(window.innerWidth < 768 ? window.innerWidth - 32 : 700) * pdfZoom}
                                                 renderAnnotationLayer={false}
                                                 renderTextLayer={false}
                                             />
@@ -1635,25 +1673,31 @@ const DocumentsPage: React.FC = () => {
                         </div>
 
                         {/* Footer */}
-                        <div className="p-6 border-t border-slate-100 bg-white flex flex-col sm:flex-row justify-end gap-3 shrink-0">
-                            <button
-                                onClick={() => { setViewingDoc(null); setNumPages(null); }}
-                                className="px-6 py-3 border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-2xl font-black text-xs uppercase tracking-widest active:scale-95 transition-all"
-                            >
-                                Cerrar
-                            </button>
-                            {viewingDoc.status === 'pending' && (
+                        <div className="p-4 md:p-6 border-t border-slate-100 bg-white flex flex-col sm:flex-row justify-between items-center gap-3 shrink-0">
+                            <p className="text-[10px] text-slate-400 font-bold hidden sm:block">
+                                💡 Usa los botones <strong>+</strong> / <strong>−</strong> para ampliar el documento
+                            </p>
+                            <div className="flex gap-3 w-full sm:w-auto">
                                 <button
-                                    onClick={() => {
-                                        setViewingDoc(null);
-                                        setNumPages(null);
-                                        handleSignIndividual(viewingDoc);
-                                    }}
-                                    className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl shadow-blue-200 active:scale-95 transition-all flex items-center justify-center gap-2"
+                                    onClick={() => { setViewingDoc(null); setNumPages(null); setPdfZoom(1.0); }}
+                                    className="flex-1 sm:flex-none px-6 py-3 border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-2xl font-black text-xs uppercase tracking-widest active:scale-95 transition-all"
                                 >
-                                    <PenTool size={14} /> Firmar Documento
+                                    Cerrar
                                 </button>
-                            )}
+                                {viewingDoc.status === 'pending' && (
+                                    <button
+                                        onClick={() => {
+                                            setViewingDoc(null);
+                                            setNumPages(null);
+                                            setPdfZoom(1.0);
+                                            handleSignIndividual(viewingDoc);
+                                        }}
+                                        className="flex-1 sm:flex-none px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl shadow-blue-200 active:scale-95 transition-all flex items-center justify-center gap-2"
+                                    >
+                                        <PenTool size={14} /> Firmar Documento
+                                    </button>
+                                )}
+                            </div>
                         </div>
                     </div>
                 </div>
