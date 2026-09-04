@@ -87,6 +87,8 @@ const WorkerAttendance: React.FC = () => {
     return digitalDocuments.filter(d => d.assignedTo === currentUser?.uid && d.status === 'pending').length;
   }, [digitalDocuments, currentUser]);
 
+  const showSignatureGuide = pendingDocsCount > 0 && employee && !employee.signatureUrl;
+
   const [step, setStep] = useState<'status' | 'success' | 'rounds' | 'settings' | 'documents' | 'company_docs' | 'market' | 'my_extra_shifts' | 'my_fixed_shifts' | 'incidencias'>('status');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [lastAction, setLastAction] = useState<'check_in' | 'check_out' | null>(null);
@@ -830,6 +832,15 @@ const WorkerAttendance: React.FC = () => {
                 {pendingDocsCount > 0 && (
                   <span className="absolute top-2 right-2 w-3 h-3 bg-amber-500 border-2 border-blue-800 rounded-full animate-ping"></span>
                 )}
+                {/* GUÍA DE FIRMA: PASO 1 */}
+                {showSignatureGuide && !isSidebarOpen && (
+                  <div className="absolute top-full mt-4 left-0 w-max z-50 animate-bounce">
+                    <div className="bg-blue-600 text-white text-xs font-black px-4 py-2.5 rounded-xl shadow-2xl relative">
+                      👆 1. Abre el menú para registrar tu firma
+                      <div className="absolute -top-1.5 left-5 w-3 h-3 bg-blue-600 transform rotate-45"></div>
+                    </div>
+                  </div>
+                )}
               </button>
               <div>
                 <h1 className="text-sm font-black tracking-tighter opacity-70">GGSS SECURITY</h1>
@@ -1438,13 +1449,24 @@ const WorkerAttendance: React.FC = () => {
                         </p>
                       </div>
 
-                      <button
-                        onClick={() => setShowSignatureModal(true)}
-                        className="w-full py-4 rounded-2xl bg-blue-600 text-white font-black text-sm uppercase tracking-widest shadow-lg shadow-blue-200 active:scale-[0.98] transition-all flex items-center justify-center gap-2"
-                      >
-                        <PenTool size={16} />
-                        Registrar Mi Firma
-                      </button>
+                      <div className="relative">
+                        {/* GUÍA DE FIRMA: PASO 3 */}
+                        {showSignatureGuide && step === 'settings' && (
+                          <div className="absolute bottom-full mb-4 left-1/2 -translate-x-1/2 w-max z-50 animate-bounce pointer-events-none">
+                            <div className="bg-blue-600 text-white text-xs font-black px-4 py-2.5 rounded-xl shadow-2xl relative">
+                              👇 3. Registra tu firma aquí
+                              <div className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-3 h-3 bg-blue-600 transform rotate-45"></div>
+                            </div>
+                          </div>
+                        )}
+                        <button
+                          onClick={() => setShowSignatureModal(true)}
+                          className="w-full py-4 rounded-2xl bg-blue-600 text-white font-black text-sm uppercase tracking-widest shadow-lg shadow-blue-200 active:scale-[0.98] transition-all flex items-center justify-center gap-2"
+                        >
+                          <PenTool size={16} />
+                          Registrar Mi Firma
+                        </button>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -1764,13 +1786,22 @@ const WorkerAttendance: React.FC = () => {
 
             <button
               onClick={() => { setStep('settings'); setIsSidebarOpen(false); }}
-              className={`w-full p-4 rounded-2xl flex items-center justify-between transition-all ${step === 'settings' ? 'bg-blue-50 text-blue-600' : 'text-slate-600 hover:bg-slate-50'}`}
+              className={`w-full p-4 rounded-2xl flex items-center justify-between transition-all relative ${step === 'settings' ? 'bg-blue-50 text-blue-600' : 'text-slate-600 hover:bg-slate-50'}`}
             >
               <div className="flex items-center gap-3">
                 <Settings size={22} className={step === 'settings' ? 'text-blue-600' : 'text-slate-400'} />
                 <span className="font-bold">Mi Perfil</span>
               </div>
               <ChevronRight size={16} className="opacity-30" />
+              {/* GUÍA DE FIRMA: PASO 2 */}
+              {showSignatureGuide && isSidebarOpen && step !== 'settings' && (
+                <div className="absolute bottom-full mb-1 right-2 w-max z-50 animate-bounce pointer-events-none">
+                  <div className="bg-blue-600 text-white text-xs font-black px-4 py-2.5 rounded-xl shadow-2xl relative">
+                    👇 2. Entra a tu perfil
+                    <div className="absolute -bottom-1.5 right-6 w-3 h-3 bg-blue-600 transform rotate-45"></div>
+                  </div>
+                </div>
+              )}
             </button>
           </div>
 
