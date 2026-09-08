@@ -451,6 +451,7 @@ const LibroNovedades = ({ allowedSites, guardRounds, novedades, allowedSiteIds }
     const [tipoFilter, setTipoFilter] = useState('all');
     const [siteFilter, setSiteFilter] = useState('all');
     const [prioridadFilter, setPrioridadFilter] = useState('all');
+    const [searchText, setSearchText] = useState('');
     const [selectedImage, setSelectedImage] = useState<string | null>(null);
     const [page, setPage] = useState(1);
     const itemsPerPage = 20;
@@ -462,7 +463,7 @@ const LibroNovedades = ({ allowedSites, guardRounds, novedades, allowedSiteIds }
 
     useEffect(() => {
         setPage(1);
-    }, [startDate, endDate, tipoFilter, siteFilter, prioridadFilter]);
+    }, [startDate, endDate, tipoFilter, siteFilter, prioridadFilter, searchText]);
 
     // ── Listener en tiempo real — solo mientras el componente esté montado ──
     useEffect(() => {
@@ -550,7 +551,15 @@ const LibroNovedades = ({ allowedSites, guardRounds, novedades, allowedSiteIds }
         const matchTipo = tipoFilter === 'all' || item.tipo === tipoFilter;
         const matchSite = siteFilter === 'all' || item.siteId === siteFilter;
         const matchPrioridad = prioridadFilter === 'all' || item.prioridad === prioridadFilter;
-        return matchDate && matchTipo && matchSite && matchPrioridad;
+        const q = searchText.trim().toLowerCase();
+        const matchSearch = !q || [
+            item.descripcion,
+            item.guardName,
+            item.sucursalName,
+            item.tipo,
+            item.timestamp,
+        ].some(v => v && v.toString().toLowerCase().includes(q));
+        return matchDate && matchTipo && matchSite && matchPrioridad && matchSearch;
     });
 
     const tipoIcon: Record<string, React.ReactNode> = {
@@ -571,49 +580,79 @@ const LibroNovedades = ({ allowedSites, guardRounds, novedades, allowedSiteIds }
                 <h3 className="text-xl font-black text-slate-800">Libro de Novedades</h3>
                 <p className="text-sm text-slate-400 mt-0.5">Registro cronológico de rondas y eventos operacionales</p>
             </div>
-            <div className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm flex flex-wrap gap-3 items-end">
-                <div>
-                    <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Desde</label>
-                    <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)}
-                        className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-700 focus:ring-2 focus:ring-blue-500 outline-none" />
+            <div className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm flex flex-col gap-3">
+                {/* ── Búsqueda de texto libre ── */}
+                <div className="relative">
+                    <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                    <input
+                        type="text"
+                        placeholder="Buscar por patente, descripción, guardia, instalación..."
+                        value={searchText}
+                        onChange={e => setSearchText(e.target.value)}
+                        className="w-full pl-9 pr-10 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-700 placeholder:text-slate-400 focus:ring-2 focus:ring-blue-500 focus:border-blue-400 outline-none transition-all"
+                    />
+                    {searchText && (
+                        <button
+                            onClick={() => setSearchText('')}
+                            className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors text-lg leading-none"
+                            title="Limpiar búsqueda"
+                        >
+                            &times;
+                        </button>
+                    )}
                 </div>
-                <div>
-                    <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Hasta</label>
-                    <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)}
-                        className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-700 focus:ring-2 focus:ring-blue-500 outline-none" />
+                {/* ── Filtros secundarios ── */}
+                <div className="flex flex-wrap gap-3 items-end">
+                    <div>
+                        <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Desde</label>
+                        <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)}
+                            className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-700 focus:ring-2 focus:ring-blue-500 outline-none" />
+                    </div>
+                    <div>
+                        <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Hasta</label>
+                        <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)}
+                            className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-700 focus:ring-2 focus:ring-blue-500 outline-none" />
+                    </div>
+                    <div>
+                        <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Tipo</label>
+                        <select value={tipoFilter} onChange={e => setTipoFilter(e.target.value)}
+                            className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-700 focus:ring-2 focus:ring-blue-500 outline-none">
+                            <option value="all">Todos los tipos</option>
+                            <option value="ronda">Ronda</option>
+                            <option value="incidente">Incidente</option>
+                            <option value="alerta">Alerta</option>
+                            <option value="novedad">Novedad</option>
+                            <option value="otro">Otro</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Prioridad</label>
+                        <select value={prioridadFilter} onChange={e => setPrioridadFilter(e.target.value)}
+                            className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-700 focus:ring-2 focus:ring-blue-500 outline-none">
+                            <option value="all">Todas</option>
+                            <option value="informativa">Informativa</option>
+                            <option value="media">Media</option>
+                            <option value="alta">Alta</option>
+                            <option value="critica">Crítica</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Instalación</label>
+                        <select value={siteFilter} onChange={e => setSiteFilter(e.target.value)}
+                            className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-700 focus:ring-2 focus:ring-blue-500 outline-none">
+                            <option value="all">Todas</option>
+                            {allowedSites.map((s: any) => <option key={s.id} value={String(s.id)}>{s.name}</option>)}
+                        </select>
+                    </div>
+                    <div className="ml-auto flex items-center gap-2 self-end pb-0.5">
+                        {searchText && (
+                            <span className="text-[10px] font-black text-blue-600 bg-blue-50 px-2 py-1 rounded-lg">
+                                &ldquo;{searchText}&rdquo;
+                            </span>
+                        )}
+                        <span className="text-[10px] font-bold text-slate-400">{filtered.length} registros</span>
+                    </div>
                 </div>
-                <div>
-                    <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Tipo</label>
-                    <select value={tipoFilter} onChange={e => setTipoFilter(e.target.value)}
-                        className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-700 focus:ring-2 focus:ring-blue-500 outline-none">
-                        <option value="all">Todos los tipos</option>
-                        <option value="ronda">Ronda</option>
-                        <option value="incidente">Incidente</option>
-                        <option value="alerta">Alerta</option>
-                        <option value="novedad">Novedad</option>
-                        <option value="otro">Otro</option>
-                    </select>
-                </div>
-                <div>
-                    <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Prioridad</label>
-                    <select value={prioridadFilter} onChange={e => setPrioridadFilter(e.target.value)}
-                        className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-700 focus:ring-2 focus:ring-blue-500 outline-none">
-                        <option value="all">Todas</option>
-                        <option value="informativa">Informativa</option>
-                        <option value="media">Media</option>
-                        <option value="alta">Alta</option>
-                        <option value="critica">Crítica</option>
-                    </select>
-                </div>
-                <div>
-                    <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Instalación</label>
-                    <select value={siteFilter} onChange={e => setSiteFilter(e.target.value)}
-                        className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-700 focus:ring-2 focus:ring-blue-500 outline-none">
-                        <option value="all">Todas</option>
-                        {allowedSites.map((s: any) => <option key={s.id} value={String(s.id)}>{s.name}</option>)}
-                    </select>
-                </div>
-                <div className="ml-auto text-[10px] font-bold text-slate-400 self-center pt-4">{filtered.length} registros</div>
             </div>
 
             {filtered.length === 0 ? (
@@ -884,16 +923,16 @@ const RegistroRondas = ({ allowedSites, guardRounds, showConfirmation }: any) =>
 
             {totalPages > 1 && (
                 <div className="flex justify-between items-center bg-white p-4 rounded-2xl border border-slate-100 shadow-sm mt-4">
-                    <button 
-                        onClick={() => setPage(p => Math.max(1, p - 1))} 
+                    <button
+                        onClick={() => setPage(p => Math.max(1, p - 1))}
                         disabled={page === 1}
                         className="px-4 py-2 bg-slate-50 text-slate-600 rounded-xl disabled:opacity-50 font-bold text-sm hover:bg-slate-100 transition-colors"
                     >
                         Anterior
                     </button>
                     <span className="text-sm font-bold text-slate-500">Página {page} de {totalPages}</span>
-                    <button 
-                        onClick={() => setPage(p => Math.min(totalPages, p + 1))} 
+                    <button
+                        onClick={() => setPage(p => Math.min(totalPages, p + 1))}
                         disabled={page === totalPages}
                         className="px-4 py-2 bg-slate-50 text-slate-600 rounded-xl disabled:opacity-50 font-bold text-sm hover:bg-slate-100 transition-colors"
                     >
@@ -923,29 +962,98 @@ const generatePDF = (tipo: string, rounds: any[], novedades: any[], siteName: st
     });
     const gStats = Object.values(guardMap).sort((a: any, b: any) => b.total - a.total);
     const totalCN = rounds.filter((r: any) => r.result !== 'SIN_NOVEDAD').length;
-    const avgMin = gStats.filter((g: any) => g.completadas > 0).length > 0
-        ? Math.round(gStats.filter((g: any) => g.completadas > 0).reduce((acc: any, g: any) => acc + g.totalMin / g.completadas, 0) / gStats.filter((g: any) => g.completadas > 0).length) : 0;
+
+    const isInformativa = (n: any) => {
+        const p = (n.prioridad || '').toLowerCase();
+        return p === 'informativa' || p === '';
+    };
+    const novedadesInformativas = novedades.filter(isInformativa);
+    const novedadesReales = novedades.filter((n: any) => !isInformativa(n));
 
     const timeline = [
-        ...rounds.map((r: any) => ({ ts: r.startTime, tipo: 'Ronda', guard: r.workerName, site: r.siteName, desc: r.notes || 'Sin observaciones.', res: r.result })),
-        ...novedades.map((n: any) => ({ 
-            ts: n.fechaHoraDispositivo || n.timestamp || n.createdAt || '', 
-            tipo: n.tipoRegistro || n.tipo || 'N/A', 
-            guard: n.autorNombre || n.guardName || 'Sistema', 
-            site: n.siteName || n.sucursalNombre || n.sucursalName || 'Instalación', 
-            desc: n.descripcion || n.detalles || 'Sin descripción', 
-            res: n.estado || n.resultado || '' 
+        ...rounds.map((r: any) => ({
+            ts: r.startTime, tipo: 'Ronda', guard: r.workerName,
+            site: r.siteName, desc: r.notes || 'Sin observaciones.',
+            res: r.result, prioridad: null
+        })),
+        ...novedades.map((n: any) => ({
+            ts: n.fechaHoraDispositivo || n.timestamp || n.createdAt || '',
+            tipo: n.tipoRegistro || n.tipo || 'N/A',
+            guard: n.autorNombre || n.guardName || 'Sistema',
+            site: n.siteName || n.sucursalNombre || n.sucursalName || 'Instalación',
+            desc: n.descripcion || n.detalles || 'Sin descripción',
+            res: n.estado || n.resultado || '',
+            prioridad: (n.prioridad || '').toLowerCase()
         }))
     ].sort((a, b) => b.ts.localeCompare(a.ts));
 
-    const css = `@page{size:A4;margin:20mm 15mm}*{box-sizing:border-box;margin:0;padding:0}body{font-family:'Helvetica Neue',Arial,sans-serif;font-size:11px;color:#1e293b}.hdr{background:#1e3a5f;color:#fff;padding:20px 24px;border-radius:8px;margin-bottom:20px;display:flex;justify-content:space-between}.hdr h1{font-size:20px;font-weight:900}.hdr p{font-size:10px;opacity:.7;margin-top:2px}.hdr .meta{text-align:right;font-size:10px;opacity:.8;line-height:1.6}.stitle{font-size:12px;font-weight:900;text-transform:uppercase;letter-spacing:1px;color:#64748b;border-bottom:2px solid #e2e8f0;padding-bottom:6px;margin:20px 0 12px}.sg{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:20px}.sb{background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:12px;text-align:center}.sb .n{font-size:28px;font-weight:900;color:#1e293b;line-height:1}.sb .l{font-size:9px;font-weight:700;text-transform:uppercase;color:#94a3b8;margin-top:4px}.sb.g .n{color:#16a34a}.sb.r .n{color:#dc2626}.sb.b .n{color:#2563eb}table{width:100%;border-collapse:collapse;font-size:10px}th{background:#f1f5f9;font-weight:900;text-transform:uppercase;font-size:9px;color:#64748b;padding:8px 10px;text-align:left}td{padding:7px 10px;border-bottom:1px solid #f1f5f9}tr:nth-child(even) td{background:#fafafa}.badge{display:inline-block;padding:2px 6px;border-radius:4px;font-size:8px;font-weight:900;text-transform:uppercase}.sin{background:#dcfce7;color:#15803d}.con{background:#fee2e2;color:#dc2626}.sos{background:#fef3c7;color:#d97706}.rnd{background:#dbeafe;color:#1d4ed8}.otr{background:#f1f5f9;color:#64748b}.ti{display:flex;gap:10px;padding:8px 0;border-bottom:1px solid #f1f5f9}.td{width:80px;font-weight:700;color:#64748b;font-size:9px}.dot{width:8px;height:8px;border-radius:50%;background:#3b82f6;margin-top:4px;flex-shrink:0}.dot.r{background:#ef4444}.dot.g{background:#22c55e}.dot.a{background:#f59e0b}.ftr{margin-top:24px;padding-top:12px;border-top:1px solid #e2e8f0;display:flex;justify-content:space-between;font-size:9px;color:#94a3b8}@media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact}}`;
+    const novBadgeClass = (p: string) => {
+        if (p === 'critica') return 'nov-crit';
+        if (p === 'alta') return 'nov-alta';
+        if (p === 'media') return 'nov-media';
+        return 'nov-info';
+    };
+    const novDotClass = (p: string) => {
+        if (p === 'critica') return 'r';
+        if (p === 'alta' || p === 'media') return 'a';
+        return 'b';
+    };
+    const novLabel = (p: string) => {
+        if (p === 'critica') return 'NOVEDAD CRÍTICA';
+        if (p === 'alta') return 'NOVEDAD ALTA';
+        if (p === 'media') return 'NOVEDAD MEDIA';
+        return 'REGISTRO';
+    };
+
+    const css = `@page{size:A4;margin:20mm 15mm}*{box-sizing:border-box;margin:0;padding:0}body{font-family:'Helvetica Neue',Arial,sans-serif;font-size:11px;color:#1e293b}.hdr{background:#1e3a5f;color:#fff;padding:20px 24px;border-radius:8px;margin-bottom:20px;display:flex;justify-content:space-between}.hdr h1{font-size:20px;font-weight:900}.hdr p{font-size:10px;opacity:.7;margin-top:2px}.hdr .meta{text-align:right;font-size:10px;opacity:.8;line-height:1.6}.stitle{font-size:12px;font-weight:900;text-transform:uppercase;letter-spacing:1px;color:#64748b;border-bottom:2px solid #e2e8f0;padding-bottom:6px;margin:20px 0 12px}.sg{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:20px}.sb{background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:12px;text-align:center}.sb .n{font-size:22px;font-weight:900;color:#1e293b;line-height:1}.sb .l{font-size:9px;font-weight:700;text-transform:uppercase;color:#94a3b8;margin-top:4px}.sb.g .n{color:#16a34a}.sb.r .n{color:#dc2626}.sb.b .n{color:#2563eb}.sb.o .n{color:#ea580c}table{width:100%;border-collapse:collapse;font-size:10px}th{background:#f1f5f9;font-weight:900;text-transform:uppercase;font-size:9px;color:#64748b;padding:8px 10px;text-align:left}td{padding:7px 10px;border-bottom:1px solid #f1f5f9}tr:nth-child(even) td{background:#fafafa}.badge{display:inline-block;padding:2px 6px;border-radius:4px;font-size:8px;font-weight:900;text-transform:uppercase}.sin{background:#dcfce7;color:#15803d}.con{background:#fee2e2;color:#dc2626}.sos{background:#fef3c7;color:#d97706}.rnd{background:#dbeafe;color:#1d4ed8}.otr{background:#f1f5f9;color:#64748b}.nov-info{background:#dbeafe;color:#1d4ed8}.nov-media{background:#ffedd5;color:#c2410c}.nov-alta{background:#fed7aa;color:#9a3412}.nov-crit{background:#fee2e2;color:#b91c1c}.ti{display:flex;gap:10px;padding:8px 0;border-bottom:1px solid #f1f5f9}.td{width:80px;font-weight:700;color:#64748b;font-size:9px}.dot{width:8px;height:8px;border-radius:50%;background:#3b82f6;margin-top:4px;flex-shrink:0}.dot.r{background:#ef4444}.dot.g{background:#22c55e}.dot.a{background:#f59e0b}.dot.b{background:#3b82f6}.ftr{margin-top:24px;padding-top:12px;border-top:1px solid #e2e8f0;display:flex;justify-content:space-between;font-size:9px;color:#94a3b8}@media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact}}`;
 
     let body = '';
     if (tipo === 'resumen_ejecutivo') {
-        const incidenciasTimeline = timeline.filter((item: any) => item.res !== 'SIN_NOVEDAD' && item.res !== 'RESUELTO').slice(0, 25);
-        body = `<div class="sg"><div class="sb b"><div class="n">${rounds.length}</div><div class="l">Total Rondas</div></div><div class="sb g"><div class="n">${rounds.length - totalCN}</div><div class="l">Sin Novedad</div></div><div class="sb r"><div class="n">${totalCN + novedades.length}</div><div class="l">Con Novedad</div></div><div class="sb"><div class="n">${avgMin}</div><div class="l">Min. Promedio</div></div></div><div class="stitle">Rendimiento por Guardia</div><table><thead><tr><th>Guardia</th><th style="text-align:center">Rondas</th><th style="text-align:center">Sin Nov.</th><th style="text-align:center">Con Nov.</th><th style="text-align:center">Prom. Duración</th></tr></thead><tbody>${gStats.map((g: any) => `<tr><td><strong>${g.name}</strong></td><td style="text-align:center"><strong>${g.total}</strong></td><td style="text-align:center"><span class="badge sin">${g.sinNovedad}</span></td><td style="text-align:center"><span class="badge con">${g.conNovedad}</span></td><td style="text-align:center">${g.completadas > 0 ? Math.round(g.totalMin / g.completadas) + ' min' : '—'}</td></tr>`).join('')}</tbody></table><div class="stitle" style="margin-top:24px">Últimas Incidencias y Novedades</div><table><thead><tr><th>Fecha / Hora</th><th>Guardia</th><th>Instalación</th><th>Resultado / Tipo</th><th>Observación</th></tr></thead><tbody>${incidenciasTimeline.map((item: any) => `<tr><td>${fD(item.ts)} ${fT(item.ts)}</td><td>${item.guard}</td><td>${item.site}</td><td><span class="badge ${item.res === 'CON_NOVEDAD' || !item.res ? 'con' : 'sos'}">${item.res ? item.res.replace('_', ' ') : item.tipo}</span></td><td>${(item.desc || '—').substring(0, 55)}</td></tr>`).join('') || '<tr><td colspan="5" style="text-align:center;color:#94a3b8">Sin incidencias</td></tr>'}</tbody></table>`;
+        const incidenciasTimeline = timeline.filter((item: any) => {
+            if (item.res === 'RESUELTO') return false;
+            if ((item.tipo === 'Ronda' || item.tipo === 'ronda') && item.res === 'SIN_NOVEDAD') return false;
+            return true;
+        }).slice(0, 30);
+
+        body = `<div class="sg">
+<div class="sb b"><div class="n">${rounds.length}</div><div class="l">Total Rondas</div></div>
+<div class="sb g"><div class="n">${rounds.length - totalCN}</div><div class="l">Sin Novedad</div></div>
+<div class="sb r"><div class="n">${totalCN}</div><div class="l">Con Novedad</div></div>
+<div class="sb o"><div class="n">${novedadesReales.length}</div><div class="l">Novedades</div></div>
+<div class="sb b"><div class="n">${novedadesInformativas.length}</div><div class="l">Reg. Informativos</div></div>
+</div>
+<div class="stitle">Rendimiento por Guardia</div>
+<table><thead><tr><th>Guardia</th><th style="text-align:center">Rondas</th><th style="text-align:center">Sin Nov.</th><th style="text-align:center">Con Nov.</th><th style="text-align:center">Prom. Duración</th></tr></thead><tbody>
+${gStats.map((g: any) => `<tr><td><strong>${g.name}</strong></td><td style="text-align:center"><strong>${g.total}</strong></td><td style="text-align:center"><span class="badge sin">${g.sinNovedad}</span></td><td style="text-align:center"><span class="badge con">${g.conNovedad}</span></td><td style="text-align:center">${g.completadas > 0 ? Math.round(g.totalMin / g.completadas) + ' min' : '—'}</td></tr>`).join('')}
+</tbody></table>
+<div class="stitle" style="margin-top:24px">Últimas Incidencias y Novedades</div>
+<table><thead><tr><th>Fecha / Hora</th><th>Guardia</th><th>Instalación</th><th>Resultado / Tipo</th><th>Observación</th></tr></thead><tbody>
+${incidenciasTimeline.map((item: any) => {
+    let bc: string; let lbl: string;
+    if (item.tipo === 'Ronda' || item.tipo === 'ronda') {
+        bc = item.res === 'CON_NOVEDAD' ? 'con' : item.res === 'SOSPECHA' ? 'sos' : 'rnd';
+        lbl = item.res ? item.res.replace(/_/g, ' ') : 'RONDA';
     } else {
-        body = `<div class="stitle">Registro Cronológico (${timeline.length} eventos)</div>${timeline.map((item: any) => { const dc = item.res === 'SIN_NOVEDAD' ? 'g' : item.res === 'CON_NOVEDAD' ? 'r' : item.tipo !== 'ronda' && item.tipo !== 'Ronda' ? 'a' : ''; const bc = item.tipo === 'Ronda' || item.tipo === 'ronda' ? 'rnd' : item.res === 'CON_NOVEDAD' ? 'con' : item.res === 'SIN_NOVEDAD' ? 'sin' : 'otr'; return `<div class="ti"><div class="td">${fD(item.ts)}<br/>${fT(item.ts)}</div><div class="dot ${dc}"></div><div style="flex:1"><div style="display:flex;gap:6px;align-items:center;margin-bottom:2px"><span class="badge ${bc}">${item.tipo}</span><strong style="font-size:10px">${item.guard}</strong><span style="color:#94a3b8;font-size:9px">· ${item.site}</span>${item.res ? `<span class="badge ${item.res === 'SIN_NOVEDAD' ? 'sin' : item.res === 'CON_NOVEDAD' ? 'con' : 'sos'}">${item.res.replace('_', ' ')}</span>` : ''}</div><div style="color:#475569;font-size:10px">${item.desc}</div></div></div>`; }).join('')}`;
+        bc = novBadgeClass(item.prioridad || '');
+        lbl = novLabel(item.prioridad || '');
+    }
+    return `<tr><td>${fD(item.ts)} ${fT(item.ts)}</td><td>${item.guard}</td><td>${item.site}</td><td><span class="badge ${bc}">${lbl}</span></td><td>${(item.desc || '—').substring(0, 55)}</td></tr>`;
+}).join('') || '<tr><td colspan="5" style="text-align:center;color:#94a3b8">Sin incidencias</td></tr>'}
+</tbody></table>`;
+    } else {
+        body = `<div class="stitle">Registro Cronológico (${timeline.length} eventos)</div>
+${timeline.map((item: any) => {
+    let dotC: string; let badgeC: string; let displayLabel: string; let resTag = '';
+    if (item.tipo === 'Ronda' || item.tipo === 'ronda') {
+        dotC = item.res === 'SIN_NOVEDAD' ? 'g' : item.res === 'CON_NOVEDAD' ? 'r' : 'a';
+        badgeC = 'rnd'; displayLabel = 'RONDA';
+        resTag = item.res ? `<span class="badge ${item.res === 'SIN_NOVEDAD' ? 'sin' : item.res === 'CON_NOVEDAD' ? 'con' : 'sos'}">${item.res.replace(/_/g, ' ')}</span>` : '';
+    } else {
+        const p = item.prioridad || '';
+        dotC = novDotClass(p); badgeC = novBadgeClass(p); displayLabel = novLabel(p);
+    }
+    return `<div class="ti"><div class="td">${fD(item.ts)}<br/>${fT(item.ts)}</div><div class="dot ${dotC}"></div><div style="flex:1"><div style="display:flex;gap:6px;align-items:center;margin-bottom:2px"><span class="badge ${badgeC}">${displayLabel}</span><strong style="font-size:10px">${item.guard}</strong><span style="color:#94a3b8;font-size:9px">· ${item.site}</span>${resTag}</div><div style="color:#475569;font-size:10px">${item.desc}</div></div></div>`;
+}).join('')}`;
     }
 
     const html = `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><title>Reporte Aspro - ${fD(new Date().toISOString())}</title><style>${css}</style></head><body><div class="hdr"><div><h1>REPORTE ASPRO</h1><p>${tipo === 'resumen_ejecutivo' ? 'Métricas de Rondas, incidencias y estadísticas' : 'Libro de Novedades'}</p><p style="margin-top:6px;font-size:11px;opacity:.9">${siteName}</p></div><div class="meta"><div>Período: ${fD(startDate + 'T12:00')} — ${fD(endDate + 'T12:00')}</div><div>Generado: ${now}</div><div>Total eventos incluidos: ${timeline.length}</div></div></div>${body}<div class="ftr"><span>Reporte Aspro</span><span>Generado automáticamente · ${now}</span></div></body></html>`;
@@ -1044,22 +1152,10 @@ const Reportes = ({ allowedSites, guardRounds, novedades }: any) => {
                     >
                         <Download size={18} /> Generar y Descargar PDF
                     </button>
-                    <p className="text-center text-[10px] text-slate-400 mt-2">Se abrirá el diálogo de impresión — selecciona "Guardar como PDF"</p>
+                    <p className="text-center text-sm font-bold text-blue-600 mt-3">Se abrirá el diálogo de impresión — selecciona "Guardar como PDF"</p>
                 </div>
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 max-w-2xl">
-                {[
-                    { label: 'Evidencias Fotográficas', icon: <Camera size={20} /> },
-                    { label: 'KPIs Mensuales Comparativos', icon: <TrendingUp size={20} /> },
-                    { label: 'Mapa de Rondas', icon: <MapPin size={20} /> },
-                ].map(f => (
-                    <div key={f.label} className="bg-slate-50 border border-dashed border-slate-200 rounded-2xl p-4 text-center opacity-60">
-                        <div className="text-slate-300 flex justify-center mb-2">{f.icon}</div>
-                        <p className="text-xs font-bold text-slate-500">{f.label}</p>
-                        <span className="text-[10px] bg-slate-200 text-slate-500 px-2 py-0.5 rounded-full font-bold">Próximamente</span>
-                    </div>
-                ))}
-            </div>
+
         </div>
     );
 };
