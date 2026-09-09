@@ -51,7 +51,8 @@ import RoundsAdminPage from './pages/RoundsAdminPage';
 import ShiftManagement from './pages/ShiftManagement';
 import LoansPage from './pages/LoansPage';
 import DocumentsPage from './pages/DocumentsPage';
-import { StickyNote, Navigation, CalendarDays, Receipt, ShieldCheck, Zap, Info, User } from 'lucide-react';
+import AdminLibroNovedadesPage from './pages/AdminLibroNovedadesPage';
+import { StickyNote, Navigation, CalendarDays, Receipt, ShieldCheck, Zap, Info, User, BookOpen } from 'lucide-react';
 // NOTA: firebase/messaging y lib/firebase.messaging se importan dinámicamente
 // solo en contexto web para evitar interferencia con el plugin nativo de Capacitor
 import PanelAdminSolicitudes from './components/PanelAdminSolicitudes';
@@ -75,7 +76,7 @@ const App: React.FC = () => {
   }
 
   const { currentUser, logout, fetchInitialData, isLoading, initializeAuthListener, registerFCMToken, showNotification, processSyncQueue, authInitialized, showConfirmation } = useAppStore();
-  const [currentView, setCurrentView] = useState<'dashboard' | 'employees' | 'tasks' | 'sites' | 'payments' | 'supervisor_mgmt' | 'mandante_mgmt' | 'notes' | 'attendance' | 'rounds' | 'shift_management' | 'loans' | 'documents' | 'solicitudes_turnos_extra' | 'hr_contracts' | 'attendance_shadow_qa'>('dashboard');
+  const [currentView, setCurrentView] = useState<'dashboard' | 'employees' | 'tasks' | 'sites' | 'payments' | 'supervisor_mgmt' | 'mandante_mgmt' | 'notes' | 'attendance' | 'rounds' | 'shift_management' | 'loans' | 'documents' | 'solicitudes_turnos_extra' | 'hr_contracts' | 'attendance_shadow_qa' | 'libro_novedades'>('dashboard');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   
   const { connected } = useNetworkStatus();
@@ -501,6 +502,13 @@ const App: React.FC = () => {
           </button>
 
           {currentUser.role === 'admin' && (
+            <button onClick={() => setCurrentView('libro_novedades')} className={navItemClass('libro_novedades')}>
+              <BookOpen size={20} />
+              <span className="font-medium">Libro de Novedades</span>
+            </button>
+          )}
+
+          {currentUser.role === 'admin' && (
             <button onClick={() => setCurrentView('rounds')} className={navItemClass('rounds')}>
               <Navigation size={20} />
               <span className="font-medium">Monitoreo Rondas</span>
@@ -591,6 +599,7 @@ const App: React.FC = () => {
                           currentView === 'notes' ? 'Notas y Tareas' :
                             currentView === 'attendance' ? 'Asistencia' :
                               currentView === 'rounds' ? 'Monitoreo Rondas' :
+                                currentView === 'libro_novedades' ? 'Libro de Novedades' :
                                 currentView === 'shift_management' ? 'Gestión de Turnos' :
                                   currentView === 'loans' ? 'Préstamos' :
                                     currentView === 'documents' ? 'Documentos' : 
@@ -671,6 +680,13 @@ const App: React.FC = () => {
               </button>
 
               {currentUser.role === 'admin' && (
+                <button onClick={() => handleNavChange('libro_novedades')} className={mobileNavItemClass('libro_novedades')}>
+                  <div className="flex items-center gap-3"><BookOpen size={20} /> Libro de Novedades</div>
+                  <ChevronRight size={16} className="text-slate-300" />
+                </button>
+              )}
+
+              {currentUser.role === 'admin' && (
                 <button onClick={() => handleNavChange('rounds')} className={mobileNavItemClass('rounds')}>
                   <div className="flex items-center gap-3"><Navigation size={20} /> Monitoreo Rondas</div>
                   <ChevronRight size={16} className="text-slate-300" />
@@ -735,6 +751,7 @@ const App: React.FC = () => {
             )}
             {currentView === 'notes' && <NotesPage />}
             {currentView === 'attendance' && <AttendancePage />}
+            {currentView === 'libro_novedades' && currentUser.role === 'admin' && <AdminLibroNovedadesPage />}
             {currentView === 'rounds' && currentUser.role === 'admin' && <RoundsAdminPage />}
             {currentView === 'supervisor_mgmt' && currentUser.role === 'admin' && <SupervisorManagement />}
             {currentView === 'mandante_mgmt' && currentUser.role === 'admin' && <MandanteManagement />}
