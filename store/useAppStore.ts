@@ -693,6 +693,24 @@ export const useAppStore = create<AppState>()(
              await updateDoc(docRef, data);
           }
 
+          // ── Sincronizar email en Firebase Authentication ──────────────────────
+          // El email es la credencial de login; si cambia en Firestore pero no en
+          // Auth, el trabajador queda bloqueado. Lo sincronizamos via Cloud Function
+          // que usa Admin SDK (único método sin re-autenticación del usuario).
+          if (data.email && data.email !== emp.email) {
+            try {
+              const updateEmailFn = httpsCallable(functions, 'updateEmployeeEmail');
+              await updateEmailFn({ uid: id, newEmail: data.email });
+              console.log(`[updateEmployee] Email de Auth sincronizado para UID ${id}`);
+            } catch (emailError: any) {
+              console.error('[updateEmployee] Error sincronizando email en Auth:', emailError);
+              // Revertir el email en Firestore para mantener consistencia
+              const docRef = doc(db, 'Colaboradores', id);
+              await updateDoc(docRef, { email: emp.email }).catch(() => {});
+              throw new Error('No se pudo actualizar el correo en el sistema de autenticación. El cambio fue revertido.');
+            }
+          }
+
           set((state) => ({
             employees: state.employees.map(e => e.id === id ? { ...e, ...data } : e)
           }));
@@ -700,6 +718,8 @@ export const useAppStore = create<AppState>()(
           console.error("Error updating employee:", error);
           if (error.message === 'RUT_ALREADY_EXISTS') {
             get().showNotification("El RUT ya está registrado en el sistema.", "warning");
+          } else if (error.message?.includes('No se pudo actualizar el correo')) {
+            get().showNotification(error.message, "error");
           }
           throw error;
         }

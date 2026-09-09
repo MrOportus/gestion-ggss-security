@@ -32,6 +32,9 @@ exports.logContractShadowDiagnostic = logContractShadowDiagnostic;
 const { loginWithRut } = require('./src/auth/loginWithRut');
 exports.loginWithRut = loginWithRut;
 
+const { updateEmployeeEmail } = require('./src/auth/updateEmployeeEmail');
+exports.updateEmployeeEmail = updateEmployeeEmail;
+
 const { generateBunnyUploadUrl } = require('./src/bunny/generateBunnyUploadUrl');
 exports.generateBunnyUploadUrl = generateBunnyUploadUrl;
 
