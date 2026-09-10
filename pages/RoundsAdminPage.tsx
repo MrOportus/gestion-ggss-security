@@ -3,7 +3,7 @@ import React, { useState } from 'react';
 import { useAppStore } from '../store/useAppStore';
 import ThumbnailImage from '../components/ThumbnailImage';
 import { db } from '../lib/firebase';
-import { collection, query, where, getDocs, doc, deleteDoc } from 'firebase/firestore';
+import { collection, query, where, getDocs, doc, deleteDoc, updateDoc } from 'firebase/firestore';
 import {
     Navigation,
     Search,
@@ -24,7 +24,7 @@ import {
 import RouteMapModal from '../components/RouteMapModal';
 
 const RoundsAdminPage: React.FC = () => {
-    const { guardRounds, sites, showConfirmation, employees, fetchGuardRounds, showNotification } = useAppStore();
+    const { guardRounds, sites, showConfirmation, employees, fetchGuardRounds, showNotification, currentUser } = useAppStore();
     const [searchTerm, setSearchTerm] = useState('');
     const [notesSearch, setNotesSearch] = useState('');
     const [resultFilter, setResultFilter] = useState<'all' | 'SIN_NOVEDAD' | 'CON_NOVEDAD' | 'SOSPECHA'>('all');
@@ -81,6 +81,45 @@ const RoundsAdminPage: React.FC = () => {
                     setIsDeleting(false);
                     setShowTestModal(false);
                     setSelectedWorkerId('');
+                }
+            }
+        });
+    };
+
+    const handleManualCloseRound = async (roundId: string) => {
+        showConfirmation({
+            title: "Cerrar Ronda Manualmente",
+            message: "¿Estás seguro de que deseas cerrar esta ronda? Se registrará como 'cierre de ronda por sistema'.",
+            onConfirm: async () => {
+                try {
+                    const roundRef = doc(db, 'Rondas', roundId);
+                    await updateDoc(roundRef, {
+                        endTime: new Date().toISOString(),
+                        notes: 'cierre de ronda por sistema.'
+                    });
+                    showNotification("Ronda cerrada exitosamente", "success");
+                    await fetchGuardRounds();
+                } catch (error) {
+                    console.error("Error closing round:", error);
+                    showNotification("Error al cerrar la ronda", "error");
+                }
+            }
+        });
+    };
+
+    const handleDeleteRound = async (roundId: string) => {
+        showConfirmation({
+            title: "Eliminar Ronda",
+            message: "¿Estás seguro de que deseas eliminar permanentemente esta ronda? Esta acción no se puede deshacer.",
+            onConfirm: async () => {
+                try {
+                    const roundRef = doc(db, 'Rondas', roundId);
+                    await deleteDoc(roundRef);
+                    showNotification("Ronda eliminada exitosamente", "success");
+                    await fetchGuardRounds();
+                } catch (error) {
+                    console.error("Error deleting round:", error);
+                    showNotification("Error al eliminar la ronda", "error");
                 }
             }
         });
@@ -309,12 +348,31 @@ const RoundsAdminPage: React.FC = () => {
 
                                         {/* Actions */}
                                         <div className="flex flex-row items-center gap-3 w-full lg:w-auto shrink-0 pr-2">
+                                            {!round.endTime && (
+                                                <button
+                                                    onClick={() => handleManualCloseRound(round.id)}
+                                                    className="flex-1 lg:flex-none inline-flex items-center justify-center gap-2 px-4 py-4 lg:py-3 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-2xl text-[10px] md:text-xs font-black uppercase tracking-widest transition-all active:scale-95 shadow-sm border border-rose-200 shrink-0"
+                                                    title="Cerrar ronda atascada"
+                                                >
+                                                    <ShieldAlert size={14} /> Cerrar
+                                                </button>
+                                            )}
                                             <button
                                                 onClick={() => setSelectedRound(round)}
                                                 className="flex-1 lg:flex-none inline-flex items-center justify-center gap-2 px-6 py-4 lg:py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl text-[10px] md:text-xs font-black uppercase tracking-widest transition-all active:scale-95 shadow-lg shadow-blue-100 shrink-0"
                                             >
                                                 <ExternalLink size={14} /> Ver Recorrido
                                             </button>
+
+                                            {currentUser?.role === 'admin' && (
+                                                <button
+                                                    onClick={() => handleDeleteRound(round.id)}
+                                                    className="inline-flex items-center justify-center p-3 lg:p-2 bg-red-50 hover:bg-red-100 text-red-500 rounded-2xl lg:rounded-xl transition-all active:scale-95 shrink-0"
+                                                    title="Eliminar ronda"
+                                                >
+                                                    <Trash2 size={16} />
+                                                </button>
+                                            )}
 
                                             <div className="hidden xl:block h-10 w-px bg-slate-100 mx-1"></div>
 
