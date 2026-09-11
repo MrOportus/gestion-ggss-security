@@ -843,7 +843,7 @@ const WorkerAttendance: React.FC = () => {
                 )}
               </button>
               <div>
-                <h1 className="text-sm font-black tracking-tighter opacity-70">GGSS SECURITY</h1>
+                <h1 className="text-sm font-black tracking-tighter opacity-70">ASPRO APP</h1>
                 <p className="text-xl font-bold leading-tight">{employee.firstName}</p>
               </div>
             </div>
@@ -1561,7 +1561,7 @@ const WorkerAttendance: React.FC = () => {
       </div>
 
       <div className={`p-6 text-center text-[10px] font-black text-slate-300 uppercase tracking-widest transition-all duration-500 ${step === 'documents' || step === 'company_docs' || step === 'market' || step === 'my_extra_shifts' || step === 'my_fixed_shifts' ? 'opacity-0 h-0 p-0 overflow-hidden' : 'opacity-50'}`}>
-        GGSS Security · Aspro SPA · v{APP_VERSION}
+        ASPRO APP · Aspro SPA · v{APP_VERSION}
       </div>
 
       {/* ══ MODAL DE CONFIRMACIÓN — INICIAR TURNO ══════════════════════ */}
@@ -1823,7 +1823,7 @@ const WorkerAttendance: React.FC = () => {
               <LogOut size={20} />
               Cerrar Sesión
             </button>
-            <p className="text-center text-[8px] font-black text-slate-300 mt-4 uppercase tracking-[0.2em]">GGSS Security v{APP_VERSION}</p>
+            <p className="text-center text-[8px] font-black text-slate-300 mt-4 uppercase tracking-[0.2em]">ASPRO APP v{APP_VERSION}</p>
           </div>
         </div>
       </div>

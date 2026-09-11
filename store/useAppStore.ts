@@ -250,10 +250,12 @@ export const useAppStore = create<AppState>()(
         set({ isSyncing: true });
 
         try {
-          const pending = await SyncQueueService.getPending();
-          console.log(`[SyncQueue] Procesando ${pending.length} elementos pendientes...`);
+          let pending = await SyncQueueService.getPending();
+          
+          while (pending.length > 0) {
+            console.log(`[SyncQueue] Procesando ${pending.length} elementos pendientes...`);
 
-          for (const item of pending) {
+            for (const item of pending) {
             try {
               if (item.actionType === 'ADD_ROUND') {
                 // La ronda base debe sincronizarse antes que sus actualizaciones.
@@ -354,7 +356,7 @@ export const useAppStore = create<AppState>()(
 
             } catch (err: any) {
               console.error(`[SyncQueue] Error procesando item ${item.id} (${item.actionType}):`, err);
-              await SyncQueueService.incrementRetry(item);
+              await SyncQueueService.incrementRetry(item, err?.message || String(err));
 
               // Detener la cola para ADD_ROUND y ADD_NOVEDAD (dependencias de orden).
               // Para el resto: continuar con los demás items independientes.
@@ -362,7 +364,12 @@ export const useAppStore = create<AppState>()(
                 break;
               }
             }
-          }
+          } // End of for loop
+          
+          // Re-evaluate pending in case new items were queued while processing the previous batch
+          pending = await SyncQueueService.getPending();
+        } // End of while loop
+        
         } finally {
           set({ isSyncing: false });
         }

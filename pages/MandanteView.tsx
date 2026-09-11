@@ -1200,7 +1200,7 @@ const MandanteView: React.FC = () => {
                             <ShieldCheck size={20} />
                         </div>
                         <div>
-                            <p className="font-black text-sm leading-none">GGSS Security</p>
+                            <p className="font-black text-sm leading-none">ASPRO APP</p>
                             <p className="text-[10px] text-slate-400 mt-0.5 uppercase tracking-widest">Portal Cliente</p>
                         </div>
                     </div>
@@ -1241,7 +1241,7 @@ const MandanteView: React.FC = () => {
                         <div className="w-7 h-7 bg-blue-500 rounded-lg flex items-center justify-center">
                             <ShieldCheck size={15} />
                         </div>
-                        <p className="font-black text-sm">GGSS Security</p>
+                        <p className="font-black text-sm">ASPRO APP</p>
                     </div>
                     <div className="flex items-center gap-3">
                         <button onClick={handleRefresh} className="p-1.5 text-slate-400 hover:text-white transition"><RefreshCw size={16} /></button>

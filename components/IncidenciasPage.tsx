@@ -309,7 +309,6 @@ const IncidenciasPage: React.FC<IncidenciasPageProps> = ({ onBack, activeLog, cu
       const categoria = form.categoria as RegistroCategoria;
       const fechaOp = calcularFechaOperacional(activeLog?.timestamp);
       const autorNombre = `${employee.firstName} ${employee.lastNamePaterno}`;
-      const registroId = `reg_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
 
       // ── 1. Construir payload del registro (sin evidencias aún) ───────────
       const data: Omit<RegistroNovedad, 'id' | 'creadoEn' | 'fechaHoraServidor'> = {
@@ -334,7 +333,7 @@ const IncidenciasPage: React.FC<IncidenciasPageProps> = ({ onBack, activeLog, cu
 
       // ── 2. Guardar el registro (offline-first vía addRegistroNovedad) ────
       //    addRegistroNovedad encola internamente y actualiza estado local.
-      await addRegistroNovedad(data);
+      const registroId = await addRegistroNovedad(data);
 
       // ── 3. Encolar fotos (si las hay) como UPLOAD_NOVEDAD_PHOTO ─────────
       //    Convertir cada Blob a base64 en memoria (sin red) y encolar.

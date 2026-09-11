@@ -11,7 +11,7 @@ import { downloadAndInstallUpdate, notifyAppReady } from '../lib/UpdateService';
 // Este valor debe actualizarse manualmente (o con el script
 // scripts/publish-version.js) cada vez que generes un nuevo APK.
 // ────────────────────────────────────────────────────────────────
-export const APP_VERSION = '5.0.5';
+export const APP_VERSION = '5.0.6';
 
 interface AppVersionConfig {
   version: string; // Versión del APK
@@ -186,7 +186,7 @@ const AppUpdateBanner: React.FC = () => {
               </div>
 
               <p className="text-sm font-bold text-white leading-tight">
-                {updateInfo.releaseNotes || (isApkUpdate ? 'Hay mejoras y correcciones disponibles para GGSS Security.' : 'Nueva actualización de características en vivo.')}
+                {updateInfo.releaseNotes || (isApkUpdate ? 'Hay mejoras y correcciones disponibles para ASPRO APP.' : 'Nueva actualización de características en vivo.')}
               </p>
 
               <p className="text-[11px] text-blue-300 mt-1 font-medium">

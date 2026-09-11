@@ -3,6 +3,7 @@ import React, { useState, useEffect, Suspense, ErrorInfo } from 'react';
 import { useAppStore } from './store/useAppStore';
 import { useNetworkStatus } from './hooks/useNetworkStatus';
 import { SyncQueueService } from './lib/SyncQueueService';
+import { SyncManager } from './lib/SyncManager';
 import Login from './components/Login';
 import AuthActionHandler from './components/AuthActionHandler';
 import AdminDashboard from './pages/AdminDashboard';
@@ -87,6 +88,19 @@ const App: React.FC = () => {
       processSyncQueue();
     }
   }, [connected, currentUser, processSyncQueue]);
+
+  // Inicializar SyncManager para workers (offline-first)
+  useEffect(() => {
+    if (currentUser && currentUser.role === 'worker') {
+      SyncManager.init(processSyncQueue);
+    }
+    return () => {
+      // Solo destruir si el usuario cambia o se desmonta
+      if (!currentUser) {
+        SyncManager.destroy();
+      }
+    };
+  }, [currentUser, processSyncQueue]);
 
   const handleLogout = async () => {
     try {

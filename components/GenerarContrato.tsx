@@ -93,7 +93,7 @@ const GenerarContrato: React.FC<GenerarContratoProps> = ({ onBack }) => {
         afp: contratoEmp.afp || '',
         sucursal_name: contratoSite.name,
         sucursal_address: contratoSite.address,
-        empresa: contratoSite.empresa || 'GGSS Security',
+        empresa: contratoSite.empresa || 'ASPRO APP',
         horarioA: contratoData.horarioA,
         horarioB: contratoData.horarioB,
         sueldo: contratoData.sueldo || contratoEmp.sueldoLiquido || 0,

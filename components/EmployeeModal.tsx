@@ -486,7 +486,7 @@ const EmployeeModal: React.FC<EmployeeModalProps> = ({ employee, onClose }) => {
 
         {/* Footer de Estado de Sincronización */}
         <div className="p-4 bg-slate-50 border-t border-slate-200 text-center">
-          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Sincronizado con base de datos en tiempo real • GGSS Security v1.2</p>
+          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Sincronizado con base de datos en tiempo real • ASPRO APP v1.2</p>
         </div>
       </div>
     </div>

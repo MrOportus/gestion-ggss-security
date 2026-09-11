@@ -2,25 +2,34 @@ import localforage from 'localforage';
 
 export interface QueueItem {
     id: string;
-    actionType: 'ADD_ROUND' | 'UPDATE_ROUND' | 'UPLOAD_EVIDENCE' | 'ADD_NOVEDAD' | 'UPLOAD_NOVEDAD_PHOTO';
+    operationId: string; // UUID idempotente — se usa como ID del documento en Firebase para evitar duplicados
+    actionType: 'ADD_ROUND' | 'UPDATE_ROUND' | 'UPLOAD_EVIDENCE' | 'ADD_NOVEDAD' | 'UPLOAD_NOVEDAD_PHOTO' | 'CHECK_IN' | 'CHECK_OUT';
     payload: any;
-    status: 'PENDING';
+    status: 'PENDING' | 'SYNCING' | 'SYNCED' | 'ERROR';
     timestamp: string;
     retryCount: number;
+    lastError?: string;
+    syncedAt?: string;
 }
 
-const MAX_RETRIES = 5;
+const MAX_RETRIES = 10;
 
 const syncQueue = localforage.createInstance({
     name: 'GGSS_Offline_DB',
     storeName: 'sync_queue'
 });
 
+/** Genera un operationId único y determinista */
+function generateOperationId(): string {
+    return `op_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
+}
+
 export const SyncQueueService = {
-    async enqueue(actionType: QueueItem['actionType'], payload: any): Promise<QueueItem> {
+    async enqueue(actionType: QueueItem['actionType'], payload: any, operationId?: string): Promise<QueueItem> {
         const id = `sq_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
         const item: QueueItem = {
             id,
+            operationId: operationId || generateOperationId(),
             actionType,
             payload,
             status: 'PENDING',
@@ -29,19 +38,22 @@ export const SyncQueueService = {
         };
 
         await syncQueue.setItem(id, item);
-        console.log(`[SyncQueue] Enqueued action: ${actionType} (ID: ${id})`);
+        console.log(`[SyncQueue] Enqueued action: ${actionType} (ID: ${id}, opId: ${item.operationId})`);
         return item;
     },
 
     async getPending(): Promise<QueueItem[]> {
         const items: QueueItem[] = [];
         await syncQueue.iterate((value: QueueItem) => {
-            // Excluir elementos que superaron el límite de reintentos
-            if (value.status === 'PENDING' && value.retryCount < MAX_RETRIES) {
+            // Incluir PENDING y ERROR (para reintentos), excluir los que superaron MAX_RETRIES
+            if ((value.status === 'PENDING' || value.status === 'ERROR') && value.retryCount < MAX_RETRIES) {
                 items.push(value);
             } else if (value.retryCount >= MAX_RETRIES) {
-                console.warn(`[SyncQueue] Item ${value.id} superó MAX_RETRIES (${MAX_RETRIES}). Descartando.`);
-                syncQueue.removeItem(value.id);
+                console.warn(`[SyncQueue] Item ${value.id} superó MAX_RETRIES (${MAX_RETRIES}). Marcando como ERROR permanente.`);
+                // No borrar — mantener para diagnóstico. Marcar como ERROR permanente.
+                value.status = 'ERROR';
+                value.lastError = `Superó máximo de reintentos (${MAX_RETRIES})`;
+                syncQueue.setItem(value.id, value);
             }
         });
         
@@ -52,9 +64,30 @@ export const SyncQueueService = {
     async getPendingCount(): Promise<number> {
         let count = 0;
         await syncQueue.iterate((value: QueueItem) => {
-            if (value.status === 'PENDING' && value.retryCount < MAX_RETRIES) count++;
+            if ((value.status === 'PENDING' || value.status === 'ERROR') && value.retryCount < MAX_RETRIES) count++;
         });
         return count;
+    },
+
+    async getErrorCount(): Promise<number> {
+        let count = 0;
+        await syncQueue.iterate((value: QueueItem) => {
+            if (value.status === 'ERROR' && value.retryCount >= MAX_RETRIES) count++;
+        });
+        return count;
+    },
+
+    async clearErrors(): Promise<void> {
+        const idsToRemove: string[] = [];
+        await syncQueue.iterate((value: QueueItem, key: string) => {
+            if (value.status === 'ERROR' && value.retryCount >= MAX_RETRIES) {
+                idsToRemove.push(key);
+            }
+        });
+        for (const id of idsToRemove) {
+            await syncQueue.removeItem(id);
+        }
+        console.log(`[SyncQueue] Limpiados ${idsToRemove.length} errores permanentes.`);
     },
 
     async markCompleted(id: string): Promise<void> {
@@ -62,13 +95,31 @@ export const SyncQueueService = {
         console.log(`[SyncQueue] Marked completed and removed: ${id}`);
     },
 
-    async incrementRetry(item: QueueItem): Promise<void> {
-        item.retryCount += 1;
+    async markSyncing(item: QueueItem): Promise<void> {
+        item.status = 'SYNCING';
         await syncQueue.setItem(item.id, item);
-        console.warn(`[SyncQueue] Retry ${item.retryCount}/${MAX_RETRIES} para item ${item.id} (${item.actionType})`);
+    },
+
+    async incrementRetry(item: QueueItem, error?: string): Promise<void> {
+        item.retryCount += 1;
+        item.status = item.retryCount >= MAX_RETRIES ? 'ERROR' : 'PENDING';
+        item.lastError = error || item.lastError;
+        await syncQueue.setItem(item.id, item);
+        console.warn(`[SyncQueue] Retry ${item.retryCount}/${MAX_RETRIES} para item ${item.id} (${item.actionType}): ${error || ''}`);
     },
 
     async clearQueue(): Promise<void> {
         await syncQueue.clear();
+    },
+
+    /** Limpia solo los items completados (SYNCED) que se hayan quedado */
+    async cleanSynced(): Promise<void> {
+        const toRemove: string[] = [];
+        await syncQueue.iterate((value: QueueItem) => {
+            if (value.status === 'SYNCED') toRemove.push(value.id);
+        });
+        for (const id of toRemove) {
+            await syncQueue.removeItem(id);
+        }
     }
 };
