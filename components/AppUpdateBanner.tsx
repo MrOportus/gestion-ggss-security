@@ -51,10 +51,9 @@ const AppUpdateBanner: React.FC = () => {
     if (!Capacitor.isNativePlatform()) return APP_VERSION;
     try {
       const { CapacitorUpdater } = await import('@capgo/capacitor-updater');
-      const currentBundle = await CapacitorUpdater.current();
-      const cb = currentBundle as any;
-      if (cb && cb.version && cb.version !== 'builtin') {
-        return cb.version;
+      const current = await CapacitorUpdater.current();
+      if (current?.bundle?.version && current.bundle.version !== 'builtin') {
+        return current.bundle.version;
       }
     } catch (error) {
       console.warn('[UPDATE] Error obteniendo versión activa del bundle:', error);
