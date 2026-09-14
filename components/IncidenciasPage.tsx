@@ -161,6 +161,8 @@ const IncidenciasPage: React.FC<IncidenciasPageProps> = ({ onBack, activeLog, cu
     fotosBlob: [],
   });
 
+  const [fotoSeleccionada, setFotoSeleccionada] = useState<string | null>(null);
+
   // Sucursal activa: preferir la del turno activo, sino la asignada
   const sucursalActiva = activeLog?.siteId ?? currentSite?.id;
 
@@ -466,6 +468,7 @@ const IncidenciasPage: React.FC<IncidenciasPageProps> = ({ onBack, activeLog, cu
     const catLabel = CATEGORIAS.find(c => c.value === registroDetalle.categoria)?.label || registroDetalle.categoria;
     const esPropio = registroDetalle.autorUid === currentUser?.uid;
     return (
+      <>
       <div className="flex flex-col min-h-screen bg-slate-50">
         <div className="bg-white p-4 flex items-center gap-4 sticky top-0 z-30 shadow-sm border-b">
           <button onClick={() => setVista('lista')} className="p-2 text-slate-500 hover:bg-slate-100 rounded-xl transition-all">
@@ -550,13 +553,41 @@ const IncidenciasPage: React.FC<IncidenciasPageProps> = ({ onBack, activeLog, cu
               </p>
               <div className="grid grid-cols-3 gap-2">
                 {registroDetalle.evidencias.map((url, i) => (
-                  <img key={i} src={url} alt={`Evidencia ${i + 1}`} className="w-full h-24 object-cover rounded-xl border border-slate-100" />
+                  <button 
+                    key={i} 
+                    onClick={() => setFotoSeleccionada(url)}
+                    className="w-full h-24 p-0 border-0 rounded-xl overflow-hidden focus:outline-none active:scale-95 transition-transform"
+                  >
+                    <img src={url} alt={`Evidencia ${i + 1}`} className="w-full h-full object-cover border border-slate-100" />
+                  </button>
                 ))}
               </div>
             </div>
           )}
         </div>
       </div>
+      
+      {/* Visor de foto en pantalla completa */}
+      {fotoSeleccionada && (
+        <div className="fixed inset-0 z-[200] bg-black/90 flex flex-col animate-in fade-in duration-200">
+          <div className="p-4 flex justify-end">
+            <button 
+              onClick={() => setFotoSeleccionada(null)} 
+              className="p-3 bg-white/10 text-white rounded-full hover:bg-white/20 transition-colors"
+            >
+              <X size={24} />
+            </button>
+          </div>
+          <div className="flex-1 flex items-center justify-center p-4">
+            <img 
+              src={fotoSeleccionada} 
+              alt="Evidencia ampliada" 
+              className="max-w-full max-h-[80dvh] object-contain rounded-lg"
+            />
+          </div>
+        </div>
+      )}
+      </>
     );
   }
 
