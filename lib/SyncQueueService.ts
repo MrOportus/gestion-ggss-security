@@ -3,12 +3,14 @@ import localforage from 'localforage';
 export interface QueueItem {
     id: string;
     operationId: string; // UUID idempotente — se usa como ID del documento en Firebase para evitar duplicados
+    userId: string;      // Firebase UID del usuario que creó la operación
     actionType: 'ADD_ROUND' | 'UPDATE_ROUND' | 'UPLOAD_EVIDENCE' | 'ADD_NOVEDAD' | 'UPLOAD_NOVEDAD_PHOTO' | 'CHECK_IN' | 'CHECK_OUT';
     payload: any;
     status: 'PENDING' | 'SYNCING' | 'SYNCED' | 'ERROR';
     timestamp: string;
     retryCount: number;
     lastError?: string;
+    lastAttemptAt?: string;
     syncedAt?: string;
 }
 
@@ -25,11 +27,12 @@ function generateOperationId(): string {
 }
 
 export const SyncQueueService = {
-    async enqueue(actionType: QueueItem['actionType'], payload: any, operationId?: string): Promise<QueueItem> {
+    async enqueue(actionType: QueueItem['actionType'], payload: any, userId: string, operationId?: string): Promise<QueueItem> {
         const id = `sq_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
         const item: QueueItem = {
             id,
             operationId: operationId || generateOperationId(),
+            userId,
             actionType,
             payload,
             status: 'PENDING',
@@ -38,15 +41,24 @@ export const SyncQueueService = {
         };
 
         await syncQueue.setItem(id, item);
-        console.log(`[SyncQueue] Enqueued action: ${actionType} (ID: ${id}, opId: ${item.operationId})`);
+        console.log(`[SyncQueue] Enqueued action: ${actionType} (ID: ${id}, opId: ${item.operationId}, user: ${userId})`);
         return item;
     },
 
-    async getPending(): Promise<QueueItem[]> {
+    /**
+     * Get pending items. If userId is provided, returns only items for that user.
+     * If userId is omitted, returns ALL pending items (for migration/diagnostics only).
+     */
+    async getPending(userId?: string): Promise<QueueItem[]> {
         const items: QueueItem[] = [];
         await syncQueue.iterate((value: QueueItem) => {
+            // Skip needs_recovery_review items
+            if ((value as any).status === 'needs_recovery_review') return;
+
             // Incluir PENDING y ERROR (para reintentos), excluir los que superaron MAX_RETRIES
             if ((value.status === 'PENDING' || value.status === 'ERROR') && value.retryCount < MAX_RETRIES) {
+                // Filter by userId if provided
+                if (userId && value.userId && value.userId !== userId) return;
                 items.push(value);
             } else if (value.retryCount >= MAX_RETRIES) {
                 console.warn(`[SyncQueue] Item ${value.id} superó MAX_RETRIES (${MAX_RETRIES}). Marcando como ERROR permanente.`);
@@ -61,18 +73,28 @@ export const SyncQueueService = {
         return items.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
     },
 
-    async getPendingCount(): Promise<number> {
+    /**
+     * Count pending items. If userId is provided, counts only that user's items.
+     */
+    async getPendingCount(userId?: string): Promise<number> {
         let count = 0;
         await syncQueue.iterate((value: QueueItem) => {
-            if ((value.status === 'PENDING' || value.status === 'ERROR') && value.retryCount < MAX_RETRIES) count++;
+            if ((value as any).status === 'needs_recovery_review') return;
+            if ((value.status === 'PENDING' || value.status === 'ERROR') && value.retryCount < MAX_RETRIES) {
+                if (userId && value.userId && value.userId !== userId) return;
+                count++;
+            }
         });
         return count;
     },
 
-    async getErrorCount(): Promise<number> {
+    async getErrorCount(userId?: string): Promise<number> {
         let count = 0;
         await syncQueue.iterate((value: QueueItem) => {
-            if (value.status === 'ERROR' && value.retryCount >= MAX_RETRIES) count++;
+            if (value.status === 'ERROR' && value.retryCount >= MAX_RETRIES) {
+                if (userId && value.userId && value.userId !== userId) return;
+                count++;
+            }
         });
         return count;
     },
@@ -104,6 +126,7 @@ export const SyncQueueService = {
         item.retryCount += 1;
         item.status = item.retryCount >= MAX_RETRIES ? 'ERROR' : 'PENDING';
         item.lastError = error || item.lastError;
+        item.lastAttemptAt = new Date().toISOString();
         await syncQueue.setItem(item.id, item);
         console.warn(`[SyncQueue] Retry ${item.retryCount}/${MAX_RETRIES} para item ${item.id} (${item.actionType}): ${error || ''}`);
     },
@@ -121,5 +144,14 @@ export const SyncQueueService = {
         for (const id of toRemove) {
             await syncQueue.removeItem(id);
         }
+    },
+
+    /** Get ALL items regardless of status (for diagnostics/migration) */
+    async getAllItems(): Promise<QueueItem[]> {
+        const items: QueueItem[] = [];
+        await syncQueue.iterate((value: QueueItem) => {
+            items.push(value);
+        });
+        return items.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
     }
 };

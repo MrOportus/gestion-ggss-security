@@ -4,6 +4,7 @@ import { useAppStore } from './store/useAppStore';
 import { useNetworkStatus } from './hooks/useNetworkStatus';
 import { SyncQueueService } from './lib/SyncQueueService';
 import { SyncManager } from './lib/SyncManager';
+import { SyncQueueMigration } from './lib/SyncQueueMigration';
 import Login from './components/Login';
 import AuthActionHandler from './components/AuthActionHandler';
 import AdminDashboard from './pages/AdminDashboard';
@@ -58,6 +59,7 @@ import { StickyNote, Navigation, CalendarDays, Receipt, ShieldCheck, Zap, Info, 
 // solo en contexto web para evitar interferencia con el plugin nativo de Capacitor
 import PanelAdminSolicitudes from './components/PanelAdminSolicitudes';
 import AppUpdateBanner from './components/AppUpdateBanner';
+import { notifyAppReady } from './lib/UpdateService';
 import MandanteView from './pages/MandanteView';
 import MandanteManagement from './pages/MandanteManagement';
 import { Capacitor } from '@capacitor/core';
@@ -82,6 +84,11 @@ const App: React.FC = () => {
   
   const { connected } = useNetworkStatus();
 
+  // Notificar a CapacitorUpdater que el bundle cargó bien
+  useEffect(() => {
+    notifyAppReady();
+  }, []);
+
   // Trigger sync queue when network is restored
   useEffect(() => {
     if (connected && currentUser) {
@@ -92,7 +99,12 @@ const App: React.FC = () => {
   // Inicializar SyncManager para workers (offline-first)
   useEffect(() => {
     if (currentUser && currentUser.role === 'worker') {
-      SyncManager.init(processSyncQueue);
+      SyncManager.init(processSyncQueue, currentUser.uid);
+      
+      // Intentar migrar registros pendientes antiguos (idempotente)
+      SyncQueueMigration.migrateToUserScoped().catch(err => {
+        console.error('[App] Error during SyncQueueMigration:', err);
+      });
     }
     return () => {
       // Solo destruir si el usuario cambia o se desmonta
@@ -104,15 +116,17 @@ const App: React.FC = () => {
 
   const handleLogout = async () => {
     try {
-      const pendingItems = await SyncQueueService.getPending();
-      if (pendingItems.length > 0) {
-        showConfirmation({
-          title: "Sincronización Pendiente",
-          message: `No puedes cerrar sesión. Tienes ${pendingItems.length} registros pendientes de enviar a la nube. Conéctate a internet para sincronizar.`,
-          type: 'alert',
-          onConfirm: () => {}
-        });
-        return;
+      if (currentUser?.uid) {
+        const pendingCount = await SyncQueueService.getPendingCount(currentUser.uid);
+        if (pendingCount > 0) {
+          showConfirmation({
+            title: "Sincronización Pendiente",
+            message: `No puedes cerrar sesión. Tienes ${pendingCount} registros pendientes de enviar a la nube. Conéctate a internet para sincronizar.`,
+            type: 'alert',
+            onConfirm: () => {}
+          });
+          return;
+        }
       }
     } catch (e) {
       console.warn('No se pudo verificar la cola de sincronización', e);

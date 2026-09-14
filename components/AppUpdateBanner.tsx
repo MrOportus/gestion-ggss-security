@@ -105,9 +105,6 @@ const AppUpdateBanner: React.FC = () => {
       return;
     }
 
-    // Notificar al plugin que la app web cargó correctamente (evita rollback)
-    notifyAppReady();
-
     // Chequear al montar
     checkForUpdate();
 

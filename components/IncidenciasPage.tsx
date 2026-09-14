@@ -248,8 +248,8 @@ const IncidenciasPage: React.FC<IncidenciasPageProps> = ({ onBack, activeLog, cu
 
   // Actualizar contador de pendientes al montar y cuando cambia el estado de sincronización
   useEffect(() => {
-    SyncQueueService.getPendingCount().then(setPendingCount).catch(() => {});
-  }, [isSyncing]);
+    SyncQueueService.getPendingCount(currentUser?.uid).then(setPendingCount).catch(() => {});
+  }, [isSyncing, currentUser]);
 
   // ── Resetear prioridad según tipo (eliminado porque siempre es novedad) ──
 
@@ -350,7 +350,7 @@ const IncidenciasPage: React.FC<IncidenciasPageProps> = ({ onBack, activeLog, cu
             registroId,
             photoBase64: base64,
             photoIndex: i,
-          });
+          }, currentUser!.uid);
         }
       }
 
@@ -373,7 +373,7 @@ const IncidenciasPage: React.FC<IncidenciasPageProps> = ({ onBack, activeLog, cu
         // Refrescar lista desde Firestore solo si hay red; si no, la lista local ya tiene el item
         if (connected) cargarRegistros();
         // Actualizar contador de pendientes
-        SyncQueueService.getPendingCount().then(setPendingCount).catch(() => {});
+        SyncQueueService.getPendingCount(currentUser?.uid).then(setPendingCount).catch(() => {});
       }, 1500);
 
     } catch (err: any) {

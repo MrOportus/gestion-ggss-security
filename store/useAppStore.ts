@@ -241,8 +241,15 @@ export const useAppStore = create<AppState>()(
       unsubDigitalDocuments: () => { },
 
       processSyncQueue: async () => {
-        const { isSyncing } = get();
+        const { isSyncing, currentUser } = get();
         if (isSyncing) return;
+
+        // CRITICAL: Only process operations for the currently authenticated user
+        const userId = currentUser?.uid;
+        if (!userId) {
+          console.log('[SyncQueue] No hay usuario autenticado. Saltando sincronización.');
+          return;
+        }
 
         const status = await Network.getStatus();
         if (!status.connected) return;
@@ -250,16 +257,20 @@ export const useAppStore = create<AppState>()(
         set({ isSyncing: true });
 
         try {
-          let pending = await SyncQueueService.getPending();
+          let pending = await SyncQueueService.getPending(userId);
           
           while (pending.length > 0) {
-            console.log(`[SyncQueue] Procesando ${pending.length} elementos pendientes...`);
+            console.log(`[SyncQueue] Procesando ${pending.length} elementos pendientes para usuario ${userId}...`);
 
             for (const item of pending) {
+            // Double-check: never process another user's operation
+            if (item.userId && item.userId !== userId) {
+              console.warn(`[SyncQueue] Item ${item.id} pertenece a ${item.userId}, no al usuario actual ${userId}. Saltando.`);
+              continue;
+            }
+
             try {
               if (item.actionType === 'ADD_ROUND') {
-                // La ronda base debe sincronizarse antes que sus actualizaciones.
-                // Si falla, hacemos break para mantener el orden cronológico.
                 await setDoc(doc(db, "Rondas", item.payload.id), item.payload);
                 await SyncQueueService.markCompleted(item.id);
                 console.log(`[SyncQueue] ADD_ROUND ${item.payload.id} sincronizado.`);
@@ -272,10 +283,9 @@ export const useAppStore = create<AppState>()(
               } else if (item.actionType === 'UPLOAD_EVIDENCE') {
                 const { roundId, photoBase64, lat, lng, timestamp } = item.payload;
 
-                // Validar que el dato base64 llegó intacto desde localforage
                 if (!photoBase64 || typeof photoBase64 !== 'string' || photoBase64.length < 100) {
                   console.error(`[SyncQueue] UPLOAD_EVIDENCE ${item.id}: payload base64 corrupto o vacío. Descartando.`, { len: photoBase64?.length });
-                  await SyncQueueService.markCompleted(item.id); // Descartar elemento corrupto
+                  await SyncQueueService.markCompleted(item.id);
                   continue;
                 }
 
@@ -283,33 +293,28 @@ export const useAppStore = create<AppState>()(
                 
                 const isWebP = photoBase64.startsWith('data:image/webp');
                 const ext = isWebP ? 'webp' : 'jpg';
-                const fileName = `foto_${Date.now()}.${ext}`;
-                const folder = `evidencias/${get().currentUser?.uid || 'offline'}/${roundId}`;
+                const ownerUid = item.userId || userId;
+                const fileName = `foto_${item.operationId}_${Date.now()}.${ext}`;
+                const folder = `evidencias/${ownerUid}/${roundId}`;
                 const contentType = isWebP ? 'image/webp' : 'image/jpeg';
                 
-                // 1. Convertir Base64 a Blob
                 const res = await fetch(photoBase64);
                 const blob = await res.blob();
                 
-                // 2. Pedir Presigned URL a Bunny.net a través de Firebase Functions
                 const generateBunnyUploadUrl = httpsCallable<{fileName: string, folder: string, contentType: string}, {uploadUrl: string, finalUrl: string}>(functions, 'generateBunnyUploadUrl');
                 const bunnyRes = await generateBunnyUploadUrl({ fileName, folder, contentType });
                 const { uploadUrl, finalUrl } = bunnyRes.data;
 
-                // 3. Subir el Blob a Bunny.net usando la URL prefirmada
                 const uploadRes = await fetch(uploadUrl, {
                   method: 'PUT',
                   body: blob,
-                  headers: {
-                    'Content-Type': contentType
-                  }
+                  headers: { 'Content-Type': contentType }
                 });
 
                 if (!uploadRes.ok) {
                   throw new Error(`Error subiendo a Bunny.net: ${uploadRes.statusText}`);
                 }
 
-                // 4. Guardar URL final de la CDN en Firestore
                 await updateDoc(doc(db, "Rondas", roundId), {
                   evidences: arrayUnion({ photoUrl: finalUrl, lat, lng, timestamp })
                 });
@@ -317,13 +322,9 @@ export const useAppStore = create<AppState>()(
                 console.log(`[SyncQueue] UPLOAD_EVIDENCE ${item.id} sincronizado en Bunny. URL: ${finalUrl}`);
 
               } else if (item.actionType === 'ADD_NOVEDAD') {
-                // Persistir el documento de novedad en Firestore.
-                // ADD_NOVEDAD debe completarse antes de los UPLOAD_NOVEDAD_PHOTO
-                // del mismo registro; si falla hacemos break para mantener el orden.
                 const { registroId, data } = item.payload;
                 await setDoc(doc(db, 'novedades', registroId), data);
                 await SyncQueueService.markCompleted(item.id);
-                // Quitar el badge offline del store local
                 set(state => ({
                   novedades: state.novedades.map((n: any) =>
                     n.id === registroId ? { ...n, _pendingSync: false } : n
@@ -332,7 +333,6 @@ export const useAppStore = create<AppState>()(
                 console.log(`[SyncQueue] ADD_NOVEDAD ${registroId} sincronizado.`);
 
               } else if (item.actionType === 'UPLOAD_NOVEDAD_PHOTO') {
-                // Subir una foto de evidencia de novedad y añadir la URL al documento.
                 const { registroId, photoBase64, photoIndex } = item.payload;
 
                 if (!photoBase64 || typeof photoBase64 !== 'string' || photoBase64.length < 100) {
@@ -343,8 +343,8 @@ export const useAppStore = create<AppState>()(
 
                 const isWebP = photoBase64.startsWith('data:image/webp');
                 const ext = isWebP ? 'webp' : 'jpg';
-                const uid = get().currentUser?.uid || 'offline';
-                const fileName = `novedades/${uid}/${registroId}/foto_${photoIndex}_${Date.now()}.${ext}`;
+                const ownerUid = item.userId || userId;
+                const fileName = `novedades/${ownerUid}/${registroId}/foto_${photoIndex}_${item.operationId}.${ext}`;
                 const downloadUrl = await get().uploadBase64(photoBase64, fileName);
 
                 await updateDoc(doc(db, 'novedades', registroId), {
@@ -357,23 +357,19 @@ export const useAppStore = create<AppState>()(
             } catch (err: any) {
               console.error(`[SyncQueue] Error procesando item ${item.id} (${item.actionType}):`, err);
               await SyncQueueService.incrementRetry(item, err?.message || String(err));
-
-              // Detener la cola para ADD_ROUND y ADD_NOVEDAD (dependencias de orden).
-              // Para el resto: continuar con los demás items independientes.
-              if (item.actionType === 'ADD_ROUND' || item.actionType === 'ADD_NOVEDAD') {
-                break;
-              }
+              // Each operation fails independently — continue with the next item.
             }
           } // End of for loop
           
-          // Re-evaluate pending in case new items were queued while processing the previous batch
-          pending = await SyncQueueService.getPending();
+          // Re-evaluate pending for this user
+          pending = await SyncQueueService.getPending(userId);
         } // End of while loop
         
         } finally {
           set({ isSyncing: false });
         }
       },
+
 
       initializeAuthListener: () => {
         onAuthStateChanged(auth, async (firebaseUser) => {
@@ -469,6 +465,11 @@ export const useAppStore = create<AppState>()(
 
       logout: async () => {
         try {
+          // Detener sincronización antes de cerrar sesión
+          // Las operaciones pendientes del usuario se PRESERVAN en la cola
+          const { SyncManager } = await import('../lib/SyncManager');
+          SyncManager.destroy();
+          
           await signOut(auth);
           get().unsubDigitalDocuments();
           get().hideConfirmation();
@@ -1829,7 +1830,9 @@ export const useAppStore = create<AppState>()(
           });
 
           // Offline-First: Siempre encolar
-          await SyncQueueService.enqueue('ADD_ROUND', newRound);
+          const currentUid = get().currentUser?.uid;
+          if (!currentUid) throw new Error('No hay usuario autenticado para crear ronda.');
+          await SyncQueueService.enqueue('ADD_ROUND', newRound, currentUid);
           console.log("addGuardRound: Ronda guardada en cola local con ID:", id);
           
           set(state => ({ guardRounds: [newRound, ...state.guardRounds] }));
@@ -1854,7 +1857,8 @@ export const useAppStore = create<AppState>()(
           });
 
           // Offline-First: Siempre encolar
-          await SyncQueueService.enqueue('UPDATE_ROUND', { id, data: cleanData });
+          const currentUid = get().currentUser?.uid || 'offline';
+          await SyncQueueService.enqueue('UPDATE_ROUND', { id, data: cleanData }, currentUid);
 
           set(state => ({
             guardRounds: state.guardRounds.map(r => r.id === id ? { ...r, ...cleanData } : r)
@@ -2200,10 +2204,12 @@ export const useAppStore = create<AppState>()(
         };
 
         // ── 1. Encolar escritura en Firestore (offline-safe) ─────────────────
+        const currentUid = get().currentUser?.uid;
+        if (!currentUid) throw new Error('No hay usuario autenticado para crear novedad.');
         await SyncQueueService.enqueue('ADD_NOVEDAD', {
           registroId,
           data: firestorePayload,
-        });
+        }, currentUid);
 
         // ── 2. Actualizar estado local inmediatamente (feedback visual) ──────
         // El campo _pendingSync desaparece tras la sincronización exitosa.

@@ -426,7 +426,7 @@ const RoundsControl: React.FC<RoundsControlProps> = ({ onBack }) => {
                         lat: ev.lat,
                         lng: ev.lng,
                         timestamp: ev.timestamp,
-                    });
+                    }, currentUser!.uid);
                 }
                 // Clean IDB now that items are safely in the sync queue
                 await roundsDB.clearPendingEvidences(roundId);

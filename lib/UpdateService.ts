@@ -20,8 +20,11 @@ export async function downloadAndInstallUpdate(zipUrl: string, version: string):
     console.log(`[UpdateService] Versión "${version}" descargada con éxito. ID del bundle: ${result.id}`);
     
     // Aplica la versión y recarga el WebView
-    console.log('[UpdateService] Aplicando actualización y reiniciando app...');
+    console.log('[UpdateService] Aplicando actualización...');
     const setResult = await CapacitorUpdater.set({ id: result.id });
+    
+    console.log('[UpdateService] Reiniciando app...');
+    await CapacitorUpdater.reload();
     
     return setResult;
   } catch (error) {

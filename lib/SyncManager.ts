@@ -33,6 +33,7 @@ let _statusListeners: StatusCallback[] = [];
 let _networkListener: any = null;
 let _appStateListener: any = null;
 let _initialized = false;
+let _currentUserId: string | null = null;
 let _currentStatus: SyncManagerStatus = {
     pendingCount: 0,
     errorCount: 0,
@@ -47,10 +48,10 @@ async function _updateStatus(partial?: Partial<SyncManagerStatus>) {
         _currentStatus = { ..._currentStatus, ...partial };
     }
     
-    // Actualizar contadores desde la cola
+    // Actualizar contadores desde la cola (filtrado por usuario actual)
     try {
-        const pendingCount = await SyncQueueService.getPendingCount();
-        const errorCount = await SyncQueueService.getErrorCount();
+        const pendingCount = await SyncQueueService.getPendingCount(_currentUserId || undefined);
+        const errorCount = await SyncQueueService.getErrorCount(_currentUserId || undefined);
         _currentStatus.pendingCount = pendingCount;
         _currentStatus.errorCount = errorCount;
     } catch (e) {
@@ -67,6 +68,10 @@ async function _updateStatus(partial?: Partial<SyncManagerStatus>) {
 async function _attemptSync() {
     if (!_processSyncQueue) return;
     if (_currentStatus.isSyncing) return;
+    if (!_currentUserId) {
+        console.log('[SyncManager] No hay usuario activo. Posponiendo sincronización.');
+        return;
+    }
     
     // Verificar conectividad real
     const isOnline = await checkRealConnectivity();
@@ -77,8 +82,8 @@ async function _attemptSync() {
         return;
     }
     
-    // Verificar si hay items pendientes
-    const pendingCount = await SyncQueueService.getPendingCount();
+    // Verificar si hay items pendientes PARA ESTE USUARIO
+    const pendingCount = await SyncQueueService.getPendingCount(_currentUserId);
     if (pendingCount === 0) {
         await _updateStatus({ pendingCount: 0 });
         return;
@@ -137,15 +142,23 @@ export const SyncManager = {
      * Inicializa el SyncManager.
      * Debe llamarse una vez cuando el usuario worker se autentica.
      * @param processSyncQueue - Función del store que procesa la cola
+     * @param userId - Firebase UID del usuario activo
      */
-    init(processSyncQueue: SyncCallback) {
-        if (_initialized) {
-            console.log('[SyncManager] Ya inicializado. Actualizando callback.');
+    init(processSyncQueue: SyncCallback, userId: string) {
+        if (_initialized && _currentUserId === userId) {
+            console.log('[SyncManager] Ya inicializado para este usuario. Actualizando callback.');
             _processSyncQueue = processSyncQueue;
             return;
         }
         
+        // Si cambió el usuario, destruir el anterior primero
+        if (_initialized && _currentUserId !== userId) {
+            console.log(`[SyncManager] Cambio de usuario: ${_currentUserId} → ${userId}. Reinicializando.`);
+            SyncManager.destroy();
+        }
+        
         _processSyncQueue = processSyncQueue;
+        _currentUserId = userId;
         _initialized = true;
         
         console.log('[SyncManager] Inicializando...');
@@ -230,6 +243,7 @@ export const SyncManager = {
         }
         _statusListeners = [];
         _processSyncQueue = null;
+        _currentUserId = null;
         _initialized = false;
         console.log('[SyncManager] Destruido.');
     }
