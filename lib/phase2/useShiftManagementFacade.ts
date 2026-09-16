@@ -90,9 +90,15 @@ export const useShiftManagementFacade = () => {
           });
 
           if (status === null) {
+            // Borrar variante con siteId en el ID (registros manuales desde la UI de gestión)
             batchPromises.push(deleteDoc(manualRef));
+            // Borrar variante SIN siteId en el ID (registros creados por cierre de turno desde la app móvil)
+            const manualDocIdLegacy = `manual_${empId}_${dateStr}`;
+            batchPromises.push(deleteDoc(doc(db, 'asistencia_manual', manualDocIdLegacy)));
+            // Borrar registros de asistencia manuales asociados
             batchPromises.push(deleteDoc(doc(db, 'Asistencia', `manual_att_check_in_${empId}_${dateStr}`)));
             batchPromises.push(deleteDoc(doc(db, 'Asistencia', `manual_att_check_out_${empId}_${dateStr}`)));
+            // Borrar pulso digital si aún existiera (turno aún abierto borrado desde admin)
             batchPromises.push(deleteDoc(doc(db, 'asistencia_digital', `${siteId}_${empId}_${dateStr}`)));
           }
 

@@ -841,6 +841,7 @@ export const useAppStore = create<AppState>()(
               const manualDocId = `manual_${log.employeeId}_${jornadaDate}`;
               await setDoc(doc(db, 'asistencia_manual', manualDocId), {
                 employeeId: log.employeeId,
+                siteId: siteId,           // FIX: campo crítico para lookup en ShiftManagement
                 date: jornadaDate,
                 status: 'presente',
                 type: 'digital_checkout',

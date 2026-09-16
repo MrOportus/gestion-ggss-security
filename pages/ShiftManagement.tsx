@@ -370,7 +370,8 @@ const ShiftManagement: React.FC = () => {
         }
 
         const manualKeyFull = `${selectedSiteId}_${empId}_${dateKey}`;
-        const manualDoc = manualAttendanceMap[manualKeyFull];
+        const manualKeyFallback = `${empId}_${dateKey}`; // fallback: registros históricos sin siteId
+        const manualDoc = manualAttendanceMap[manualKeyFull] ?? manualAttendanceMap[manualKeyFallback];
         const manualStatus = manualDoc?.status;
 
         if (manualStatus === 'presente') {

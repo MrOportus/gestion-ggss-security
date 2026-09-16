@@ -561,6 +561,7 @@ const WorkerAttendance: React.FC = () => {
             const manualDocId = `manual_${data.employeeId}_${prevDateStr}`;
             await setDoc(firestoreDoc(db, 'asistencia_manual', manualDocId), {
               employeeId: data.employeeId,
+              siteId: data.siteId || 'sin_sucursal',  // FIX: campo crítico para lookup en ShiftManagement
               date: prevDateStr,
               status: 'presente',
               type: 'auto_checkout_new_entry',
