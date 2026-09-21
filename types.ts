@@ -528,3 +528,71 @@ export interface CompanyDocument {
   createdAt: string;       // ISO timestamp
 }
 
+// ─── Sistema de Plantillas Documentales ──────────────────────────────────────
+// NUEVO: Plantillas dinámicas que generan instancias de documentos asignados.
+// Estas plantillas se guardan en la colección 'document_templates'.
+// Los documentos generados se insertan en la colección 'documents' existente.
+
+export type TipoBloqueTemplate =
+    | 'titulo'
+    | 'subtitulo'
+    | 'texto'
+    | 'imagen'
+    | 'campo_automatico'
+    | 'campo_manual'
+    | 'firma'
+    | 'fecha'
+    | 'checkbox'
+    | 'tabla'
+    | 'linea'
+    | 'espaciador'
+    | 'encabezado_iso'
+    | 'corte';
+
+export interface TemplateBloque {
+  id: string;                          // UUID local único por bloque
+  tipo: TipoBloqueTemplate;
+  orden: number;                       // Posición en el canvas A4
+  // ── Contenido ──
+  contenido?: string;                  // Texto libre o clave de campo ('trabajador.nombre')
+  label?: string;                      // Etiqueta visible del campo
+  etiquetaCampo?: string;              // Nombre del campo manual (ej: 'Talla Zapato')
+  requerido?: boolean;                 // Si el campo manual es obligatorio
+  // ── Tabla ──
+  columnas?: string[];
+  filas?: string[][];
+    // 🖼️ Imagen 🖼️
+    imageUrl?: string;
+    imageWidth?: number;                 // Ancho de la imagen (pt)
+    // 🏢 Encabezado ISO 🏢
+    tituloSistema?: string;
+    tituloDocumento?: string;
+    codigoDocumento?: string;
+    versionDocumento?: string;
+    // ── Estilos ──
+  negrita?: boolean;
+  cursiva?: boolean;
+  alineacion?: 'left' | 'center' | 'right' | 'justify';
+  fontSize?: number;
+  altura?: number;                     // Para espaciadores (px)
+}
+
+export interface DocumentTemplate {
+  id: string;
+  nombre: string;                      // "Reglamento Interno", "Entrega EPP"
+  tipo: string;                        // "Contrato" | "EPP" | "ODI" | "Otro"
+  version: number;                     // Entero positivo: 1, 2, 3...
+  estado: 'activo' | 'borrador' | 'archivado';
+  bloques: TemplateBloque[];
+  // Configuración de firma (reutiliza patrón de SignatureTemplate existente)
+  firmaConfig?: {
+    pageType: 'last' | 'specific';
+    pageNumber?: number;
+    posicionX: number;
+    posicionY: number;
+  };
+  creadoEn: string;                    // ISO timestamp
+  actualizadoEn?: string;
+  creadoPor: string;                   // UID del admin
+}
+

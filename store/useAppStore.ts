@@ -4,7 +4,7 @@ import { STORAGE_CACHE_METADATA } from '../lib/imageUtils';
 import { Network } from '@capacitor/network';
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
-import { User, Employee, Site, AttendanceLog, Document, DigitalDocument, ComparisonRecord, DailyPayment, AppNotification, AppConfirmation, ContractRecord, Advance, SupervisorTask, ChecklistTemplate, ResignationRequest, RecurringSupervisorTask, SupervisorSubTask, BoardNote, GuardRound, Loan, Vacation, Novedad, RegistroNovedad, SignatureTemplate } from '../types';
+import { User, Employee, Site, AttendanceLog, Document, DigitalDocument, ComparisonRecord, DailyPayment, AppNotification, AppConfirmation, ContractRecord, Advance, SupervisorTask, ChecklistTemplate, ResignationRequest, RecurringSupervisorTask, SupervisorSubTask, BoardNote, GuardRound, Loan, Vacation, Novedad, RegistroNovedad, SignatureTemplate, DocumentTemplate } from '../types';
 import { Contrato } from '../types/phase1';
 import { db, auth, secondaryAuth, storage, functions } from '../lib/firebase';
 import { httpsCallable } from 'firebase/functions';
@@ -66,6 +66,7 @@ interface AppState {
   vacations: Vacation[];
   novedades: Novedad[];
   signatureTemplates: SignatureTemplate[];
+  documentTemplates: DocumentTemplate[];
   preselectedEmployeeForDoc: string | null;
   setPreselectedEmployeeForDoc: (id: string | null) => void;
   // Auth Actions
@@ -201,6 +202,11 @@ interface AppState {
   addSignatureTemplate: (tpl: Omit<SignatureTemplate, 'id' | 'creadoEn'>) => Promise<string>;
   updateSignatureTemplate: (id: string, data: Partial<SignatureTemplate>) => Promise<void>;
   deleteSignatureTemplate: (id: string) => Promise<void>;
+  // Document Template Actions (NUEVO — Plantillas Documentales)
+  fetchDocumentTemplates: () => Promise<void>;
+  addDocumentTemplate: (tpl: Omit<DocumentTemplate, 'id' | 'creadoEn'>) => Promise<string>;
+  updateDocumentTemplate: (id: string, data: Partial<DocumentTemplate>) => Promise<void>;
+  deleteDocumentTemplate: (id: string) => Promise<void>;
 }
 
 export const useAppStore = create<AppState>()(
@@ -229,6 +235,7 @@ export const useAppStore = create<AppState>()(
       vacations: [],
       novedades: [],
       signatureTemplates: [],
+      documentTemplates: [],
       notifications: [],
       preselectedEmployeeForDoc: null,
       setPreselectedEmployeeForDoc: (id) => set({ preselectedEmployeeForDoc: id }),
@@ -2278,6 +2285,64 @@ export const useAppStore = create<AppState>()(
           }));
         } catch (error) {
           console.error('Error deleting signatureTemplate:', error);
+          throw error;
+        }
+      },
+
+      // ── Document Templates (Plantillas Documentales) ──────────────────────
+      fetchDocumentTemplates: async () => {
+        try {
+          const q = query(collection(db, 'document_templates'), orderBy('creadoEn', 'desc'));
+          const snapshot = await getDocs(q);
+          const templates: DocumentTemplate[] = [];
+          snapshot.forEach(d => templates.push({ ...d.data(), id: d.id } as DocumentTemplate));
+          set({ documentTemplates: templates });
+        } catch (error) {
+          console.error('Error fetching document_templates:', error);
+        }
+      },
+
+      addDocumentTemplate: async (tplData) => {
+        const id = `doctpl_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+        const newTpl: DocumentTemplate = {
+          ...tplData,
+          id,
+          creadoEn: new Date().toISOString(),
+        };
+        try {
+          await setDoc(doc(db, 'document_templates', id), newTpl);
+          set((state) => ({ documentTemplates: [newTpl, ...state.documentTemplates] }));
+          return id;
+        } catch (error) {
+          console.error('Error adding document_template:', error);
+          throw error;
+        }
+      },
+
+      updateDocumentTemplate: async (id, data) => {
+        try {
+          const docRef = doc(db, 'document_templates', id);
+          const updateData = { ...data, actualizadoEn: new Date().toISOString() };
+          await updateDoc(docRef, updateData);
+          set((state) => ({
+            documentTemplates: state.documentTemplates.map(t =>
+              t.id === id ? { ...t, ...updateData } : t
+            )
+          }));
+        } catch (error) {
+          console.error('Error updating document_template:', error);
+          throw error;
+        }
+      },
+
+      deleteDocumentTemplate: async (id) => {
+        try {
+          await deleteDoc(doc(db, 'document_templates', id));
+          set((state) => ({
+            documentTemplates: state.documentTemplates.filter(t => t.id !== id)
+          }));
+        } catch (error) {
+          console.error('Error deleting document_template:', error);
           throw error;
         }
       },

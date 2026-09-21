@@ -35,6 +35,8 @@ import { DigitalDocument, SignatureTemplate } from '../types';
 import { normalizeText } from '../lib/textUtils';
 import { APP_VERSION } from '../components/AppUpdateBanner';
 import CorporateDocsManager from '../components/phase5/CorporateDocsManager';
+import TemplateList from '../components/documentTemplates/TemplateList';
+import TemplateMassAssignModal from '../components/documentTemplates/TemplateMassAssignModal';
 
 // Configurar worker de react-pdf (Usando el patrón recomendado para Vite)
 pdfjs.GlobalWorkerOptions.workerSrc = new URL(
@@ -66,9 +68,10 @@ const DocumentsPage: React.FC = () => {
         deleteSignatureTemplate,
     } = useAppStore();
 
-    const [activeTab, setActiveTab] = useState<'pending' | 'signed' | 'all' | 'corporate'>('pending');
+    const [activeTab, setActiveTab] = useState<'pending' | 'signed' | 'all' | 'corporate' | 'templates'>('pending');
     const [searchTerm, setSearchTerm] = useState('');
     const [showUploadModal, setShowUploadModal] = useState(false);
+    const [showTemplateMassModal, setShowTemplateMassModal] = useState(false);
     const [selectedDocToSign, setSelectedDocToSign] = useState<DigitalDocument | null>(null);
     const [isSigning, setIsSigning] = useState(false);
 
@@ -417,14 +420,17 @@ const DocumentsPage: React.FC = () => {
         const selectedPage = pages[pageIndex];
         const { width: pdfWidth } = selectedPage.getSize();
 
-        let x = (docToSign.signatureConfig as any)?.posicionX ?? ((pdfWidth - 120) / 2);
+        let baseSigX = (docToSign.signatureConfig as any)?.posicionX;
+        let baseSigY = (docToSign.signatureConfig as any)?.posicionY;
+
+        let x = baseSigX !== undefined ? baseSigX + (200 - 120) / 2 : ((pdfWidth - 120) / 2);
         if (docToSign.signatureConfig?.position === 'left') {
             x = 50;
         } else if (docToSign.signatureConfig?.position === 'right') {
             x = pdfWidth - 120 - 50;
         }
 
-        const y = (docToSign.signatureConfig as any)?.posicionY ?? 40;
+        const y = baseSigY !== undefined ? baseSigY : 40;
 
         const signatureImage = await pdfDoc.embedPng(worker.signatureUrl);
         selectedPage.drawImage(signatureImage, {
@@ -448,15 +454,15 @@ const DocumentsPage: React.FC = () => {
         const uniqueSigId = `SIG-${Math.random().toString(36).substring(2, 11).toUpperCase()}`;
         const appVersion  = APP_VERSION;
 
-        // ── Sello digital estético: rectángulo doble centrado ─────────────────────
-        const stamW  = 200;   // ancho del sello en pts (reducido ~25%)
-        const stamH  = 65;    // alto del sello en pts (reducido ~25%)
-        const stamX  = (pageW - stamW) / 2;  // centrado horizontal
-        const stamY  = 90;    // distancia desde el fondo de la página (pts)
+        // ── Sello digital estético: rectángulo doble centrado en la parte final ──
+        const stamW  = 180;   // ancho del sello reducido
+        const stamH  = 48;    // alto del sello aumentado ligeramente
+        const stamX  = (pageW - stamW) / 2;  // siempre centrado al final
+        const stamY  = 25;    // siempre en la parte inferior
 
         const inkColor  = rgb(0.10, 0.23, 0.43);  // azul corporativo oscuro
         const bgColor   = rgb(1, 1, 1);            // fondo blanco puro
-        const gap       = 3;                        // separación entre bordes
+        const gap       = 2;                        // separación entre bordes reducida
 
         // Borde exterior
         selectedPage.drawRectangle({
@@ -466,7 +472,7 @@ const DocumentsPage: React.FC = () => {
             height: stamH,
             color: bgColor,
             borderColor: inkColor,
-            borderWidth: 1.4,
+            borderWidth: 1.0,
         });
 
         // Borde interior (doble)
@@ -481,11 +487,11 @@ const DocumentsPage: React.FC = () => {
         });
 
         // ── Textos dentro del sello ──────────────────────────────────
-        const pad   = 7;     // padding interno ajustado
-        const lineH = 11;    // separación entre líneas (mantenida igual)
+        const pad   = 6;     // padding interno aumentado
+        const lineH = 7.5;   // separación entre líneas aumentada
 
         // Línea 0 — Nombre (grande, bold)
-        const nameSize   = 8.5;
+        const nameSize   = 7.5;
         const nameWidth  = fontBold.widthOfTextAtSize(userName, nameSize);
         const nameX      = stamX + (stamW - nameWidth) / 2;  // centrado
         const nameY      = stamY + stamH - pad - nameSize;
@@ -495,7 +501,7 @@ const DocumentsPage: React.FC = () => {
 
         // Línea 1 — Firmado digitalmente + fecha
         const l1 = `Firmado digitalmente · ${timestamp}`;
-        const l1Size = 6.2;
+        const l1Size = 5.5;
         const l1W = font.widthOfTextAtSize(l1, l1Size);
         selectedPage.drawText(l1, {
             x: stamX + (stamW - l1W) / 2, y: nameY - lineH,
@@ -504,7 +510,7 @@ const DocumentsPage: React.FC = () => {
 
         // Línea 2 — RUT + email
         const l2 = `RUT: ${rut}   ·   ${email}`;
-        const l2Size = 5.5;
+        const l2Size = 5;
         const l2W = font.widthOfTextAtSize(l2, l2Size);
         selectedPage.drawText(l2, {
             x: stamX + (stamW - l2W) / 2, y: nameY - lineH * 2,
@@ -513,7 +519,7 @@ const DocumentsPage: React.FC = () => {
 
         // Línea 3 — IP
         const l3 = `Dirección IP: ${ip}`;
-        const l3Size = 5.5;
+        const l3Size = 5;
         const l3W = font.widthOfTextAtSize(l3, l3Size);
         selectedPage.drawText(l3, {
             x: stamX + (stamW - l3W) / 2, y: nameY - lineH * 3,
@@ -522,7 +528,7 @@ const DocumentsPage: React.FC = () => {
 
         // Línea 4 — Código validación + versión
         const l4 = `Cód. Validación: ${uniqueSigId} · v${appVersion}`;
-        const l4Size = 5;
+        const l4Size = 4.5;
         const l4W = font.widthOfTextAtSize(l4, l4Size);
         selectedPage.drawText(l4, {
             x: stamX + (stamW - l4W) / 2, y: nameY - lineH * 4,
@@ -632,15 +638,23 @@ const DocumentsPage: React.FC = () => {
                 </div>
 
                 {currentUser?.role === 'admin' && (
-                    <button
-                        onClick={() => {
-                            setWizardStep('docs');
-                            setShowUploadModal(true);
-                        }}
-                        className="py-3 px-6 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl text-xs font-black uppercase tracking-widest shadow-xl shadow-blue-200 transition-all active:scale-95 flex items-center justify-center gap-2 self-start md:self-auto"
-                    >
-                        <Plus size={16} /> Asignación Masiva / Cargar
-                    </button>
+                    <div className="flex flex-col gap-2 self-start md:self-auto">
+                        <button
+                            onClick={() => {
+                                setWizardStep('docs');
+                                setShowUploadModal(true);
+                            }}
+                            className="w-full py-3 px-6 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl text-xs font-black uppercase tracking-widest shadow-xl shadow-blue-200 transition-all active:scale-95 flex items-center justify-center gap-2"
+                        >
+                            <Plus size={16} /> Asignación Masiva / Cargar
+                        </button>
+                        <button
+                            onClick={() => setShowTemplateMassModal(true)}
+                            className="w-full py-3 px-6 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl text-xs font-black uppercase tracking-widest shadow-xl shadow-indigo-200 transition-all active:scale-95 flex items-center justify-center gap-2"
+                        >
+                            <FileText size={16} /> Asignar desde Plantillas
+                        </button>
+                    </div>
                 )}
             </div>
 
@@ -752,6 +766,14 @@ const DocumentsPage: React.FC = () => {
                                 Biblioteca Corporativa
                             </button>
                         )}
+                        {currentUser?.role === 'admin' && (
+                            <button
+                                onClick={() => setActiveTab('templates')}
+                                className={`flex-1 sm:px-6 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all ${activeTab === 'templates' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                            >
+                                Plantillas
+                            </button>
+                        )}
                     </div>
                 </div>
 
@@ -768,7 +790,9 @@ const DocumentsPage: React.FC = () => {
             </div>
 
             {/* VISTA DE DOCUMENTOS */}
-            {activeTab === 'corporate' && currentUser?.role === 'admin' ? (
+            {activeTab === 'templates' && currentUser?.role === 'admin' ? (
+                <TemplateList />
+            ) : activeTab === 'corporate' && currentUser?.role === 'admin' ? (
                 <CorporateDocsManager />
             ) : currentUser?.role !== 'admin' ? (
                 /* VISTA FLAT DIRECTA PARA TRABAJADORES */
@@ -1031,6 +1055,7 @@ const DocumentsPage: React.FC = () => {
             )}
 
             {/* MODAL / ASISTENTE DE ASIGNACIÓN MASIVA (WIZARD) */}
+            {showTemplateMassModal && <TemplateMassAssignModal onClose={() => setShowTemplateMassModal(false)} />}
             {showUploadModal && (
                 <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
                     <div className="bg-white rounded-[2rem] w-full max-w-2xl shadow-2xl overflow-hidden flex flex-col h-[90vh] md:h-auto max-h-[850px] animate-in zoom-in-95 duration-200">
