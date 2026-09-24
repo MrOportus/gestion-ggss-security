@@ -106,21 +106,31 @@ const TemplateList: React.FC = () => {
                     <p className="text-xs text-slate-400 mt-0.5">Crea y administra plantillas reutilizables para asignar a trabajadores.</p>
                 </div>
                 <div className="flex items-center gap-2">
-                    {documentTemplates.length === 0 && !isLoading && (
+                    {!isLoading && (
                         <div className="flex gap-2">
                             <button
                                 onClick={() => handleLoadPrebuilt(0)}
                                 className="flex items-center gap-1.5 px-3 py-2 border border-indigo-200 text-indigo-600 hover:bg-indigo-50 rounded-xl text-xs font-bold transition-all"
+                                title="Cargar plantilla predefinida: Reglamento Interno"
                             >
                                 <Download size={13} />
-                                Cargar Reglamento
+                                Reglamento
                             </button>
                             <button
                                 onClick={() => handleLoadPrebuilt(1)}
                                 className="flex items-center gap-1.5 px-3 py-2 border border-orange-200 text-orange-600 hover:bg-orange-50 rounded-xl text-xs font-bold transition-all"
+                                title="Cargar plantilla predefinida: Entrega EPP"
                             >
                                 <Download size={13} />
-                                Cargar EPP
+                                EPP
+                            </button>
+                            <button
+                                onClick={() => handleLoadPrebuilt(2)}
+                                className="flex items-center gap-1.5 px-3 py-2 border border-amber-200 text-amber-700 hover:bg-amber-50 rounded-xl text-xs font-bold transition-all"
+                                title="Cargar plantilla predefinida: EPP Oficial SG-SST"
+                            >
+                                <Download size={13} />
+                                EPP Oficial
                             </button>
                         </div>
                     )}
@@ -181,6 +191,9 @@ const TemplateList: React.FC = () => {
                             </button>
                             <button onClick={() => handleLoadPrebuilt(1)} className="flex items-center gap-2 px-4 py-2.5 border border-orange-200 text-orange-600 hover:bg-orange-50 rounded-xl text-xs font-black transition-all">
                                 <Download size={14} /> Entrega EPP
+                            </button>
+                            <button onClick={() => handleLoadPrebuilt(2)} className="flex items-center gap-2 px-4 py-2.5 border border-amber-200 text-amber-700 hover:bg-amber-50 rounded-xl text-xs font-black transition-all">
+                                <Download size={14} /> EPP Oficial SG-SST
                             </button>
                         </div>
                     )}

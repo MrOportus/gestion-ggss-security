@@ -547,7 +547,9 @@ export type TipoBloqueTemplate =
     | 'linea'
     | 'espaciador'
     | 'encabezado_iso'
-    | 'corte';
+    | 'corte'
+    | 'checklist_2col'
+    | 'dotacion_personal';
 
 export interface TemplateBloque {
   id: string;                          // UUID local único por bloque
@@ -561,6 +563,14 @@ export interface TemplateBloque {
   // ── Tabla ──
   columnas?: string[];
   filas?: string[][];
+  /** Para checklist_2col: array de { label, claveTalla? } agrupados en 2 col */
+  filas_epp?: { label: string; claveTalla?: string }[];
+  /** Para dotacion_personal: array de { label, claveTalla? } */
+  filas_dotacion?: { label: string; claveTalla?: string }[];
+  /** Para checklist_2col: set de índices de ítems marcados por el admin al asignar */
+  eppSeleccionados?: number[];
+  /** Para dotacion_personal: set de índices de ropa marcados por el admin al asignar */
+  dotacionSeleccionados?: number[];
     // 🖼️ Imagen 🖼️
     imageUrl?: string;
     imageWidth?: number;                 // Ancho de la imagen (pt)

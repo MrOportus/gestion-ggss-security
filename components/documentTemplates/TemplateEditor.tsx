@@ -27,26 +27,29 @@ export const CAMPOS_AUTOMATICOS = [
 ];
 
 const TIPO_META: Record<TipoBloqueTemplate, { label: string; color: string }> = {
-    encabezado_iso: { label: 'Encabezado ISO', color: 'text-indigo-600 bg-indigo-50' },
-    corte: { label: 'Línea de Corte', color: 'text-red-500 bg-red-50' },
-    titulo:           { label: 'Título',         color: 'text-indigo-600 bg-indigo-50' },
-    subtitulo:        { label: 'Subtítulo',       color: 'text-blue-600 bg-blue-50' },
-    texto:            { label: 'Texto',           color: 'text-slate-600 bg-slate-100' },
-    imagen:           { label: 'Imagen/Logo',     color: 'text-green-600 bg-green-50' },
-    campo_automatico: { label: 'Campo Auto',      color: 'text-amber-600 bg-amber-50' },
-    campo_manual:     { label: 'Campo Manual',    color: 'text-purple-600 bg-purple-50' },
-    fecha:            { label: 'Fecha',           color: 'text-teal-600 bg-teal-50' },
-    tabla:            { label: 'Tabla',           color: 'text-orange-600 bg-orange-50' },
-    checkbox:         { label: 'Checkbox',        color: 'text-pink-600 bg-pink-50' },
-    firma:            { label: 'Firma',           color: 'text-blue-700 bg-blue-100' },
-    linea:            { label: 'Línea',           color: 'text-slate-500 bg-slate-50' },
-    espaciador:       { label: 'Espaciador',      color: 'text-slate-400 bg-slate-50' },
+    encabezado_iso:   { label: 'Encabezado ISO',    color: 'text-indigo-600 bg-indigo-50' },
+    corte:            { label: 'Línea de Corte',    color: 'text-red-500 bg-red-50' },
+    titulo:           { label: 'Título',             color: 'text-indigo-600 bg-indigo-50' },
+    subtitulo:        { label: 'Subtítulo',          color: 'text-blue-600 bg-blue-50' },
+    texto:            { label: 'Texto',              color: 'text-slate-600 bg-slate-100' },
+    imagen:           { label: 'Imagen/Logo',        color: 'text-green-600 bg-green-50' },
+    campo_automatico: { label: 'Campo Auto',         color: 'text-amber-600 bg-amber-50' },
+    campo_manual:     { label: 'Campo Manual',       color: 'text-purple-600 bg-purple-50' },
+    fecha:            { label: 'Fecha',              color: 'text-teal-600 bg-teal-50' },
+    tabla:            { label: 'Tabla',              color: 'text-orange-600 bg-orange-50' },
+    checkbox:         { label: 'Checkbox',           color: 'text-pink-600 bg-pink-50' },
+    firma:            { label: 'Firma',              color: 'text-blue-700 bg-blue-100' },
+    linea:            { label: 'Línea',              color: 'text-slate-500 bg-slate-50' },
+    espaciador:       { label: 'Espaciador',         color: 'text-slate-400 bg-slate-50' },
+    checklist_2col:   { label: 'Checklist 2 Col.',   color: 'text-cyan-700 bg-cyan-50' },
+    dotacion_personal:{ label: 'Dotación Personal',  color: 'text-emerald-700 bg-emerald-50' },
 };
+
 
 const BLOQUES_DISPONIBLES: TipoBloqueTemplate[] = [
     'encabezado_iso', 'titulo', 'subtitulo', 'texto', 'imagen',
     'campo_automatico', 'campo_manual', 'fecha',
-    'tabla', 'checkbox', 'firma', 'linea', 'corte', 'espaciador',
+    'tabla', 'checkbox', 'checklist_2col', 'dotacion_personal', 'firma', 'linea', 'corte', 'espaciador',
 ];
 
 // ─── Render de bloque en canvas A4 ───────────────────────────────────────────
@@ -65,7 +68,7 @@ const BloqueCanvas: React.FC<{
     const fi = bloque.cursiva ? 'italic' : 'normal';
     const fs = bloque.fontSize ? `${bloque.fontSize}px` : undefined;
 
-    const ptToPx = (pt?: number, def = 12) => `${Math.round((pt || def) * 1.333)}px`;
+    const ptToPx = (pt?: number, def = 12) => `${Math.round((pt || def) * 1.666)}px`;
 
     const renderContenido = () => {
         switch (bloque.tipo) {
@@ -160,12 +163,38 @@ const BloqueCanvas: React.FC<{
                 return <div className="flex items-center gap-2 py-1"><div className="w-4 h-4 border-2 border-slate-400 rounded flex-shrink-0" /><span className="text-xs text-slate-600">{bloque.contenido || '✏️ Texto del checkbox'}</span></div>;
             case 'firma':
                 return (
-                    <div className="py-1">
-                        <div className="border-2 border-dashed border-blue-300 rounded-lg p-4 text-center">
-                            <PenTool size={20} className="mx-auto mb-1 text-blue-400" />
-                            <p className="text-xs text-blue-500 font-medium">Área de Firma Digital</p>
-                            <p className="text-[10px] text-slate-400 mt-0.5">{bloque.label || 'Firma del Trabajador'}</p>
+                    <div className="py-1 flex items-center gap-4">
+                        <span className="text-[13px] text-slate-700 w-32 shrink-0">{bloque.label || 'Firma del Trabajador'}</span>
+                        <div className="flex-1 border-b border-blue-400 relative h-4">
+                            {/* Opcional: mostrar un indicador sutil de donde va la firma */}
+                            <div className="absolute inset-0 flex items-center justify-center opacity-30">
+                                <PenTool size={14} className="text-blue-500" />
+                            </div>
                         </div>
+                    </div>
+                );
+            case 'checklist_2col':
+                return (
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-1 py-1 px-4 border border-dashed border-cyan-200 rounded-md bg-cyan-50/10">
+                        {(bloque.filas_epp || [{label: 'Ejemplo EPP 1'}, {label: 'Ejemplo EPP 2'}]).map((item, i) => (
+                            <div key={i} className="flex items-center gap-2">
+                                <div className="w-3 h-3 border border-slate-400 rounded-sm" />
+                                <span className="text-xs text-slate-600 truncate">{item.label}</span>
+                            </div>
+                        ))}
+                    </div>
+                );
+            case 'dotacion_personal':
+                return (
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-2 py-1 px-4 border border-dashed border-emerald-200 rounded-md bg-emerald-50/10">
+                        {(bloque.filas_dotacion || [{label: 'Zapato', claveTalla: 'talla'}]).map((item, i) => (
+                            <div key={i} className="flex items-center gap-4 text-xs text-slate-600">
+                                <span>{item.label}</span>
+                                <div className="flex-1 border-b border-slate-300 relative h-3">
+                                    <span className="absolute -top-1 right-0 text-[9px] text-slate-400">Talla</span>
+                                </div>
+                            </div>
+                        ))}
                     </div>
                 );
             case 'linea': return <hr className="border-slate-300 my-2" />;
@@ -228,6 +257,45 @@ const PropiedadesPanel: React.FC<{ bloque: TemplateBloque; onChange: (c: Partial
                     <textarea className={`${inp} resize-none`} rows={4} value={(bloque.filas || []).map((f: string[]) => f.join(' | ')).join('\n')} onChange={e => { onChange({ filas: e.target.value.split('\n').map((l: string) => l.split('|').map((s: string) => s.trim())) }); }} placeholder="dato1 | dato2" />
                 </div>
             </>)}
+            {bloque.tipo === 'checklist_2col' && (
+                <div>
+                    <label className={lbl}>Elementos (uno por línea, opcionalmente separados por | para la clave de talla)</label>
+                    <textarea 
+                        className={`${inp} resize-none`} 
+                        rows={10} 
+                        value={(bloque.filas_epp || []).map((f: any) => f.claveTalla ? `${f.label} | ${f.claveTalla}` : f.label).join('\n')} 
+                        onChange={e => {
+                            const lines = e.target.value.split('\n').filter(l => l.trim() !== '');
+                            const newFilas = lines.map(l => {
+                                const parts = l.split('|').map(s => s.trim());
+                                return { label: parts[0], claveTalla: parts[1] || undefined };
+                            });
+                            onChange({ filas_epp: newFilas });
+                        }} 
+                        placeholder="Casco de seguridad\nZapato | trabajador.talleCalzado" 
+                    />
+                    <p className="text-[10px] text-slate-500 mt-1">Si necesitas vincular una talla, usa el formato: <br/><b>Nombre del elemento | trabajador.talleCalzado</b></p>
+                </div>
+            )}
+            {bloque.tipo === 'dotacion_personal' && (
+                <div>
+                    <label className={lbl}>Elementos (uno por línea, formato: Nombre | clave de talla)</label>
+                    <textarea 
+                        className={`${inp} resize-none`} 
+                        rows={6} 
+                        value={(bloque.filas_dotacion || []).map((f: any) => `${f.label} | ${f.claveTalla || ''}`).join('\n')} 
+                        onChange={e => {
+                            const lines = e.target.value.split('\n').filter(l => l.trim() !== '');
+                            const newFilas = lines.map(l => {
+                                const parts = l.split('|').map(s => s.trim());
+                                return { label: parts[0], claveTalla: parts[1] || undefined };
+                            });
+                            onChange({ filas_dotacion: newFilas });
+                        }} 
+                        placeholder="Zapato | trabajador.talleCalzado\nChaqueta | trabajador.talleChaqueta" 
+                    />
+                </div>
+            )}
             {bloque.tipo === 'espaciador' && <div><label className={lbl}>Altura (px)</label><input type="number" className={inp} value={bloque.altura || 24} min={4} max={200} onChange={e => onChange({ altura: Number(e.target.value) })} /></div>}
             {bloque.tipo === 'encabezado_iso' && (
                 <div className="space-y-3">
@@ -289,6 +357,12 @@ const TemplateEditor: React.FC<TemplateEditorProps> = ({ template, onClose, onSa
             negrita: t === 'titulo',
             fontSize: t === 'titulo' ? 18 : t === 'subtitulo' ? 14 : 12,
         };
+        if (t === 'checklist_2col') {
+            n.filas_epp = [{ label: 'Elemento 1' }, { label: 'Elemento 2' }];
+        }
+        if (t === 'dotacion_personal') {
+            n.filas_dotacion = [{ label: 'Zapato', claveTalla: 'trabajador.talleCalzado' }];
+        }
         setBloques(prev => [...prev, n]);
         setSelectedBloqueId(n.id);
     }, [bloques.length]);
@@ -429,7 +503,7 @@ const TemplateEditor: React.FC<TemplateEditorProps> = ({ template, onClose, onSa
                     <main className="flex-1 overflow-y-auto bg-slate-200 flex justify-center py-8 px-4">
                         <div
                             className="bg-white shadow-xl rounded-sm"
-                            style={{ width: '816px', minHeight: '1056px', padding: '96px' }}
+                            style={{ width: '1020px', minHeight: '1320px', padding: '120px' }}
                             onClick={() => setSelectedBloqueId(null)}
                         >
                             {bloques.length === 0 ? (

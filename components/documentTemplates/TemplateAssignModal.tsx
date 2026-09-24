@@ -1,10 +1,10 @@
 /**
  * TemplateAssignModal.tsx
- * Wizard de asignación: seleccionar plantilla → seleccionar trabajador →
- * auto-completar campos → campos manuales → confirmar → addDigitalDocument().
+ * Wizard de asignación: seleccionar trabajador → [si hay checklist_2col] seleccionar EPP →
+ * campos manuales → confirmar → addDigitalDocument().
  */
 import React, { useState, useMemo, useEffect } from 'react';
-import { X, Search, User, ChevronRight, Loader2, CheckCircle, AlertTriangle, Zap } from 'lucide-react';
+import { X, Search, User, ChevronRight, Loader2, CheckCircle, AlertTriangle, Zap, ShieldCheck } from 'lucide-react';
 import { useAppStore } from '../../store/useAppStore';
 import { DocumentTemplate, Employee } from '../../types';
 import { CAMPOS_AUTOMATICOS } from './TemplateEditor';
@@ -15,7 +15,7 @@ interface TemplateAssignModalProps {
     onClose: () => void;
 }
 
-type Step = 'worker' | 'fields' | 'confirm';
+type Step = 'worker' | 'epp' | 'fields' | 'confirm';
 
 const TemplateAssignModal: React.FC<TemplateAssignModalProps> = ({ template, onClose }) => {
     const { employees, sites, addDigitalDocument, showNotification } = useAppStore();
@@ -23,6 +23,8 @@ const TemplateAssignModal: React.FC<TemplateAssignModalProps> = ({ template, onC
     const [searchWorker, setSearchWorker] = useState('');
     const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null);
     const [manualFields, setManualFields] = useState<Record<string, string>>({});
+    const [eppSeleccionados, setEppSeleccionados] = useState<Set<number>>(new Set());
+    const [dotacionSeleccionados, setDotacionSeleccionados] = useState<Set<number>>(new Set());
     const [isGenerating, setIsGenerating] = useState(false);
     const [done, setDone] = useState(false);
 
@@ -40,6 +42,53 @@ const TemplateAssignModal: React.FC<TemplateAssignModalProps> = ({ template, onC
     const camposManuales = useMemo(() => {
         return template.bloques.filter(b => b.tipo === 'campo_manual');
     }, [template.bloques]);
+
+    // Bloque checklist_2col — si existe, mostrar paso EPP
+    const bloqueEpp = useMemo(() =>
+        template.bloques.find(b => b.tipo === 'checklist_2col' && (b.filas_epp?.length ?? 0) > 0) ?? null,
+        [template.bloques]
+    );
+    const bloqueDotacion = useMemo(() =>
+        template.bloques.find(b => b.tipo === 'dotacion_personal') ?? null,
+        [template.bloques]
+    );
+    const hasEppStep = !!bloqueEpp || !!bloqueDotacion;
+
+    // Navegación dinámica entre pasos
+    const getNextStep = (current: Step): Step => {
+        if (current === 'worker') return hasEppStep ? 'epp' : (camposManuales.length > 0 ? 'fields' : 'confirm');
+        if (current === 'epp')    return camposManuales.length > 0 ? 'fields' : 'confirm';
+        if (current === 'fields') return 'confirm';
+        return 'confirm';
+    };
+    const getPrevStep = (current: Step): Step => {
+        if (current === 'confirm') return camposManuales.length > 0 ? 'fields' : (hasEppStep ? 'epp' : 'worker');
+        if (current === 'fields')  return hasEppStep ? 'epp' : 'worker';
+        if (current === 'epp')     return 'worker';
+        return 'worker';
+    };
+
+    // Pasos dinámicos según la plantilla
+    const stepsConfig: { key: Step; label: string }[] = [
+        { key: 'worker', label: 'Trabajador' },
+        ...(hasEppStep ? [{ key: 'epp' as Step, label: 'Seleccionar EPP' }] : []),
+        ...(camposManuales.length > 0 ? [{ key: 'fields' as Step, label: 'Campos' }] : []),
+        { key: 'confirm', label: 'Confirmar' },
+    ];
+
+    // Helpers de selección EPP y Dotación
+    const toggleEpp = (idx: number) => setEppSeleccionados(prev => {
+        const n = new Set(prev); n.has(idx) ? n.delete(idx) : n.add(idx); return n;
+    });
+    const selectAllEpp = () => { if (bloqueEpp?.filas_epp) setEppSeleccionados(new Set(bloqueEpp.filas_epp.map((_, i) => i))); };
+    const clearAllEpp  = () => setEppSeleccionados(new Set());
+
+    const dotacionItems = bloqueDotacion?.filas_dotacion || [];
+    const toggleDotacion = (idx: number) => setDotacionSeleccionados(prev => {
+        const n = new Set(prev); n.has(idx) ? n.delete(idx) : n.add(idx); return n;
+    });
+    const selectAllDotacion = () => setDotacionSeleccionados(new Set(dotacionItems.map((_, i) => i)));
+    const clearAllDotacion = () => setDotacionSeleccionados(new Set());
 
     // Auto-completar campos manuales desde el perfil del trabajador al seleccionar trabajador
     useEffect(() => {
@@ -68,8 +117,18 @@ const TemplateAssignModal: React.FC<TemplateAssignModalProps> = ({ template, onC
                 employee: selectedEmployee, site, manualFields, generatedAt: new Date().toISOString(),
             };
 
+            // Inyectar eppSeleccionados y dotacionSeleccionados en copia local del template
+            const templateConEpp: DocumentTemplate = {
+                ...template,
+                bloques: template.bloques.map(b => {
+                    if (b.tipo === 'checklist_2col') return { ...b, eppSeleccionados: Array.from(eppSeleccionados) };
+                    if (b.tipo === 'dotacion_personal') return { ...b, dotacionSeleccionados: Array.from(dotacionSeleccionados) };
+                    return b;
+                }),
+            };
+
             // 1. Generar PDF con pdf-lib
-            const { blob, signatureBounds } = await generateTemplatePDF(template, workerData);
+            const { blob, signatureBounds } = await generateTemplatePDF(templateConEpp, workerData);
 
             // 2. Subir a Firebase Storage en generated_docs/
             const docId = `doctpl_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
@@ -142,19 +201,18 @@ const TemplateAssignModal: React.FC<TemplateAssignModalProps> = ({ template, onC
                     <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded-xl text-slate-400"><X size={20} /></button>
                 </div>
 
-                {/* Steps indicator */}
-                <div className="flex items-center px-6 py-3 bg-slate-50 border-b border-slate-100 gap-3">
-                    {(['worker', 'fields', 'confirm'] as Step[]).map((s, i) => {
-                        const labels = ['Seleccionar Trabajador', 'Completar Campos', 'Confirmar'];
-                        const isActive = step === s;
-                        const isPast = ['worker', 'fields', 'confirm'].indexOf(step) > i;
+                {/* Steps indicator — dinámico */}
+                <div className="flex items-center px-6 py-3 bg-slate-50 border-b border-slate-100 gap-2 overflow-x-auto">
+                    {stepsConfig.map((s, i) => {
+                        const isActive = step === s.key;
+                        const isPast = stepsConfig.findIndex(x => x.key === step) > i;
                         return (
-                            <React.Fragment key={s}>
-                                <div className={`flex items-center gap-2 text-xs font-black uppercase tracking-widest ${isActive ? 'text-blue-600' : isPast ? 'text-emerald-600' : 'text-slate-400'}`}>
+                            <React.Fragment key={s.key}>
+                                <div className={`flex items-center gap-1.5 text-xs font-black uppercase tracking-widest whitespace-nowrap ${isActive ? 'text-blue-600' : isPast ? 'text-emerald-600' : 'text-slate-400'}`}>
                                     <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-black ${isActive ? 'bg-blue-600 text-white' : isPast ? 'bg-emerald-500 text-white' : 'bg-slate-200 text-slate-400'}`}>{i + 1}</span>
-                                    {labels[i]}
+                                    {s.label}
                                 </div>
-                                {i < 2 && <ChevronRight size={14} className="text-slate-300 flex-shrink-0" />}
+                                {i < stepsConfig.length - 1 && <ChevronRight size={14} className="text-slate-300 flex-shrink-0" />}
                             </React.Fragment>
                         );
                     })}
@@ -163,7 +221,7 @@ const TemplateAssignModal: React.FC<TemplateAssignModalProps> = ({ template, onC
                 {/* Body */}
                 <div className="flex-1 overflow-y-auto p-6">
 
-                    {/* Paso 1: Seleccionar trabajador */}
+                    {/* Paso: Seleccionar trabajador */}
                     {step === 'worker' && (
                         <div className="space-y-4">
                             <div className="relative">
@@ -184,7 +242,7 @@ const TemplateAssignModal: React.FC<TemplateAssignModalProps> = ({ template, onC
                                     filteredEmployees.map(emp => (
                                         <button
                                             key={emp.id}
-                                            onClick={() => { setSelectedEmployee(emp); setStep(camposManuales.length > 0 ? 'fields' : 'confirm'); }}
+                                            onClick={() => { setSelectedEmployee(emp); setStep(getNextStep('worker')); }}
                                             className="w-full flex items-center gap-4 p-4 rounded-2xl border border-slate-100 hover:border-blue-200 hover:bg-blue-50 transition-all text-left"
                                         >
                                             <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center font-black text-white text-sm uppercase shrink-0">
@@ -199,6 +257,88 @@ const TemplateAssignModal: React.FC<TemplateAssignModalProps> = ({ template, onC
                                     ))
                                 )}
                             </div>
+                        </div>
+                    )}
+
+                    {/* Paso: Seleccionar Dotación y EPP a entregar */}
+                    {step === 'epp' && selectedEmployee && (bloqueEpp?.filas_epp || bloqueDotacion) && (
+                        <div className="space-y-6">
+                            <div className="bg-blue-50 rounded-2xl p-4 flex items-center gap-3">
+                                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center font-black text-white text-xs shrink-0">{(selectedEmployee.firstName || 'U')[0]}</div>
+                                <div>
+                                    <p className="font-bold text-blue-800 text-sm">{selectedEmployee.firstName} {selectedEmployee.lastNamePaterno}</p>
+                                    <p className="text-xs text-blue-500">{selectedEmployee.rut} · {selectedEmployee.cargo}</p>
+                                </div>
+                            </div>
+                            
+                            <div className="max-h-72 overflow-y-auto pr-2 space-y-6">
+                                {/* Grupo Dotación Personal */}
+                                {bloqueDotacion && (
+                                    <div className="space-y-3">
+                                        <div className="flex items-center justify-between">
+                                            <div className="flex items-center gap-2">
+                                                <ShieldCheck size={16} className="text-emerald-600" />
+                                                <p className="text-xs font-black text-slate-700 uppercase tracking-widest">Dotación Personal</p>
+                                                <span className="text-[10px] font-black text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full">{dotacionSeleccionados.size} / {dotacionItems.length}</span>
+                                            </div>
+                                            <div className="flex gap-2">
+                                                <button onClick={selectAllDotacion} className="text-[11px] font-bold text-emerald-600 hover:text-emerald-800 border border-emerald-200 hover:bg-emerald-50 px-3 py-1 rounded-lg transition-all">Todos</button>
+                                                <button onClick={clearAllDotacion} className="text-[11px] font-bold text-slate-500 hover:text-slate-700 border border-slate-200 hover:bg-slate-50 px-3 py-1 rounded-lg transition-all">Ninguno</button>
+                                            </div>
+                                        </div>
+                                        <div className="grid grid-cols-2 gap-2">
+                                            {dotacionItems.map((item, idx) => {
+                                                const checked = dotacionSeleccionados.has(idx);
+                                                return (
+                                                    <button key={'dot_'+idx} onClick={() => toggleDotacion(idx)}
+                                                        className={`flex items-center gap-3 p-3 rounded-xl border-2 text-left transition-all active:scale-95 ${checked ? 'border-emerald-400 bg-emerald-50 shadow-sm' : 'border-slate-100 bg-slate-50 hover:border-slate-300'}`}>
+                                                        <div className={`w-5 h-5 rounded-md flex items-center justify-center flex-shrink-0 border-2 transition-all ${checked ? 'bg-emerald-500 border-emerald-500' : 'bg-white border-slate-300'}`}>
+                                                            {checked && (
+                                                                <svg width="11" height="9" viewBox="0 0 11 9" fill="none"><path d="M1 4.5L4 7.5L10 1.5" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                                                            )}
+                                                        </div>
+                                                        <span className={`text-xs leading-tight font-semibold ${checked ? 'text-emerald-800' : 'text-slate-600'}`}>{item.label}</span>
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* Grupo EPP */}
+                                {bloqueEpp?.filas_epp && (
+                                    <div className="space-y-3">
+                                        <div className="flex items-center justify-between">
+                                            <div className="flex items-center gap-2">
+                                                <ShieldCheck size={16} className="text-emerald-600" />
+                                                <p className="text-xs font-black text-slate-700 uppercase tracking-widest">Elementos de Protección</p>
+                                                <span className="text-[10px] font-black text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full">{eppSeleccionados.size} / {bloqueEpp.filas_epp.length}</span>
+                                            </div>
+                                            <div className="flex gap-2">
+                                                <button onClick={selectAllEpp} className="text-[11px] font-bold text-emerald-600 hover:text-emerald-800 border border-emerald-200 hover:bg-emerald-50 px-3 py-1 rounded-lg transition-all">Todos</button>
+                                                <button onClick={clearAllEpp} className="text-[11px] font-bold text-slate-500 hover:text-slate-700 border border-slate-200 hover:bg-slate-50 px-3 py-1 rounded-lg transition-all">Ninguno</button>
+                                            </div>
+                                        </div>
+                                        <div className="grid grid-cols-2 gap-2">
+                                            {bloqueEpp.filas_epp.map((item, idx) => {
+                                                const checked = eppSeleccionados.has(idx);
+                                                return (
+                                                    <button key={'epp_'+idx} onClick={() => toggleEpp(idx)}
+                                                        className={`flex items-center gap-3 p-3 rounded-xl border-2 text-left transition-all active:scale-95 ${checked ? 'border-emerald-400 bg-emerald-50 shadow-sm' : 'border-slate-100 bg-slate-50 hover:border-slate-300'}`}>
+                                                        <div className={`w-5 h-5 rounded-md flex items-center justify-center flex-shrink-0 border-2 transition-all ${checked ? 'bg-emerald-500 border-emerald-500' : 'bg-white border-slate-300'}`}>
+                                                            {checked && (
+                                                                <svg width="11" height="9" viewBox="0 0 11 9" fill="none"><path d="M1 4.5L4 7.5L10 1.5" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                                                            )}
+                                                        </div>
+                                                        <span className={`text-xs leading-tight font-semibold ${checked ? 'text-emerald-800' : 'text-slate-600'}`}>{item.label}</span>
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                            <p className="text-[11px] text-slate-400 text-center">Solo los ítems seleccionados aparecerán marcados en el PDF</p>
                         </div>
                     )}
 
@@ -271,6 +411,15 @@ const TemplateAssignModal: React.FC<TemplateAssignModalProps> = ({ template, onC
                                         <span className="text-slate-500">Cargo:</span>
                                         <span className="font-bold text-slate-700">{selectedEmployee.cargo}</span>
                                     </div>
+                                    {hasEppStep && (
+                                        <div className="flex justify-between">
+                                            <span className="text-slate-500">Ítems marcados:</span>
+                                            <div className="text-right">
+                                                {bloqueDotacion && <span className="block font-bold text-emerald-700">{dotacionSeleccionados.size} ropa con ✓</span>}
+                                                {bloqueEpp && <span className="block font-bold text-emerald-700">{eppSeleccionados.size} EPP con ✓</span>}
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                             <div className="bg-amber-50 border border-amber-100 rounded-2xl p-4 flex gap-3">
@@ -286,19 +435,15 @@ const TemplateAssignModal: React.FC<TemplateAssignModalProps> = ({ template, onC
                 {/* Footer acciones */}
                 <div className="p-6 border-t border-slate-100 flex items-center justify-between">
                     <button
-                        onClick={() => {
-                            if (step === 'confirm') setStep(camposManuales.length > 0 ? 'fields' : 'worker');
-                            else if (step === 'fields') setStep('worker');
-                            else onClose();
-                        }}
+                        onClick={() => { if (step === 'worker') onClose(); else setStep(getPrevStep(step)); }}
                         className="px-5 py-2.5 border border-slate-200 text-slate-600 rounded-xl text-sm font-bold hover:bg-slate-50 transition-all"
                     >
                         {step === 'worker' ? 'Cancelar' : 'Atrás'}
                     </button>
 
-                    {step === 'fields' && (
+                    {(step === 'epp' || step === 'fields') && (
                         <button
-                            onClick={() => setStep('confirm')}
+                            onClick={() => setStep(getNextStep(step))}
                             className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-black uppercase tracking-wider transition-all"
                         >
                             Continuar

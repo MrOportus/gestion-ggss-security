@@ -374,6 +374,175 @@ export async function generateTemplatePDF(
                 y -= 18;
                 break;
             }
+            case 'checklist_2col': {
+                // Renders EPP items in 2 equal columns with checkbox + label
+                // Admin-selected items (eppSeleccionados) get a bold ✓ checkmark drawn inside
+                const items = bloque.filas_epp || [];
+                if (items.length === 0) break;
+
+                const selected = new Set<number>(bloque.eppSeleccionados || []);
+                const colW2 = CONTENT_W / 2;
+                const ROW_H = 15;
+                const CHECK_SIZE = 8;
+
+                // Split items into two halves
+                const half = Math.ceil(items.length / 2);
+                const leftCol = items.slice(0, half);
+                const rightCol = items.slice(half);
+                const rows = Math.max(leftCol.length, rightCol.length);
+
+                ensureSpace(rows * ROW_H + 4);
+
+                for (let i = 0; i < rows; i++) {
+                    const rowY = y - i * ROW_H;
+
+                    const renderEppItem = (item: { label: string; claveTalla?: string } | undefined, colX: number, globalIdx: number) => {
+                        if (!item) return;
+                        const isChecked = selected.has(globalIdx);
+
+                        // Checkbox square — filled green if selected, empty if not
+                        currentPage.drawRectangle({
+                            x: colX + 2, y: rowY - CHECK_SIZE,
+                            width: CHECK_SIZE, height: CHECK_SIZE,
+                            borderColor: isChecked ? rgb(0.1, 0.55, 0.2) : rgb(0.4, 0.4, 0.4),
+                            borderWidth: isChecked ? 1 : 0.6,
+                            color: isChecked ? rgb(0.88, 0.97, 0.88) : undefined,
+                        });
+
+                        // ✓ checkmark if selected (drawn with lines to avoid WinAnsi encoding errors)
+                        if (isChecked) {
+                            // Left part of the checkmark
+                            currentPage.drawLine({
+                                start: { x: colX + 3.5, y: rowY - CHECK_SIZE + 3.5 },
+                                end: { x: colX + 5, y: rowY - CHECK_SIZE + 2 },
+                                thickness: 1.2, color: rgb(0.1, 0.55, 0.2),
+                            });
+                            // Right part of the checkmark
+                            currentPage.drawLine({
+                                start: { x: colX + 5, y: rowY - CHECK_SIZE + 2 },
+                                end: { x: colX + 8.5, y: rowY - CHECK_SIZE + 5.5 },
+                                thickness: 1.2, color: rgb(0.1, 0.55, 0.2),
+                            });
+                        }
+
+                        // Item label (truncated to fit column width)
+                        const availW = colW2 - CHECK_SIZE - 10;
+                        let labelText = item.label;
+                        while (labelText.length > 2 && fontRegular.widthOfTextAtSize(labelText, 8) > availW) {
+                            labelText = labelText.slice(0, -1);
+                        }
+                        currentPage.drawText(labelText, {
+                            x: colX + CHECK_SIZE + 6, y: rowY - CHECK_SIZE + 1,
+                            size: 8,
+                            font: isChecked ? fontBold : fontRegular,
+                            color: isChecked ? rgb(0.05, 0.4, 0.1) : color,
+                        });
+                    };
+
+                    renderEppItem(leftCol[i], MARGIN, i);
+                    if (rightCol[i]) renderEppItem(rightCol[i], MARGIN + colW2, half + i);
+                }
+
+                y -= rows * ROW_H + 4;
+                break;
+            }
+            case 'dotacion_personal': {
+                // Clothing items with auto-talla from worker profile, two per row
+                const DOTACION_ITEMS = bloque.filas_dotacion || [];
+
+                const DOT_ROW_H = 18;
+                const DOT_CHECK = 9;
+                const COL_W = CONTENT_W / 2;
+                const TALLA_BOX_W = 36;
+                const TALLA_LABEL = 'Talla';
+
+                // Render in 2 columns per row: items pair side by side
+                const pairs = Math.ceil(DOTACION_ITEMS.length / 2);
+                ensureSpace(pairs * DOT_ROW_H + 4);
+
+                for (let row = 0; row < pairs; row++) {
+                    const rowY = y - row * DOT_ROW_H;
+                    const leftItem  = DOTACION_ITEMS[row * 2];
+                    const rightItem = DOTACION_ITEMS[row * 2 + 1];
+
+                    const dotacionSelected = new Set<number>(bloque.dotacionSeleccionados || []);
+
+                    const renderDotItem = (item: typeof DOTACION_ITEMS[0], colX: number, globalIdx: number) => {
+                        const talla = resolveField(item.claveTalla, workerData);
+                        const isChecked = dotacionSelected.has(globalIdx);
+
+                        // Item label
+                        currentPage.drawText(item.label, {
+                            x: colX + 2, y: rowY - DOT_CHECK + 2,
+                            size: 9, font: fontRegular, color,
+                        });
+
+                        // underline for item mark (e.g. "ok")
+                        const labelW = fontRegular.widthOfTextAtSize(item.label, 9);
+                        const qtyBoxX = colX + 2 + labelW + 6;
+                        const qtyBoxW = 28;
+                        currentPage.drawLine({
+                            start: { x: qtyBoxX, y: rowY - DOT_CHECK },
+                            end:   { x: qtyBoxX + qtyBoxW, y: rowY - DOT_CHECK },
+                            thickness: 0.6, color: rgb(0.5, 0.5, 0.5),
+                        });
+
+                        // If selected, draw a green checkmark box centered on the line
+                        if (isChecked) {
+                            const cbSize = 9;
+                            const cbX = qtyBoxX + (qtyBoxW - cbSize) / 2;
+                            const cbY = rowY - DOT_CHECK; // base of the line
+                            
+                            // Green filled square
+                            currentPage.drawRectangle({
+                                x: cbX, y: cbY,
+                                width: cbSize, height: cbSize,
+                                color: rgb(0.1, 0.7, 0.1),
+                            });
+                            // White checkmark lines inside the green box
+                            currentPage.drawLine({
+                                start: { x: cbX + 2, y: cbY + 4 },
+                                end: { x: cbX + 4, y: cbY + 2.5 },
+                                thickness: 1.5, color: rgb(1, 1, 1),
+                            });
+                            currentPage.drawLine({
+                                start: { x: cbX + 4, y: cbY + 2.5 },
+                                end: { x: cbX + 7.5, y: cbY + 6.5 },
+                                thickness: 1.5, color: rgb(1, 1, 1),
+                            });
+                        }
+
+                        // "Talla" label + underline box
+                        const tallaLabelW = fontRegular.widthOfTextAtSize(TALLA_LABEL, 8);
+                        const tallaStartX = colX + COL_W - TALLA_BOX_W - tallaLabelW - 12;
+                        currentPage.drawText(TALLA_LABEL, {
+                            x: tallaStartX, y: rowY - DOT_CHECK + 2,
+                            size: 8, font: fontRegular, color: rgb(0.5, 0.5, 0.5),
+                        });
+                        // underline for talla value
+                        const boxX = tallaStartX + tallaLabelW + 4;
+                        currentPage.drawLine({
+                            start: { x: boxX, y: rowY - DOT_CHECK },
+                            end:   { x: boxX + TALLA_BOX_W, y: rowY - DOT_CHECK },
+                            thickness: 0.6, color: rgb(0.5, 0.5, 0.5),
+                        });
+                        // Auto-fill talla if available (blue bold)
+                        if (talla) {
+                            currentPage.drawText(talla, {
+                                x: boxX + 2, y: rowY - DOT_CHECK + 2,
+                                size: 8.5, font: fontBold, color: rgb(0.1, 0.3, 0.8),
+                            });
+                        }
+                    };
+
+                    renderDotItem(leftItem, MARGIN, row * 2);
+                    if (rightItem) renderDotItem(rightItem, MARGIN + COL_W, row * 2 + 1);
+                }
+
+                y -= pairs * DOT_ROW_H + 4;
+                break;
+            }
+
             case 'firma': {
                 ensureSpace(40);
                 const labelStr = bloque.label || 'Firma del trabajador';

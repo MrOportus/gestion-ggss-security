@@ -3,7 +3,7 @@
  * Wizard de asignación masiva: N plantillas -> M trabajadores.
  */
 import React, { useState, useMemo } from 'react';
-import { X, Search, User, ChevronRight, Loader2, CheckCircle, AlertTriangle, FileText, CheckSquare, Square, Users } from 'lucide-react';
+import { X, Search, User, ChevronRight, Loader2, CheckCircle, AlertTriangle, FileText, CheckSquare, Square, Users, ShieldCheck } from 'lucide-react';
 import { useAppStore } from '../../store/useAppStore';
 import { DocumentTemplate, Employee } from '../../types';
 import { CAMPOS_AUTOMATICOS } from './TemplateEditor';
@@ -13,7 +13,7 @@ interface Props {
     onClose: () => void;
 }
 
-type Step = 'templates' | 'workers' | 'confirm' | 'processing';
+type Step = 'templates' | 'workers' | 'epp' | 'confirm' | 'processing';
 
 const TemplateMassAssignModal: React.FC<Props> = ({ onClose }) => {
     const { employees, sites, documentTemplates, addDigitalDocument, showNotification } = useAppStore();
@@ -25,15 +25,37 @@ const TemplateMassAssignModal: React.FC<Props> = ({ onClose }) => {
     const [selectedTemplates, setSelectedTemplates] = useState<Set<string>>(new Set());
     const [selectedWorkers, setSelectedWorkers] = useState<Set<string>>(new Set());
     
+    const [eppSeleccionados, setEppSeleccionados] = useState<Set<number>>(new Set());
+    const [dotacionSeleccionados, setDotacionSeleccionados] = useState<Set<number>>(new Set());
+    
     const [progress, setProgress] = useState({ current: 0, total: 0, failed: 0 });
     const [done, setDone] = useState(false);
 
-    // 1. Filtrar plantillas activas
     const activeTemplates = useMemo(() => documentTemplates.filter(t => t.estado === 'activo'), [documentTemplates]);
     const filteredTemplates = useMemo(() => {
         const q = searchTemplate.toLowerCase();
         return activeTemplates.filter(t => t.nombre.toLowerCase().includes(q) || t.tipo.toLowerCase().includes(q));
     }, [activeTemplates, searchTemplate]);
+
+    const selectedTemplatesList = useMemo(() => activeTemplates.filter(t => selectedTemplates.has(t.id)), [activeTemplates, selectedTemplates]);
+
+    const bloqueEpp = useMemo(() => {
+        for (const tpl of selectedTemplatesList) {
+            const b = tpl.bloques.find(b => b.tipo === 'checklist_2col' && (b.filas_epp?.length ?? 0) > 0);
+            if (b) return b;
+        }
+        return null;
+    }, [selectedTemplatesList]);
+
+    const bloqueDotacion = useMemo(() => {
+        for (const tpl of selectedTemplatesList) {
+            const b = tpl.bloques.find(b => b.tipo === 'dotacion_personal');
+            if (b) return b;
+        }
+        return null;
+    }, [selectedTemplatesList]);
+
+    const hasEppStep = !!bloqueEpp || !!bloqueDotacion;
 
     // 2. Filtrar trabajadores activos (no admin)
     const filteredEmployees = useMemo(() => {
@@ -65,6 +87,19 @@ const TemplateMassAssignModal: React.FC<Props> = ({ onClose }) => {
             setSelectedWorkers(new Set(filteredEmployees.map(e => e.id)));
         }
     };
+
+    const toggleEpp = (idx: number) => setEppSeleccionados(prev => {
+        const n = new Set(prev); n.has(idx) ? n.delete(idx) : n.add(idx); return n;
+    });
+    const selectAllEpp = () => { if (bloqueEpp?.filas_epp) setEppSeleccionados(new Set(bloqueEpp.filas_epp.map((_, i) => i))); };
+    const clearAllEpp  = () => setEppSeleccionados(new Set());
+
+    const dotacionItems = bloqueDotacion?.filas_dotacion || [];
+    const toggleDotacion = (idx: number) => setDotacionSeleccionados(prev => {
+        const n = new Set(prev); n.has(idx) ? n.delete(idx) : n.add(idx); return n;
+    });
+    const selectAllDotacion = () => setDotacionSeleccionados(new Set(dotacionItems.map((_, i) => i)));
+    const clearAllDotacion = () => setDotacionSeleccionados(new Set());
 
     // Auto-completar campos manuales
     const resolveManualFields = (template: DocumentTemplate, employee: Employee, site: any): Record<string, string> => {
@@ -101,14 +136,23 @@ const TemplateMassAssignModal: React.FC<Props> = ({ onClose }) => {
             
             for (const tpl of tplList) {
                 try {
+                    const templateConEpp: DocumentTemplate = {
+                        ...tpl,
+                        bloques: tpl.bloques.map(b => {
+                            if (b.tipo === 'checklist_2col') return { ...b, eppSeleccionados: Array.from(eppSeleccionados) };
+                            if (b.tipo === 'dotacion_personal') return { ...b, dotacionSeleccionados: Array.from(dotacionSeleccionados) };
+                            return b;
+                        }),
+                    };
+
                     // Auto-resolver manual fields
-                    const manualFields = resolveManualFields(tpl, emp, site);
+                    const manualFields = resolveManualFields(templateConEpp, emp, site);
                     
                     const workerData: WorkerDataForPDF = {
                         employee: emp, site, manualFields, generatedAt: new Date().toISOString(),
                     };
 
-                    const { blob, signatureBounds } = await generateTemplatePDF(tpl, workerData);
+                    const { blob, signatureBounds } = await generateTemplatePDF(templateConEpp, workerData);
                     const docId = `doctpl_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
                     const pdfUrl = await uploadGeneratedPDF(blob, docId);
 
@@ -214,18 +258,22 @@ const TemplateMassAssignModal: React.FC<Props> = ({ onClose }) => {
                 </div>
 
                 {/* Steps indicator */}
-                <div className="flex items-center px-6 py-3 bg-slate-50 border-b border-slate-100 gap-3">
-                    {(['templates', 'workers', 'confirm'] as Step[]).map((s, i) => {
-                        const labels = ['Plantillas', 'Trabajadores', 'Confirmar'];
-                        const isActive = step === s;
-                        const isPast = ['templates', 'workers', 'confirm'].indexOf(step) > i;
+                <div className="flex items-center px-6 py-3 bg-slate-50 border-b border-slate-100 gap-3 overflow-x-auto">
+                    {[
+                        { key: 'templates' as Step, label: 'Plantillas' },
+                        { key: 'workers' as Step, label: 'Trabajadores' },
+                        ...(hasEppStep ? [{ key: 'epp' as Step, label: 'Seleccionar EPP' }] : []),
+                        { key: 'confirm' as Step, label: 'Confirmar' }
+                    ].map((s, i, arr) => {
+                        const isActive = step === s.key;
+                        const isPast = arr.findIndex(x => x.key === step) > i;
                         return (
-                            <React.Fragment key={s}>
-                                <div className={`flex items-center gap-2 text-xs font-black uppercase tracking-widest ${isActive ? 'text-blue-600' : isPast ? 'text-emerald-600' : 'text-slate-400'}`}>
+                            <React.Fragment key={s.key}>
+                                <div className={`flex items-center gap-2 text-xs font-black uppercase tracking-widest whitespace-nowrap ${isActive ? 'text-blue-600' : isPast ? 'text-emerald-600' : 'text-slate-400'}`}>
                                     <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-black ${isActive ? 'bg-blue-600 text-white' : isPast ? 'bg-emerald-500 text-white' : 'bg-slate-200 text-slate-400'}`}>{i + 1}</span>
-                                    {labels[i]}
+                                    {s.label}
                                 </div>
-                                {i < 2 && <ChevronRight size={14} className="text-slate-300 flex-shrink-0" />}
+                                {i < arr.length - 1 && <ChevronRight size={14} className="text-slate-300 flex-shrink-0" />}
                             </React.Fragment>
                         );
                     })}
@@ -318,6 +366,87 @@ const TemplateMassAssignModal: React.FC<Props> = ({ onClose }) => {
                         </div>
                     )}
 
+                    {/* Paso 2.5: Selección de EPP (Si aplica) */}
+                    {step === 'epp' && (
+                        <div className="space-y-6">
+                            <div className="bg-cyan-50 border border-cyan-200 rounded-2xl p-4 mb-4">
+                                <p className="text-sm text-cyan-800 font-medium">
+                                    Las plantillas seleccionadas requieren asignación de elementos.
+                                    Esta configuración se aplicará a <strong>todos</strong> los trabajadores seleccionados.
+                                </p>
+                            </div>
+                            <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-sm space-y-6">
+                                {/* Grupo Dotación Personal */}
+                                {bloqueDotacion && (
+                                    <div className="space-y-3">
+                                        <div className="flex items-center justify-between">
+                                            <div className="flex items-center gap-2">
+                                                <ShieldCheck size={16} className="text-emerald-600" />
+                                                <p className="text-xs font-black text-slate-700 uppercase tracking-widest">Dotación Personal</p>
+                                                <span className="text-[10px] font-black text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full">{dotacionSeleccionados.size} / {dotacionItems.length}</span>
+                                            </div>
+                                            <div className="flex gap-2">
+                                                <button onClick={selectAllDotacion} className="text-[11px] font-bold text-emerald-600 hover:text-emerald-800 border border-emerald-200 hover:bg-emerald-50 px-3 py-1 rounded-lg transition-all">Todos</button>
+                                                <button onClick={clearAllDotacion} className="text-[11px] font-bold text-slate-500 hover:text-slate-700 border border-slate-200 hover:bg-slate-50 px-3 py-1 rounded-lg transition-all">Ninguno</button>
+                                            </div>
+                                        </div>
+                                        <div className="grid grid-cols-2 gap-2">
+                                            {dotacionItems.map((item, idx) => {
+                                                const checked = dotacionSeleccionados.has(idx);
+                                                return (
+                                                    <button key={'dot_'+idx} onClick={() => toggleDotacion(idx)}
+                                                        className={`flex items-center gap-3 p-3 rounded-xl border-2 text-left transition-all active:scale-95 ${checked ? 'border-emerald-400 bg-emerald-50 shadow-sm' : 'border-slate-100 bg-slate-50 hover:border-slate-300'}`}>
+                                                        <div className={`w-5 h-5 rounded-md flex items-center justify-center flex-shrink-0 border-2 transition-all ${checked ? 'bg-emerald-500 border-emerald-500' : 'bg-white border-slate-300'}`}>
+                                                            {checked && (
+                                                                <svg width="11" height="9" viewBox="0 0 11 9" fill="none"><path d="M1 4.5L4 7.5L10 1.5" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                                                            )}
+                                                        </div>
+                                                        <span className={`text-xs leading-tight font-semibold ${checked ? 'text-emerald-800' : 'text-slate-600'}`}>{item.label}</span>
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                )}
+                                
+                                {bloqueDotacion && bloqueEpp && <hr className="border-slate-100" />}
+
+                                {/* Grupo Elementos de Protección Personal */}
+                                {bloqueEpp && (
+                                    <div className="space-y-3">
+                                        <div className="flex items-center justify-between">
+                                            <div className="flex items-center gap-2">
+                                                <ShieldCheck size={16} className="text-cyan-600" />
+                                                <p className="text-xs font-black text-slate-700 uppercase tracking-widest">Elementos de Protección</p>
+                                                <span className="text-[10px] font-black text-cyan-700 bg-cyan-100 px-2 py-0.5 rounded-full">{eppSeleccionados.size} / {bloqueEpp.filas_epp?.length || 0}</span>
+                                            </div>
+                                            <div className="flex gap-2">
+                                                <button onClick={selectAllEpp} className="text-[11px] font-bold text-cyan-600 hover:text-cyan-800 border border-cyan-200 hover:bg-cyan-50 px-3 py-1 rounded-lg transition-all">Todos</button>
+                                                <button onClick={clearAllEpp} className="text-[11px] font-bold text-slate-500 hover:text-slate-700 border border-slate-200 hover:bg-slate-50 px-3 py-1 rounded-lg transition-all">Ninguno</button>
+                                            </div>
+                                        </div>
+                                        <div className="grid grid-cols-2 gap-2">
+                                            {(bloqueEpp.filas_epp || []).map((item, idx) => {
+                                                const checked = eppSeleccionados.has(idx);
+                                                return (
+                                                    <button key={'epp_'+idx} onClick={() => toggleEpp(idx)}
+                                                        className={`flex items-center gap-3 p-3 rounded-xl border-2 text-left transition-all active:scale-95 ${checked ? 'border-cyan-400 bg-cyan-50 shadow-sm' : 'border-slate-100 bg-slate-50 hover:border-slate-300'}`}>
+                                                        <div className={`w-5 h-5 rounded-md flex items-center justify-center flex-shrink-0 border-2 transition-all ${checked ? 'bg-cyan-500 border-cyan-500' : 'bg-white border-slate-300'}`}>
+                                                            {checked && (
+                                                                <svg width="11" height="9" viewBox="0 0 11 9" fill="none"><path d="M1 4.5L4 7.5L10 1.5" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                                                            )}
+                                                        </div>
+                                                        <span className={`text-xs leading-tight font-semibold ${checked ? 'text-cyan-800' : 'text-slate-600'}`}>{item.label}</span>
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    )}
+
                     {/* Paso 3: Confirmar */}
                     {step === 'confirm' && (
                         <div className="space-y-5">
@@ -360,7 +489,8 @@ const TemplateMassAssignModal: React.FC<Props> = ({ onClose }) => {
                 <div className="p-6 border-t border-slate-100 flex items-center justify-between bg-white">
                     <button
                         onClick={() => {
-                            if (step === 'confirm') setStep('workers');
+                            if (step === 'confirm') setStep(hasEppStep ? 'epp' : 'workers');
+                            else if (step === 'epp') setStep('workers');
                             else if (step === 'workers') setStep('templates');
                             else onClose();
                         }}
@@ -381,8 +511,17 @@ const TemplateMassAssignModal: React.FC<Props> = ({ onClose }) => {
 
                     {step === 'workers' && (
                         <button
-                            onClick={() => setStep('confirm')}
+                            onClick={() => setStep(hasEppStep ? 'epp' : 'confirm')}
                             disabled={selectedWorkers.size === 0}
+                            className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-black uppercase tracking-wider transition-all disabled:opacity-50"
+                        >
+                            Siguiente
+                        </button>
+                    )}
+
+                    {step === 'epp' && (
+                        <button
+                            onClick={() => setStep('confirm')}
                             className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-black uppercase tracking-wider transition-all disabled:opacity-50"
                         >
                             Revisar Asignación
