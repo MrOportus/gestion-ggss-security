@@ -233,6 +233,163 @@ exports.notificarNuevoDocumento = onDocumentCreated(
     }
 );
 
+// Función para notificar seguimiento de novedades
+exports.notificarSeguimientoNovedad = onDocumentCreated(
+    { 
+        document: 'novedades/{novedadId}/seguimientos/{seguimientoId}',
+        region: 'us-central1'
+    },
+    async (event) => {
+        const snapshot = event.data;
+        if (!snapshot) return;
+
+        const seguimiento = snapshot.data();
+        const novedadId = event.params.novedadId;
+        const seguimientoId = event.params.seguimientoId;
+
+        const tipo = seguimiento.tipo; // 'inicio', 'seguimiento', 'resolucion'
+        if (!['inicio', 'seguimiento', 'resolucion'].includes(tipo)) {
+            console.log(`[FCM-NOVEDADES] Tipo de seguimiento ignorado: ${tipo}`);
+            return;
+        }
+
+        try {
+            // 1. Obtener la novedad padre
+            const novedadDoc = await admin.firestore().collection('novedades').doc(novedadId).get();
+            if (!novedadDoc.exists) {
+                console.log(`[FCM-NOVEDADES] Novedad padre ${novedadId} no encontrada.`);
+                return;
+            }
+            const novedad = novedadDoc.data();
+            const sucursalId = novedad.sucursalId || novedad.siteId;
+            if (!sucursalId) {
+                console.log(`[FCM-NOVEDADES] Novedad ${novedadId} no tiene sucursal asociada.`);
+                return;
+            }
+
+            // 2. Buscar trabajadores activos en la sucursal
+            const activeShiftsQuery = await admin.firestore().collection('Asistencia')
+                .where('type', '==', 'check_in')
+                .where('estado', '==', 'ABIERTO')
+                .where('siteId', 'in', [sucursalId, Number(sucursalId), String(sucursalId)])
+                .get();
+
+            if (activeShiftsQuery.empty) {
+                console.log(`[FCM-NOVEDADES] No hay trabajadores activos en la sucursal ${sucursalId}.`);
+                return;
+            }
+
+            // Extraer employeeIds únicos
+            const employeeIds = new Set();
+            activeShiftsQuery.forEach(doc => {
+                const data = doc.data();
+                if (data.employeeId) {
+                    employeeIds.add(data.employeeId);
+                }
+            });
+
+            // Excluir al autor del seguimiento
+            if (seguimiento.usuarioId) {
+                employeeIds.delete(seguimiento.usuarioId);
+            }
+
+            if (employeeIds.size === 0) {
+                console.log(`[FCM-NOVEDADES] No hay destinatarios válidos (el autor era el único trabajador activo).`);
+                return;
+            }
+
+            // 3. Obtener tokens FCM de los colaboradores
+            const allTokens = new Set();
+            const workerMap = new Map(); // uid -> tokens[]
+
+            for (const uid of employeeIds) {
+                const colabDoc = await admin.firestore().collection('Colaboradores').doc(uid).get();
+                if (colabDoc.exists) {
+                    const data = colabDoc.data();
+                    if (data.role !== 'mandante') { // Doble check de seguridad
+                        const tokens = data.fcmTokens || [];
+                        if (tokens.length > 0) {
+                            workerMap.set(uid, tokens);
+                            tokens.forEach(t => allTokens.add(t));
+                        }
+                    }
+                }
+            }
+
+            const tokensArray = Array.from(allTokens);
+            if (tokensArray.length === 0) {
+                console.log(`[FCM-NOVEDADES] Ninguno de los trabajadores activos tiene tokens FCM registrados.`);
+                return;
+            }
+
+            // 4. Preparar mensaje
+            let bodyText = '';
+            if (tipo === 'inicio' || tipo === 'seguimiento') {
+                bodyText = 'Hay una nueva actualización en una novedad pendiente de tu sucursal.';
+            } else if (tipo === 'resolucion') {
+                bodyText = 'Una novedad de tu sucursal fue marcada como resuelta.';
+            }
+
+            const message = {
+                notification: {
+                    title: 'Actualización de novedad',
+                    body: bodyText
+                },
+                android: {
+                    notification: {
+                        channelId: 'ggss_notifications',
+                        sound: 'notificacion_ggss.mp3'
+                    }
+                },
+                apns: {
+                    payload: {
+                        aps: {
+                            sound: 'notificacion_ggss.mp3'
+                        }
+                    }
+                },
+                data: {
+                    type: 'novedad_seguimiento',
+                    novedadId: novedadId,
+                    seguimientoId: seguimientoId
+                },
+                tokens: tokensArray,
+            };
+
+            // 5. Enviar notificaciones
+            const response = await admin.messaging().sendEachForMulticast(message);
+            console.log(`[FCM-NOVEDADES] Resultado: ${response.successCount} éxito, ${response.failureCount} error. Destinatarios: ${employeeIds.size}`);
+
+            // 6. Limpieza de tokens inválidos
+            if (response.failureCount > 0) {
+                const invalidTokens = [];
+                response.responses.forEach((resp, idx) => {
+                    if (!resp.success) {
+                        const error = resp.error;
+                        if (error && (error.code === 'messaging/registration-token-not-registered' || error.code === 'messaging/invalid-argument')) {
+                            invalidTokens.push(tokensArray[idx]);
+                        }
+                    }
+                });
+
+                if (invalidTokens.length > 0) {
+                    for (const [uid, workerTokens] of workerMap.entries()) {
+                        const tokensToRemove = workerTokens.filter(t => invalidTokens.includes(t));
+                        if (tokensToRemove.length > 0) {
+                            await admin.firestore().collection('Colaboradores').doc(uid).update({
+                                fcmTokens: admin.firestore.FieldValue.arrayRemove(...tokensToRemove)
+                            });
+                            console.log(`[FCM-NOVEDADES] Se eliminaron ${tokensToRemove.length} tokens inválidos para ${uid}`);
+                        }
+                    }
+                }
+            }
+        } catch (error) {
+            console.error('[FCM-NOVEDADES] Error en notificarSeguimientoNovedad:', error);
+        }
+    }
+);
+
 // Función para notificar nueva oferta de turno
 exports.notificarNuevaOfertaTurno = onDocumentCreated(
     { 

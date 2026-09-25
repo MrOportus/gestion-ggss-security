@@ -35,13 +35,15 @@ import {
 } from 'lucide-react';
 
 import SignatureModal from '../components/SignatureModal';
-import { PenTool, FileText } from 'lucide-react';
+import { PenTool, FileText, Camera, Image as ImageIcon } from 'lucide-react';
 import DocumentsPage from './DocumentsPage';
 import { GlobalOverlay } from '../components/GlobalOverlay';
 import { db, auth } from '../lib/firebase';
 import { collection, query, where, getDocs, getDoc, onSnapshot, doc as firestoreDoc, limit, updateDoc, setDoc, deleteDoc, Timestamp, orderBy } from 'firebase/firestore';
 import { CompanyDocument } from '../types';
 import { EmailAuthProvider, reauthenticateWithCredential, updatePassword } from 'firebase/auth';
+import { addSeguimiento, esEsquemaNuevo } from '../lib/novedades/seguimientoService';
+import type { RegistroNovedad } from '../types';
 
 import RoundsControl from '../components/RoundsControl';
 import IncidenciasPage from '../components/IncidenciasPage';
@@ -104,6 +106,17 @@ const WorkerAttendance: React.FC = () => {
   const [validationStep, setValidationStep] = useState<'idle' | 'gps' | 'turno' | 'abierto' | 'done'>('idle');
   const [validationError, setValidationError] = useState<string | null>(null);
   const [validationErrorType, setValidationErrorType] = useState<'gps' | 'no_turno' | 'turno_abierto' | null>(null);
+
+  // ── FASE 6: ESTADOS NOVEDADES PENDIENTES ─────────────────────────────
+  const [pendingNovedades, setPendingNovedades] = useState<RegistroNovedad[]>([]);
+  const [currentNovedadIndex, setCurrentNovedadIndex] = useState(0);
+  const [showNovedadesModal, setShowNovedadesModal] = useState(false);
+  const [novedadNota, setNovedadNota] = useState('');
+  const [novedadFoto, setNovedadFoto] = useState<string | null>(null);
+  const [novedadFotoBlob, setNovedadFotoBlob] = useState<File | null>(null);
+  const [novedadStatus, setNovedadStatus] = useState<'resolucion' | 'seguimiento' | null>(null);
+  const [novedadError, setNovedadError] = useState<string | null>(null);
+  const [isSavingNovedad, setIsSavingNovedad] = useState(false);
 
   // ── Biblioteca Corporativa ───────────────────────────────────────────
   const [corporateDocs, setCorporateDocs] = useState<CompanyDocument[]>([]);
@@ -643,8 +656,133 @@ const WorkerAttendance: React.FC = () => {
     setShowCloseConfirmModal(true);
   };
 
-  const handleConfirmCierre = async () => {
+  const handleCheckPendingNovedadesAndClose = async () => {
     setShowCloseConfirmModal(false);
+    if (!employee || !activeLog) return;
+    
+    if (activeLog.siteId) {
+      setLoading(true);
+      setError(null);
+      try {
+        const q = query(
+          collection(db, 'novedades'),
+          where('sucursalId', '==', activeLog.siteId),
+          orderBy('creadoEn', 'desc')
+        );
+        const snap = await getDocs(q);
+        const items: RegistroNovedad[] = [];
+        snap.forEach((d) => {
+          const data = d.data() as Record<string, unknown>;
+          if (!esEsquemaNuevo(data)) return;
+          if (data.requiereSeguimiento !== true) return;
+          if (data.estado === 'resuelta') return;
+          items.push({ ...data, id: d.id } as RegistroNovedad);
+        });
+
+        if (items.length > 0) {
+          items.sort((a, b) => {
+            const tsA = a.ultimoSeguimientoEn?.toMillis?.() ?? (a.fechaHoraDispositivo ? new Date(a.fechaHoraDispositivo).getTime() : 0);
+            const tsB = b.ultimoSeguimientoEn?.toMillis?.() ?? (b.fechaHoraDispositivo ? new Date(b.fechaHoraDispositivo).getTime() : 0);
+            return tsB - tsA;
+          });
+          
+          setPendingNovedades(items);
+          setCurrentNovedadIndex(0);
+          setNovedadNota('');
+          setNovedadFoto(null);
+          setNovedadFotoBlob(null);
+          setNovedadStatus(null);
+          setNovedadError(null);
+          setShowNovedadesModal(true);
+          setLoading(false);
+          return;
+        }
+      } catch (err) {
+        console.error("Error al consultar novedades pendientes:", err);
+        setError("Error al consultar novedades pendientes. No se puede continuar el cierre sin validar.");
+        setLoading(false);
+        return;
+      }
+    }
+    
+    handleEjecutarCierre();
+  };
+
+  const handleSaveNovedadStep = async () => {
+    if (novedadNota.trim().length < 5) {
+      setNovedadError("La nota debe tener al menos 5 caracteres.");
+      return;
+    }
+    if (!novedadStatus) {
+      setNovedadError("Debes seleccionar si fue resuelta o no.");
+      return;
+    }
+
+    setIsSavingNovedad(true);
+    setNovedadError(null);
+
+    try {
+      const nov = pendingNovedades[currentNovedadIndex];
+      let fotoUrl;
+      let fotoPath;
+
+      if (novedadFoto && novedadFotoBlob) {
+        const uploadBase64 = useAppStore.getState().uploadBase64;
+        const ext = novedadFotoBlob.type.includes('webp') ? 'webp' : 'jpg';
+        fotoPath = `seguimientos/${nov.id}/${Date.now()}_${employee!.id}.${ext}`;
+        fotoUrl = await uploadBase64(novedadFoto, fotoPath);
+      }
+
+      await addSeguimiento({
+        novedadId: nov.id,
+        usuarioId: employee!.id,
+        usuarioNombre: `${employee!.firstName} ${employee!.lastNamePaterno}`,
+        rol: currentUser!.role || 'worker',
+        mensaje: novedadNota.trim(),
+        ...(fotoUrl ? { fotoUrl } : {}),
+        ...(fotoPath ? { fotoPath } : {})
+      }, novedadStatus);
+
+      setNovedadNota('');
+      setNovedadFoto(null);
+      setNovedadFotoBlob(null);
+      setNovedadStatus(null);
+      setNovedadError(null);
+
+      const nextIndex = currentNovedadIndex + 1;
+      if (nextIndex >= pendingNovedades.length) {
+        setShowNovedadesModal(false);
+        handleEjecutarCierre();
+      } else {
+        setCurrentNovedadIndex(nextIndex);
+      }
+    } catch (err: any) {
+      console.error("Error guardando novedad", err);
+      setNovedadError("Ocurrió un error al guardar. Intenta nuevamente.");
+    } finally {
+      setIsSavingNovedad(false);
+    }
+  };
+
+  const handleAgregarFotoNovedad = (source: 'camera' | 'gallery') => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*';
+    if (source === 'camera') input.capture = 'environment';
+    input.onchange = (e: any) => {
+      const file: File = e.target.files?.[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        setNovedadFoto(ev.target?.result as string);
+        setNovedadFotoBlob(file);
+      };
+      reader.readAsDataURL(file);
+    };
+    input.click();
+  };
+
+  const handleEjecutarCierre = async () => {
     if (!employee || !activeLog) return;
     setLoading(true);
     setError(null);
@@ -1671,7 +1809,7 @@ const WorkerAttendance: React.FC = () => {
                 Cancelar
               </button>
               <button
-                onClick={handleConfirmCierre}
+                onClick={handleCheckPendingNovedadesAndClose}
                 className="flex-[2] py-4 bg-red-500 hover:bg-red-600 text-white rounded-2xl font-black uppercase tracking-widest text-xs shadow-lg shadow-red-200 active:scale-95 transition-all flex items-center justify-center gap-2"
               >
                 <Square size={18} />
@@ -1839,6 +1977,92 @@ const WorkerAttendance: React.FC = () => {
         onSave={handleSaveSignature}
         existingSignature={employee?.signatureUrl}
       />
+      {/* MODAL NOVEDADES PENDIENTES AL CERRAR TURNO */}
+      {showNovedadesModal && pendingNovedades.length > 0 && (
+        <div className="fixed inset-0 z-[300] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl p-6 w-full max-w-sm shadow-2xl relative overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="shrink-0 mb-4 text-center space-y-2">
+              <div className="w-12 h-12 bg-amber-100 rounded-full flex items-center justify-center mx-auto text-amber-500">
+                <AlertCircle size={24} />
+              </div>
+              <h3 className="text-xl font-black text-slate-800">TIENES NOVEDADES PENDIENTES</h3>
+              <p className="text-xs text-slate-500 font-medium leading-relaxed">
+                Antes de cerrar tu turno debes indicar el estado de cada novedad pendiente. ({currentNovedadIndex + 1} de {pendingNovedades.length})
+              </p>
+            </div>
+
+            <div className="flex-1 overflow-y-auto space-y-4 pb-4">
+              {/* Info novedad */}
+              <div className="bg-slate-50 border border-slate-100 rounded-xl p-3">
+                <p className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Novedad</p>
+                <p className="text-sm font-bold text-slate-700 leading-tight mt-1">{pendingNovedades[currentNovedadIndex].descripcion}</p>
+                {pendingNovedades[currentNovedadIndex].ultimoSeguimientoMsg && (
+                  <div className="mt-2 pt-2 border-t border-slate-200">
+                    <p className="text-[9px] font-black uppercase text-slate-400">Última actualización</p>
+                    <p className="text-xs text-slate-600 mt-0.5 italic">"{pendingNovedades[currentNovedadIndex].ultimoSeguimientoMsg}" - {pendingNovedades[currentNovedadIndex].ultimoSeguimientoPor}</p>
+                  </div>
+                )}
+              </div>
+
+              {/* Form */}
+              <div className="space-y-3">
+                <p className="text-sm font-black text-slate-800 text-center">¿Esta novedad fue resuelta?</p>
+                <div className="grid grid-cols-2 gap-2">
+                  <button onClick={() => setNovedadStatus('resolucion')} className={`py-3 rounded-xl border-2 font-black text-[10px] sm:text-xs uppercase tracking-wider transition-all ${novedadStatus === 'resolucion' ? 'bg-emerald-50 border-emerald-500 text-emerald-700 shadow-sm' : 'bg-white border-slate-200 text-slate-400 hover:bg-slate-50'}`}>SÍ, RESUELTA</button>
+                  <button onClick={() => setNovedadStatus('seguimiento')} className={`py-3 rounded-xl border-2 font-black text-[10px] sm:text-xs uppercase tracking-wider transition-all ${novedadStatus === 'seguimiento' ? 'bg-amber-50 border-amber-500 text-amber-700 shadow-sm' : 'bg-white border-slate-200 text-slate-400 hover:bg-slate-50'}`}>NO, AÚN NO</button>
+                </div>
+                
+                {novedadStatus && (
+                  <div className="space-y-2 animate-in fade-in slide-in-from-top-2 duration-300 pt-2">
+                    <label className="text-[10px] font-black uppercase text-slate-500 ml-1">
+                      {novedadStatus === 'resolucion' ? 'Indica cómo fue resuelta *' : 'Indica qué ocurrió o qué se realizó *'}
+                    </label>
+                    <textarea 
+                      value={novedadNota}
+                      onChange={e => setNovedadNota(e.target.value)}
+                      placeholder="Escribe tu nota aquí..."
+                      rows={3}
+                      className="w-full rounded-xl border-2 border-slate-200 p-3 text-sm focus:border-blue-500 outline-none transition-colors resize-none"
+                    />
+                    
+                    <div className="pt-1">
+                      <label className="text-[10px] font-black uppercase text-slate-500 ml-1 block mb-2">Fotografía (Opcional)</label>
+                      {novedadFoto ? (
+                        <div className="relative inline-block">
+                          <img src={novedadFoto} className="w-16 h-16 object-cover rounded-lg border border-slate-200" alt="Evidencia" />
+                          <button onClick={() => {setNovedadFoto(null); setNovedadFotoBlob(null);}} className="absolute -top-2 -right-2 bg-red-500 hover:bg-red-600 text-white rounded-full p-1 shadow-md transition-transform active:scale-90"><X size={12} /></button>
+                        </div>
+                      ) : (
+                        <div className="flex gap-2">
+                           <button onClick={() => handleAgregarFotoNovedad('camera')} className="flex items-center gap-1.5 bg-white border border-slate-200 px-3 py-2 rounded-lg text-xs font-bold text-slate-600 hover:bg-slate-50 active:scale-95 transition-all shadow-sm"><Camera size={14} className="text-slate-400"/> Tomar foto</button>
+                           <button onClick={() => handleAgregarFotoNovedad('gallery')} className="flex items-center gap-1.5 bg-white border border-slate-200 px-3 py-2 rounded-lg text-xs font-bold text-slate-600 hover:bg-slate-50 active:scale-95 transition-all shadow-sm"><ImageIcon size={14} className="text-slate-400"/> Galería</button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+                {novedadError && (
+                  <div className="flex items-start gap-2 bg-red-50 text-red-600 p-3 rounded-xl border border-red-100">
+                     <AlertCircle size={16} className="shrink-0 mt-0.5" />
+                     <p className="text-xs font-bold leading-tight">{novedadError}</p>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="shrink-0 mt-2 pt-2 border-t border-slate-100">
+              <button
+                onClick={handleSaveNovedadStep}
+                disabled={isSavingNovedad || !novedadStatus || novedadNota.trim().length < 5}
+                className="w-full py-4 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl font-black uppercase tracking-widest text-sm disabled:opacity-50 disabled:cursor-not-allowed flex justify-center items-center gap-2 transition-all active:scale-[0.98] shadow-lg shadow-blue-200"
+              >
+                {isSavingNovedad ? <><Loader2 className="animate-spin" size={18} /> Guardando...</> : "Continuar"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 };

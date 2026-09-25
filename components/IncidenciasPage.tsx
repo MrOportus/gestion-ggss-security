@@ -40,6 +40,7 @@ import {
   limit,
 } from 'firebase/firestore';
 import { db } from '../lib/firebase';
+import NovedadesPendientes from './novedades/NovedadesPendientes';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -882,6 +883,19 @@ const IncidenciasPage: React.FC<IncidenciasPageProps> = ({ onBack, activeLog, cu
           <span className="text-lg font-black tracking-wider uppercase">Registrar novedad</span>
         </button>
       </div>
+
+      {/* SECCIÓN: Novedades Pendientes */}
+      {currentUser && employee && sucursalActiva && (
+        <NovedadesPendientes
+          sucursalId={sucursalActiva}
+          sucursalNombre={activeLog?.siteName || currentSite?.name}
+          usuario={{
+            uid: currentUser.uid,
+            nombre: `${employee.firstName} ${employee.lastNamePaterno}`,
+            rol: currentUser.role || 'worker',
+          }}
+        />
+      )}
 
       {/* Lista de registros */}
       <div className="px-4 pb-28 space-y-1.5 mt-4">

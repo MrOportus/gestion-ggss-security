@@ -400,8 +400,46 @@ service cloud.firestore {
         isColaborador() &&
         request.resource.data.autorUid == request.auth.uid &&
         request.resource.data.colaboradorId == request.auth.uid;
-      allow update: if request.auth != null; // Temporarily relaxed for debugging
+      // PELIGRO HALLAZGO FASE 8: Actualmente el update es demasiado permisivo.
+      // Se mantiene para no romper el sistema (addSeguimiento() actualiza el doc padre),
+      // pero requiere una revisión profunda en el futuro.
+      allow update: if request.auth != null; 
       allow delete: if false;
+    }
+
+    // ─── FASE 8: SEGUIMIENTO DE NOVEDADES (SUBCOLECCIÓN) ──────────────
+    match /novedades/{novedadId}/seguimientos/{seguimientoId} {
+      function canAccessSeguimiento() {
+        return request.auth != null && (
+          isAdmin() || 
+          isSupervisor() || 
+          isRRHH() || 
+          isJefeOperaciones() || 
+          (
+            isColaborador() && !isMandante() &&
+            (
+              // Acceso del guardia: Si es el autor de la novedad, o si su currentSiteId coincide con la sucursal de la novedad
+              get(/databases/$(database)/documents/novedades/$(novedadId)).data.autorUid == request.auth.uid ||
+              string(get(/databases/$(database)/documents/Colaboradores/$(request.auth.uid)).data.currentSiteId) == string(get(/databases/$(database)/documents/novedades/$(novedadId)).data.sucursalId) ||
+              string(get(/databases/$(database)/documents/Colaboradores/$(request.auth.uid)).data.currentSiteId) == string(get(/databases/$(database)/documents/novedades/$(novedadId)).data.siteId)
+            )
+          )
+        );
+      }
+
+      // Lectura: Permitida solo a involucrados operacionales (Mandante excluido)
+      allow read: if canAccessSeguimiento();
+
+      // Creación: Validar identidad, tipos válidos y obligatoriedad del mensaje
+      allow create: if canAccessSeguimiento()
+        && request.resource.data.usuarioId == request.auth.uid
+        && request.resource.data.tipo in ['inicio', 'seguimiento', 'resolucion']
+        && 'mensaje' in request.resource.data
+        && request.resource.data.mensaje is string
+        && request.resource.data.mensaje.size() > 0;
+
+      // Historial Inmutable: No se puede editar ni borrar
+      allow update, delete: if false;
     }
 
 

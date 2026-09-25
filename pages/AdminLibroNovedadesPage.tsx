@@ -5,8 +5,11 @@ import { useAppStore } from '../store/useAppStore';
 import { normalizeText } from '../lib/textUtils';
 import ThumbnailImage from '../components/ThumbnailImage';
 import {
-    Navigation, Search, MapPin, BookOpen, AlertTriangle, AlertCircle, Info, FileText, X,
+    Navigation, Search, MapPin, BookOpen, AlertTriangle, AlertCircle, Info, FileText, X, Clock, PlayCircle
 } from 'lucide-react';
+import { AdminNovedadesSeguimiento } from '../components/novedades/AdminNovedadesSeguimiento';
+import { IniciarSeguimientoModal } from '../components/novedades/IniciarSeguimientoModal';
+import { esEsquemaNuevo } from '../lib/novedades/seguimientoService';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const fmtTime = (iso: string) =>
@@ -29,6 +32,8 @@ const ResultBadge = ({ result }: { result: string }) => {
 // ─── Página Admin: Libro de Novedades ─────────────────────────────────────────
 const AdminLibroNovedadesPage: React.FC = () => {
     const { sites, guardRounds, novedades } = useAppStore();
+    const [activeTab, setActiveTab] = useState<'historial' | 'seguimiento'>('historial');
+    const [novedadToInit, setNovedadToInit] = useState<any>(null);
 
     // ── Filtros ──────────────────────────────────────────────────────────────
     const [startDate, setStartDate] = useState(() => {
@@ -135,6 +140,7 @@ const AdminLibroNovedadesPage: React.FC = () => {
         }));
 
         const novedadItems = localNovedades.map((n: any) => ({
+            // Campos derivados para UI (mantiene compatibilidad legacy)
             id: n.id,
             siteId: String(n.siteId || n.sucursalId),
             sucursalName: n.siteName || n.sucursalNombre,
@@ -145,6 +151,12 @@ const AdminLibroNovedadesPage: React.FC = () => {
             resultado: n.estado || n.resultado,
             prioridad: n.prioridad,
             evidencias: n.evidencias || (n.evidenciaUrl ? [n.evidenciaUrl] : []),
+
+            // Campos del modelo de dominio real preservados para lógica de negocio
+            tipoRegistro: n.tipoRegistro,
+            estado: n.estado,
+            categoria: n.categoria,
+            requiereSeguimiento: n.requiereSeguimiento,
         }));
 
         return [...roundItems, ...novedadItems].sort((a: any, b: any) =>
@@ -194,9 +206,35 @@ const AdminLibroNovedadesPage: React.FC = () => {
             {/* Encabezado */}
             <div>
                 <h3 className="text-xl font-black text-slate-800">Libro de Novedades</h3>
-                <p className="text-sm text-slate-400 mt-0.5">Registro cronológico de rondas y eventos operacionales — todas las instalaciones</p>
+                <p className="text-sm text-slate-400 mt-0.5">Gestión de novedades operacionales y seguimiento de instalaciones</p>
             </div>
 
+            {/* TABS */}
+            <div className="flex gap-4 border-b border-slate-200">
+                <button
+                    onClick={() => setActiveTab('historial')}
+                    className={`pb-3 font-bold text-sm px-2 border-b-2 transition-all flex items-center gap-2 ${
+                        activeTab === 'historial' 
+                        ? 'border-blue-600 text-blue-600' 
+                        : 'border-transparent text-slate-400 hover:text-slate-600'
+                    }`}
+                >
+                    <BookOpen size={16} /> Historial General
+                </button>
+                <button
+                    onClick={() => setActiveTab('seguimiento')}
+                    className={`pb-3 font-bold text-sm px-2 border-b-2 transition-all flex items-center gap-2 ${
+                        activeTab === 'seguimiento' 
+                        ? 'border-blue-600 text-blue-600' 
+                        : 'border-transparent text-slate-400 hover:text-slate-600'
+                    }`}
+                >
+                    <Clock size={16} /> Novedades con seguimiento
+                </button>
+            </div>
+
+            {activeTab === 'historial' ? (
+              <>
             {/* Panel de filtros */}
             <div className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm flex flex-col gap-3">
                 {/* Búsqueda de texto libre */}
@@ -437,6 +475,18 @@ const AdminLibroNovedadesPage: React.FC = () => {
                                                 ))}
                                             </div>
                                         )}
+                                        {/* Acciones */}
+                                        {esEsquemaNuevo(item) && (item.estado === 'registrada' || item.estado === 'en_revision') && item.requiereSeguimiento !== true && (
+                                            <div className="mt-3 flex justify-end">
+                                                <button
+                                                    onClick={() => setNovedadToInit(item)}
+                                                    className="px-3 py-1.5 bg-blue-50 text-blue-600 hover:bg-blue-100 border border-blue-100 rounded-lg text-xs font-bold transition-colors flex items-center gap-1.5"
+                                                >
+                                                    <PlayCircle size={14} />
+                                                    Dar seguimiento
+                                                </button>
+                                            </div>
+                                        )}
                                     </div>
                                 </div>
                             </React.Fragment>
@@ -476,6 +526,22 @@ const AdminLibroNovedadesPage: React.FC = () => {
                         <ThumbnailImage photoUrl={selectedImage} alt="Fullscreen Evidence" className="max-w-full max-h-[90vh] object-contain rounded-xl" />
                     </div>
                 </div>
+            )}
+
+            {/* Modal para iniciar seguimiento */}
+            {novedadToInit && (
+                <IniciarSeguimientoModal
+                    novedad={novedadToInit}
+                    onClose={() => setNovedadToInit(null)}
+                    onSuccess={() => {
+                        setNovedadToInit(null);
+                        // Optional: show a toast here. "Seguimiento iniciado correctamente."
+                    }}
+                />
+            )}
+            </>
+            ) : (
+                <AdminNovedadesSeguimiento />
             )}
         </div>
     );

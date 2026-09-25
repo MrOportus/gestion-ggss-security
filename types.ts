@@ -449,6 +449,38 @@ export type RegistroPrioridad = 'informativa' | 'media' | 'alta' | 'critica';
 
 export type RegistroEstado = 'registrada' | 'en_revision' | 'resuelta' | 'rectificada';
 
+// ─── Seguimiento de Novedades ─────────────────────────────────────────────────
+// Subcolección: novedades/{novedadId}/seguimientos/{seguimientoId}
+// Solo roles internos (admin, supervisor, jefe_operaciones, worker) pueden leer/escribir.
+// El Mandante NUNCA accede a esta subcolección.
+
+export type SeguimientoTipo =
+  | 'inicio'        // Primer mensaje que abre el hilo (enviado por admin/supervisor)
+  | 'seguimiento'   // Actualización intermedia del hilo
+  | 'resolucion';   // Mensaje de cierre — marca la novedad como 'resuelta'
+
+export interface SeguimientoNovedad {
+  id: string;
+  novedadId: string;       // ID del documento padre en la colección novedades
+
+  // Actor del seguimiento
+  usuarioId: string;       // UID del autor del mensaje
+  usuarioNombre: string;   // Nombre completo
+  rol: string;             // 'worker' | 'admin' | 'supervisor' | 'jefe_operaciones'
+
+  // Contenido
+  mensaje: string;
+  tipo: SeguimientoTipo;
+
+  // Tiempos
+  fecha: any;              // serverTimestamp() de Firestore
+  fechaStr: string;        // ISO string del dispositivo (referencia de auditoría)
+
+  // Evidencia opcional (foto adicional para el seguimiento)
+  fotoUrl?: string;        // URL pública en Firebase Storage
+  fotoPath?: string;       // Path en Storage (para posible borrado futuro)
+}
+
 export interface RegistroNovedadGPS {
   lat: number;
   lng: number;
@@ -491,10 +523,26 @@ export interface RegistroNovedad {
   ubicacionGps?: RegistroNovedadGPS;
 
   // Estado del registro
+  // 'registrada'  → recién ingresada, sin acción de seguimiento
+  // 'en_revision' → existe un hilo activo de seguimiento abierto
+  // 'resuelta'    → seguimiento cerrado exitosamente
+  // 'rectificada' → dato corregido
   estado: RegistroEstado;
 
   // Visibilidad para el Mandante (calculada automáticamente)
   visibleParaMandante: boolean;
+
+  // ─── Seguimiento (campos opcionales — solo presentes si la novedad tiene hilo) ───
+  // Todos los campos son opcionales para mantener compatibilidad con registros existentes.
+  // Solo se escriben cuando se crea o actualiza un seguimiento.
+  requiereSeguimiento?: boolean;       // true = hilo activo abierto por admin/supervisor
+  ultimoSeguimientoEn?: any;           // serverTimestamp() del último mensaje
+  ultimoSeguimientoMsg?: string;       // Snippet del último mensaje (máx. 120 chars)
+  ultimoSeguimientoPor?: string;       // Nombre del último actor en el hilo
+  cantidadSeguimientos?: number;       // Contador de mensajes en la subcolección
+  fechaResolucion?: string;            // ISO — cuándo se marcó 'resuelta'
+  resueltoPorNombre?: string;          // Nombre de quien cerró el seguimiento
+  notaResolucion?: string;             // Mensaje de cierre (snippet)
 
   // Metadatos Firestore
   creadoEn: any;       // serverTimestamp()
