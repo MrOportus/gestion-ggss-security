@@ -13,31 +13,31 @@ const blk = (tipo: TemplateBloque['tipo'], overrides: Partial<TemplateBloque> = 
 });
 
 export const TEMPLATE_REGLAMENTO_INTERNO: Omit<DocumentTemplate, 'id' | 'creadoEn'> = {
-    nombre: 'Reglamento Interno de Orden, Higiene y Seguridad',
+    nombre: 'Reglamento interno prueba',
     tipo: 'Reglamento',
     version: 1,
     estado: 'activo',
     creadoPor: '',
-    firmaConfig: { pageType: 'last', posicionX: 72, posicionY: 120 },
+    firmaConfig: {"pageType":"last","posicionX":246,"posicionY":90},
     bloques: [
-        blk('imagen',           { orden: 0, imageUrl: '', alineacion: 'center', label: 'Logo empresa' }),
-        blk('titulo',           { orden: 1, contenido: 'REGLAMENTO INTERNO DE ORDEN, HIGIENE Y SEGURIDAD', alineacion: 'center', negrita: true, fontSize: 16 }),
-        blk('subtitulo',        { orden: 2, contenido: 'CONSTANCIA DE RECEPCIÓN Y ACEPTACIÓN', alineacion: 'center', negrita: true, fontSize: 13 }),
-        blk('linea',            { orden: 3 }),
-        blk('texto',            { orden: 4, contenido: 'Por medio del presente instrumento, declaro haber recibido una copia del Reglamento Interno de Orden, Higiene y Seguridad de la empresa, y me comprometo a leerlo y cumplir íntegramente con sus disposiciones, en conformidad con lo establecido en el Código del Trabajo y demás normativa vigente.', fontSize: 11 }),
-        blk('espaciador',       { orden: 5, altura: 12 }),
-        blk('campo_automatico', { orden: 6, contenido: 'trabajador.nombre', label: 'Nombre Completo' }),
-        blk('campo_automatico', { orden: 7, contenido: 'trabajador.rut', label: 'RUT' }),
-        blk('campo_automatico', { orden: 8, contenido: 'trabajador.cargo', label: 'Cargo' }),
-        blk('campo_automatico', { orden: 9, contenido: 'trabajador.sucursal', label: 'Lugar de Trabajo' }),
-        blk('campo_automatico', { orden: 10, contenido: 'documento.fecha', label: 'Fecha de Entrega' }),
-        blk('espaciador',       { orden: 11, altura: 24 }),
-        blk('texto',            { orden: 12, contenido: 'El incumplimiento de las disposiciones contenidas en este Reglamento podrá dar origen a las sanciones establecidas en él, sin perjuicio de las acciones legales que procedan.', fontSize: 10, cursiva: true }),
-        blk('linea',            { orden: 13 }),
-        blk('firma',            { orden: 14, label: 'Firma del Trabajador' }),
-        blk('campo_manual',     { orden: 15, etiquetaCampo: 'Aclaración de Firma', requerido: false }),
+        blk('encabezado_iso', {"alineacion":"left","imageWidth":60,"contenido":"","negrita":false,"fontSize":12}),
+        blk('linea', {"alineacion":"left","negrita":false,"contenido":"","fontSize":12}),
+        blk('subtitulo', {"contenido":"FORMULARIO RECEPCIÓN DEL REGLAMENTO INTERNO DE ORDEN, \nHIGIENE Y SEGURIDAD, ART. 67º DE LA LEY Nº 16.744, TITULO III DEL \nCÓDIGO DEL TRABAJO, D.F.L. N° 1","fontSize":14,"alineacion":"center","negrita":true}),
+        blk('espaciador', {"altura":6,"negrita":false,"alineacion":"left","contenido":"","fontSize":12}),
+        blk('texto', {"negrita":false,"alineacion":"center","fontSize":12,"contenido":"Declaro haber recibido en forma gratuita una copia del reglamento interno de orden, \nhigiene y seguridad de la empresa ASPRO SPA, de acuerdo a lo establecido en el \nArt. 156° inciso 2 del código del trabajo, Art. 14 del decreto supremo Nº 40 de 1969 \ndel ministerio del trabajo y previsión social, publicado en el diario oficial del 07 de \nmarzo de 1969 como reglamento de la ley 16.744 de 1968. \nAsumo mi responsabilidad de dar lectura a su contenido y dar cumplimiento a las \nobligaciones, prohibiciones, normas de orden, higiene y seguridad que en él están \nescritas, como así también a las disposiciones y procedimientos que en forma \nposterior se emitan y/o modifiquen y que formen parte de este reglamento o que \nexpresamente lo indique."}),
+        blk('linea', {"negrita":false,"fontSize":12,"alineacion":"left","contenido":""}),
+        blk('campo_automatico', {"alineacion":"left","negrita":false,"label":"Nombre Completo","fontSize":12,"contenido":"trabajador.nombre"}),
+        blk('campo_automatico', {"alineacion":"left","negrita":false,"contenido":"trabajador.rut","fontSize":12,"label":"RUT"}),
+        blk('campo_automatico', {"alineacion":"left","negrita":false,"contenido":"trabajador.sucursal","fontSize":12,"label":"Sucursal / Faena"}),
+        blk('campo_automatico', {"negrita":false,"label":"Cargo","contenido":"trabajador.cargo","alineacion":"left","fontSize":12}),
+        blk('fecha', {"alineacion":"left","negrita":false,"contenido":"","fontSize":12}),
+        blk('linea', {"fontSize":12,"alineacion":"left","negrita":false,"contenido":""}),
+        blk('espaciador', {"fontSize":12,"alineacion":"left","altura":30,"contenido":"","negrita":false}),
+        blk('firma', {"alineacion":"left","negrita":false,"contenido":"","fontSize":12}),
+        blk('espaciador', {"fontSize":12,"negrita":false,"contenido":"","alineacion":"left"}),
     ].map((b, i) => ({ ...b, orden: i })),
 };
+
 
 export const TEMPLATE_EPP: Omit<DocumentTemplate, 'id' | 'creadoEn'> = {
     nombre: 'Entrega de Elementos de Protección Personal (EPP)',
@@ -82,96 +82,35 @@ export const TEMPLATE_EPP: Omit<DocumentTemplate, 'id' | 'creadoEn'> = {
 export const TEMPLATE_EPP_OFICIAL: Omit<DocumentTemplate, 'id' | 'creadoEn'> = {
     nombre: 'Formulario Entrega EPP — Formato Oficial (SG-SST)',
     tipo: 'EPP',
-    version: 1,
+    version: 2,
     estado: 'activo',
     creadoPor: '',
-    firmaConfig: { pageType: 'last', posicionX: 350, posicionY: 90 },
+    firmaConfig: {"pageType":"last","posicionX":350,"posicionY":90},
     bloques: [
-        // 1. Encabezado ISO con logo
-        blk('encabezado_iso', {
-            orden: 0,
-            tituloSistema: 'Sistema de Gestión de la Seguridad y Salud en el Trabajo',
-            tituloDocumento: 'FORMULARIO DE ENTREGA DE ELEMENTOS DE PROTECCIÓN PERSONAL',
-            codigoDocumento: 'SG-SST',
-            versionDocumento: '001',
-        }),
-
-        // 2. Separador
-        blk('espaciador', { orden: 1, altura: 6 }),
-
-        // 3. Sección: Datos del Funcionario
-        blk('subtitulo', { orden: 2, contenido: 'DATOS DEL FUNCIONARIO', alineacion: 'center', negrita: true, fontSize: 10 }),
-        blk('linea',     { orden: 3 }),
-
-        // Nombre completo + RUT en misma línea (2 campos auto)
-        blk('campo_automatico', { orden: 4, contenido: 'trabajador.nombre', label: 'Nombre y Apellidos' }),
-        blk('campo_automatico', { orden: 5, contenido: 'trabajador.rut',    label: 'RUT' }),
-        blk('campo_automatico', { orden: 6, contenido: 'trabajador.cargo',  label: 'Cargo' }),
-        blk('campo_automatico', { orden: 7, contenido: 'trabajador.sucursal', label: 'Proceso (Instalación / Sucursal)' }),
-        blk('campo_automatico', { orden: 8, contenido: 'documento.fecha',   label: 'Fecha' }),
-
-        blk('espaciador', { orden: 9, altura: 4 }),
-
-        // 4. Sección: Dotación Personal — ropa con talla desde sistema
-        blk('subtitulo', { orden: 10, contenido: 'DOTACIÓN PERSONAL', alineacion: 'center', negrita: true, fontSize: 10 }),
-        blk('linea',     { orden: 11 }),
-        blk('dotacion_personal', { 
-            orden: 12,
-            filas_dotacion: [
-                { label: 'Zapato',    claveTalla: 'trabajador.talleCalzado' },
-                { label: 'Chaqueta',  claveTalla: 'trabajador.talleChaqueta' },
-                { label: 'Pantalón',  claveTalla: 'trabajador.tallePantalon' },
-                { label: 'Camisa',    claveTalla: 'trabajador.talleCamisa' },
-                { label: 'Geólogo',   claveTalla: 'trabajador.talleGeologo' },
-            ]
-        }),
-
-        blk('espaciador', { orden: 13, altura: 4 }),
-
-        // 5. Sección: Elementos de Protección Personal (checklist 2 columnas)
-        blk('subtitulo', { orden: 14, contenido: 'ELEMENTOS DE PROTECCIÓN PERSONAL', alineacion: 'center', negrita: true, fontSize: 10 }),
-        blk('linea',     { orden: 15 }),
-
-        // Checklist 2 columnas — izquierda y derecha intercaladas
-        // claveTalla enlaza con el campo del trabajador (auto desde sistema, vacío si no existe)
-        blk('checklist_2col', {
-            orden: 16,
-            filas_epp: [
-                // Columna izquierda
-                { label: 'Camisa Negra con logo Empresa',        claveTalla: 'trabajador.talleCamisa' },
-                { label: 'Pantalón cargo color negro',           claveTalla: 'trabajador.tallePantalon' },
-                { label: 'Polar color negro',                    claveTalla: 'trabajador.tallePolar' },
-                { label: 'Chaqueta roja con logo',               claveTalla: 'trabajador.talleChaqueta' },
-                { label: 'Geólogo rojo con logo',                claveTalla: 'trabajador.talleGeologo' },
-                { label: 'Gorro Polar' },
-                { label: 'Cuello polar' },
-                { label: 'Zapato de seguridad',                  claveTalla: 'trabajador.talleCalzado' },
-                { label: 'Casco seguridad blanco con logo' },
-                { label: 'Lentes de sol filtro UV' },
-                // Columna derecha
-                { label: 'Protector Auditivo Tipo Orejera' },
-                { label: 'Primera Capa' },
-                { label: 'Botas Impermeables con Puntera Acero', claveTalla: 'trabajador.talleCalzado' },
-                { label: 'Gafas de Seguridad' },
-                { label: 'Guantes' },
-                { label: 'Chaleco anticorte' },
-                { label: 'Chaleco Antibalas' },
-                { label: 'Gorro color negro' },
-                { label: 'Mascarillas' },
-            ],
-        }),
-
-        blk('espaciador', { orden: 17, altura: 8 }),
-
-        // 6. Sección: Firma — solo RECIBE
-        blk('subtitulo', { orden: 18, contenido: 'FIRMAS', alineacion: 'center', negrita: true, fontSize: 10 }),
-        blk('linea',     { orden: 19 }),
-        blk('espaciador', { orden: 20, altura: 20 }),
-        blk('firma',     { orden: 21, label: 'RECIBE' }),
-        blk('campo_automatico', { orden: 22, contenido: 'trabajador.nombre', label: 'Nombre' }),
-        blk('campo_automatico', { orden: 23, contenido: 'trabajador.rut',    label: 'RUT' }),
-        blk('campo_automatico', { orden: 24, contenido: 'trabajador.cargo',  label: 'Cargo' }),
+        blk('encabezado_iso', {"tituloSistema":"EPP","tituloDocumento":"FORMULARIO DE ENTREGA DE ELEMENTOS DE PROTECCIÓN PERSONAL","codigoDocumento":"SG-SST","versionDocumento":"001","imageWidth":65}),
+        blk('espaciador', {"altura":6}),
+        blk('subtitulo', {"fontSize":10,"contenido":"DATOS DEL FUNCIONARIO","negrita":true,"alineacion":"center"}),
+        blk('linea', {}),
+        blk('campo_automatico', {"label":"Nombre y Apellidos","contenido":"trabajador.nombre"}),
+        blk('campo_automatico', {"label":"RUT","contenido":"trabajador.rut"}),
+        blk('campo_automatico', {"label":"Cargo","contenido":"trabajador.cargo"}),
+        blk('campo_automatico', {"label":"Proceso (Instalación / Sucursal)","contenido":"trabajador.sucursal"}),
+        blk('campo_automatico', {"label":"Fecha","contenido":"documento.fecha"}),
+        blk('espaciador', {"altura":4}),
+        blk('subtitulo', {"contenido":"DOTACIÓN PERSONAL","negrita":true,"alineacion":"center","fontSize":10}),
+        blk('linea', {}),
+        blk('dotacion_personal', {"filas_dotacion":[{"claveTalla":"trabajador.talleCalzado","label":"Zapato"},{"label":"Chaqueta","claveTalla":"trabajador.talleChaqueta"},{"label":"Pantalón","claveTalla":"trabajador.tallePantalon"},{"label":"Camisa","claveTalla":"trabajador.talleCamisa"},{"claveTalla":"trabajador.talleGeologo","label":"Geólogo"}]}),
+        blk('espaciador', {"altura":4}),
+        blk('subtitulo', {"contenido":"ELEMENTOS DE PROTECCIÓN PERSONAL","alineacion":"center","negrita":true,"fontSize":10}),
+        blk('linea', {}),
+        blk('checklist_2col', {"filas_epp":[{"label":"Camisa Negra con logo Empresa","claveTalla":"trabajador.talleCamisa"},{"claveTalla":"trabajador.tallePantalon","label":"Pantalón cargo color negro"},{"label":"Polar color negro","claveTalla":"trabajador.tallePolar"},{"label":"Chaqueta roja con logo","claveTalla":"trabajador.talleChaqueta"},{"claveTalla":"trabajador.talleGeologo","label":"Geólogo rojo con logo"},{"label":"Gorro Polar"},{"label":"Cuello polar"},{"label":"Zapato de seguridad","claveTalla":"trabajador.talleCalzado"},{"label":"Casco seguridad blanco con logo"},{"label":"Lentes de sol filtro UV"},{"label":"Protector Auditivo Tipo Orejera"},{"label":"Primera Capa"},{"label":"Botas Impermeables con Puntera Acero","claveTalla":"trabajador.talleCalzado"},{"label":"Gafas de Seguridad"},{"label":"Guantes"},{"label":"Chaleco anticorte"},{"label":"Chaleco Antibalas"},{"label":"Gorro color negro"},{"label":"Mascarillas"}]}),
+        blk('espaciador', {"altura":8}),
+        blk('subtitulo', {"alineacion":"center","contenido":"FIRMAS","fontSize":10,"negrita":true}),
+        blk('linea', {}),
+        blk('espaciador', {"altura":35}),
+        blk('firma', {"label":"RECIBE"}),
     ].map((b, i) => ({ ...b, orden: i })),
 };
+
 
 export const PLANTILLAS_PREBUILT = [TEMPLATE_REGLAMENTO_INTERNO, TEMPLATE_EPP, TEMPLATE_EPP_OFICIAL];
