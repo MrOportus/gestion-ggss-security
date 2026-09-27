@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { AdminNovedadesSeguimiento } from '../components/novedades/AdminNovedadesSeguimiento';
 import { IniciarSeguimientoModal } from '../components/novedades/IniciarSeguimientoModal';
+import NovedadSeguimientoModal from '../components/novedades/NovedadSeguimientoModal';
 import { esEsquemaNuevo } from '../lib/novedades/seguimientoService';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -31,9 +32,19 @@ const ResultBadge = ({ result }: { result: string }) => {
 
 // ─── Página Admin: Libro de Novedades ─────────────────────────────────────────
 const AdminLibroNovedadesPage: React.FC = () => {
-    const { sites, guardRounds, novedades } = useAppStore();
+    const { sites, guardRounds, novedades, currentUser, employees } = useAppStore();
     const [activeTab, setActiveTab] = useState<'historial' | 'seguimiento'>('historial');
     const [novedadToInit, setNovedadToInit] = useState<any>(null);
+    const [novedadAbierta, setNovedadAbierta] = useState<any>(null);
+
+    const adminUser = useMemo(() => {
+        const emp = employees.find(e => e.id === currentUser?.uid);
+        return {
+            uid: currentUser?.uid || '',
+            nombre: emp ? `${emp.firstName} ${emp.lastNamePaterno}` : 'Administrador',
+            rol: currentUser?.role || 'admin'
+        };
+    }, [currentUser, employees]);
 
     // ── Filtros ──────────────────────────────────────────────────────────────
     const [startDate, setStartDate] = useState(() => {
@@ -157,6 +168,9 @@ const AdminLibroNovedadesPage: React.FC = () => {
             estado: n.estado,
             categoria: n.categoria,
             requiereSeguimiento: n.requiereSeguimiento,
+            unreadAdminCount: n.unreadAdminCount,
+            unreadWorkerCount: n.unreadWorkerCount,
+            cantidadSeguimientos: n.cantidadSeguimientos,
         }));
 
         return [...roundItems, ...novedadItems].sort((a: any, b: any) =>
@@ -443,7 +457,7 @@ const AdminLibroNovedadesPage: React.FC = () => {
                                     <div className="flex flex-col items-center shrink-0 pt-1.5">
                                         <div className={`w-3 h-3 rounded-full border-2 ${dotColor}`} />
                                     </div>
-                                    <div className="flex-1 min-w-0">
+                                    <div className="flex-1 min-w-0 relative">
                                         <div className="flex items-center gap-2 flex-wrap">
                                             <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[9px] font-black uppercase ${tipoColor[item.tipo] || tipoColor.otro}`}>
                                                 {tipoIcon[item.tipo] || tipoIcon.otro}{item.tipo}
@@ -476,15 +490,32 @@ const AdminLibroNovedadesPage: React.FC = () => {
                                             </div>
                                         )}
                                         {/* Acciones */}
-                                        {esEsquemaNuevo(item) && (item.estado === 'registrada' || item.estado === 'en_revision') && item.requiereSeguimiento !== true && (
+                                        {esEsquemaNuevo(item) && (
                                             <div className="mt-3 flex justify-end">
-                                                <button
-                                                    onClick={() => setNovedadToInit(item)}
-                                                    className="px-3 py-1.5 bg-blue-50 text-blue-600 hover:bg-blue-100 border border-blue-100 rounded-lg text-xs font-bold transition-colors flex items-center gap-1.5"
-                                                >
-                                                    <PlayCircle size={14} />
-                                                    Dar seguimiento
-                                                </button>
+                                                {item.requiereSeguimiento === true || item.estado === 'resuelta' ? (
+                                                    <div className="flex items-center gap-2">
+                                                        {item.unreadAdminCount ? (
+                                                            <div className="bg-red-500 text-white text-[10px] font-black rounded-full min-w-[20px] h-5 px-1.5 flex items-center justify-center shadow-sm animate-bounce">
+                                                                {item.unreadAdminCount}
+                                                            </div>
+                                                        ) : null}
+                                                        <button
+                                                            onClick={() => setNovedadAbierta(item)}
+                                                            className="px-3 py-1.5 bg-blue-50 text-blue-600 hover:bg-blue-100 border border-blue-100 rounded-lg text-xs font-bold transition-colors flex items-center gap-1.5"
+                                                        >
+                                                            <BookOpen size={14} />
+                                                            Mostrar Seguimiento
+                                                        </button>
+                                                    </div>
+                                                ) : (item.estado === 'registrada' || item.estado === 'en_revision') && item.requiereSeguimiento !== true ? (
+                                                    <button
+                                                        onClick={() => setNovedadToInit(item)}
+                                                        className="px-3 py-1.5 bg-blue-50 text-blue-600 hover:bg-blue-100 border border-blue-100 rounded-lg text-xs font-bold transition-colors flex items-center gap-1.5"
+                                                    >
+                                                        <PlayCircle size={14} />
+                                                        Dar seguimiento
+                                                    </button>
+                                                ) : null}
                                             </div>
                                         )}
                                     </div>
@@ -535,8 +566,16 @@ const AdminLibroNovedadesPage: React.FC = () => {
                     onClose={() => setNovedadToInit(null)}
                     onSuccess={() => {
                         setNovedadToInit(null);
-                        // Optional: show a toast here. "Seguimiento iniciado correctamente."
                     }}
+                />
+            )}
+
+            {/* Modal para mostrar seguimiento */}
+            {novedadAbierta && (
+                <NovedadSeguimientoModal
+                    novedad={novedadAbierta}
+                    usuario={adminUser}
+                    onClose={() => setNovedadAbierta(null)}
                 />
             )}
             </>

@@ -543,6 +543,14 @@ export interface RegistroNovedad {
   fechaResolucion?: string;            // ISO — cuándo se marcó 'resuelta'
   resueltoPorNombre?: string;          // Nombre de quien cerró el seguimiento
   notaResolucion?: string;             // Mensaje de cierre (snippet)
+  
+  // Recibos de lectura y unread counts
+  unreadAdminCount?: number;
+  unreadWorkerCount?: number;
+  readByAdminEn?: any;
+  readByAdminPor?: string;
+  readByWorkerEn?: any;
+  readByWorkerPor?: string;
 
   // Metadatos Firestore
   creadoEn: any;       // serverTimestamp()

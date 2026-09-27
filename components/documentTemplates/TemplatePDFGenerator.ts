@@ -468,7 +468,7 @@ export async function generateTemplatePDF(
                     const dotacionSelected = new Set<number>(bloque.dotacionSeleccionados || []);
 
                     const renderDotItem = (item: typeof DOTACION_ITEMS[0], colX: number, globalIdx: number) => {
-                        const talla = resolveField(item.claveTalla, workerData);
+                        const talla = resolveField(item.claveTalla || '', workerData);
                         const isChecked = dotacionSelected.has(globalIdx);
 
                         // Item label

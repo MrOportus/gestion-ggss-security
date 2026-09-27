@@ -1999,7 +1999,16 @@ const WorkerAttendance: React.FC = () => {
                 {pendingNovedades[currentNovedadIndex].ultimoSeguimientoMsg && (
                   <div className="mt-2 pt-2 border-t border-slate-200">
                     <p className="text-[9px] font-black uppercase text-slate-400">Última actualización</p>
-                    <p className="text-xs text-slate-600 mt-0.5 italic">"{pendingNovedades[currentNovedadIndex].ultimoSeguimientoMsg}" - {pendingNovedades[currentNovedadIndex].ultimoSeguimientoPor}</p>
+                    <p className="text-xs text-slate-600 mt-0.5 italic">
+                      "{pendingNovedades[currentNovedadIndex].ultimoSeguimientoMsg}" - {' '}
+                      {(() => {
+                        const nov = pendingNovedades[currentNovedadIndex];
+                        const isAdmin = nov.ultimoSeguimientoRol 
+                          ? ['admin', 'supervisor', 'jefe_operaciones'].includes(nov.ultimoSeguimientoRol)
+                          : (nov.readByAdminPor === nov.ultimoSeguimientoPor);
+                        return isAdmin ? 'Admin-Aspro' : nov.ultimoSeguimientoPor;
+                      })()}
+                    </p>
                   </div>
                 )}
               </div>
@@ -2050,13 +2059,20 @@ const WorkerAttendance: React.FC = () => {
               </div>
             </div>
 
-            <div className="shrink-0 mt-2 pt-2 border-t border-slate-100">
+            <div className="shrink-0 mt-2 pt-2 border-t border-slate-100 flex flex-col gap-2">
               <button
                 onClick={handleSaveNovedadStep}
                 disabled={isSavingNovedad || !novedadStatus || novedadNota.trim().length < 5}
                 className="w-full py-4 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl font-black uppercase tracking-widest text-sm disabled:opacity-50 disabled:cursor-not-allowed flex justify-center items-center gap-2 transition-all active:scale-[0.98] shadow-lg shadow-blue-200"
               >
                 {isSavingNovedad ? <><Loader2 className="animate-spin" size={18} /> Guardando...</> : "Continuar"}
+              </button>
+              <button
+                onClick={() => setShowNovedadesModal(false)}
+                disabled={isSavingNovedad}
+                className="w-full py-3 bg-slate-50 hover:bg-slate-100 text-slate-500 rounded-2xl font-black uppercase tracking-widest text-xs transition-all active:scale-[0.98]"
+              >
+                Volver al Turno
               </button>
             </div>
           </div>

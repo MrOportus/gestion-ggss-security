@@ -184,8 +184,13 @@ const NovedadesPendientes: React.FC<NovedadesPendientesProps> = ({
               <button
                 key={nov.id}
                 onClick={() => setNovedadAbierta(nov)}
-                className="w-full text-left bg-white border-2 border-amber-100 rounded-2xl p-4 shadow-sm hover:shadow-md hover:border-amber-300 active:scale-[0.98] transition-all"
+                className="w-full text-left bg-white border-2 border-amber-100 rounded-2xl p-4 shadow-sm hover:shadow-md hover:border-amber-300 active:scale-[0.98] transition-all relative"
               >
+                {nov.unreadWorkerCount ? (
+                  <div className="absolute -top-3 -right-2 bg-red-500 text-white text-[11px] font-black rounded-full min-w-[24px] h-6 px-1.5 flex items-center justify-center shadow-lg border-2 border-white z-10 animate-bounce">
+                    {nov.unreadWorkerCount}
+                  </div>
+                ) : null}
                 <div className="flex items-center gap-2 mb-2">
                   <span className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-widest ${prio.bg} ${prio.color}`}>
                     {prio.label}

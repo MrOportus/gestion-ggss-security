@@ -124,13 +124,29 @@ export async function addSeguimiento(
   if (fotoPath) seguimientoDoc.fotoPath = fotoPath;
 
   // ── Metadatos base (siempre se actualizan en el doc padre) ────────────────
+  const isAdmin = ['admin', 'supervisor', 'jefe_operaciones'].includes(rol);
+  
   const metadatosBase: Record<string, unknown> = {
     ultimoSeguimientoEn: serverTimestamp(),
     ultimoSeguimientoMsg: snippet,
     ultimoSeguimientoPor: usuarioNombre,
+    ultimoSeguimientoRol: rol,
     cantidadSeguimientos: increment(1),
     actualizadoEn: serverTimestamp(),
   };
+
+  // Contadores de lectura
+  if (isAdmin) {
+    metadatosBase.unreadWorkerCount = increment(1);
+    metadatosBase.readByAdminEn = serverTimestamp();
+    metadatosBase.readByAdminPor = usuarioNombre;
+    metadatosBase.unreadAdminCount = 0; // Se asume leído por admin al escribir
+  } else {
+    metadatosBase.unreadAdminCount = increment(1);
+    metadatosBase.unreadWorkerCount = 0; // Se asume leído por worker al escribir
+    metadatosBase.readByWorkerEn = serverTimestamp();
+    metadatosBase.readByWorkerPor = usuarioNombre;
+  }
 
   // ── Metadatos de estado según tipo ────────────────────────────────────────
   let metadatosEstado: Record<string, unknown>;
@@ -229,4 +245,32 @@ export function formatSeguimientoFecha(
  */
 export function esEsquemaNuevo(novedad: Record<string, unknown>): boolean {
   return typeof novedad.tipoRegistro === 'string';
+}
+
+// ─── markSeguimientoAsRead ───────────────────────────────────────────────────
+export async function markSeguimientoAsRead(
+  novedadId: string,
+  rol: string,
+  usuarioNombre: string
+): Promise<void> {
+  const novedadRef = doc(db, NOVEDADES_COL, novedadId);
+  const isAdmin = ['admin', 'supervisor', 'jefe_operaciones'].includes(rol);
+
+  const updates: Record<string, unknown> = {};
+
+  if (isAdmin) {
+    updates.unreadAdminCount = 0;
+    updates.readByAdminEn = serverTimestamp();
+    updates.readByAdminPor = usuarioNombre;
+  } else {
+    updates.unreadWorkerCount = 0;
+    updates.readByWorkerEn = serverTimestamp();
+    updates.readByWorkerPor = usuarioNombre;
+  }
+
+  // updateDoc requires import from firebase/firestore which might not be imported above
+  // we'll use writeBatch to be safe if updateDoc isn't imported, but writeBatch is already imported
+  const batch = writeBatch(db);
+  batch.update(novedadRef, updates);
+  await batch.commit();
 }

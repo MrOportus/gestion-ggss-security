@@ -1,0 +1,413 @@
+[
+  {
+    "id": "doctpl_1789956649003_13uiu",
+    "firmaConfig": {
+      "pageType": "last",
+      "posicionX": 246,
+      "posicionY": 90
+    },
+    "tipo": "Reglamento",
+    "version": 1,
+    "creadoEn": "2026-09-21T02:10:49.003Z",
+    "creadoPor": "lO3y3BxvSFTD6CWh99cMFuzQpOu1",
+    "estado": "activo",
+    "nombre": "Reglamento interno prueba",
+    "bloques": [
+      {
+        "id": "blk_1789966434499_l7rsd",
+        "alineacion": "left",
+        "imageWidth": 60,
+        "orden": 0,
+        "tipo": "encabezado_iso",
+        "contenido": "",
+        "negrita": false,
+        "fontSize": 12
+      },
+      {
+        "alineacion": "left",
+        "negrita": false,
+        "contenido": "",
+        "fontSize": 12,
+        "orden": 1,
+        "id": "blk_1789955710122_1nd59",
+        "tipo": "linea"
+      },
+      {
+        "contenido": "FORMULARIO RECEPCIÓN DEL REGLAMENTO INTERNO DE ORDEN, \nHIGIENE Y SEGURIDAD, ART. 67º DE LA LEY Nº 16.744, TITULO III DEL \nCÓDIGO DEL TRABAJO, D.F.L. N° 1",
+        "fontSize": 14,
+        "alineacion": "center",
+        "orden": 2,
+        "id": "blk_1789955393826_q14nq",
+        "negrita": true,
+        "tipo": "subtitulo"
+      },
+      {
+        "altura": 6,
+        "negrita": false,
+        "alineacion": "left",
+        "contenido": "",
+        "fontSize": 12,
+        "orden": 3,
+        "tipo": "espaciador",
+        "id": "blk_1789955698841_4cfhl"
+      },
+      {
+        "negrita": false,
+        "alineacion": "center",
+        "orden": 4,
+        "fontSize": 12,
+        "id": "blk_1789955579130_4u0zm",
+        "contenido": "Declaro haber recibido en forma gratuita una copia del reglamento interno de orden, \nhigiene y seguridad de la empresa ASPRO SPA, de acuerdo a lo establecido en el \nArt. 156° inciso 2 del código del trabajo, Art. 14 del decreto supremo Nº 40 de 1969 \ndel ministerio del trabajo y previsión social, publicado en el diario oficial del 07 de \nmarzo de 1969 como reglamento de la ley 16.744 de 1968. \nAsumo mi responsabilidad de dar lectura a su contenido y dar cumplimiento a las \nobligaciones, prohibiciones, normas de orden, higiene y seguridad que en él están \nescritas, como así también a las disposiciones y procedimientos que en forma \nposterior se emitan y/o modifiquen y que formen parte de este reglamento o que \nexpresamente lo indique.",
+        "tipo": "texto"
+      },
+      {
+        "negrita": false,
+        "orden": 5,
+        "id": "blk_1789963658285_0via0",
+        "tipo": "linea",
+        "fontSize": 12,
+        "alineacion": "left",
+        "contenido": ""
+      },
+      {
+        "tipo": "campo_automatico",
+        "alineacion": "left",
+        "id": "blk_1789955870409_xukb3",
+        "negrita": false,
+        "orden": 6,
+        "label": "Nombre Completo",
+        "fontSize": 12,
+        "contenido": "trabajador.nombre"
+      },
+      {
+        "alineacion": "left",
+        "negrita": false,
+        "contenido": "trabajador.rut",
+        "fontSize": 12,
+        "id": "blk_1789955643748_ltrkf",
+        "orden": 7,
+        "tipo": "campo_automatico",
+        "label": "RUT"
+      },
+      {
+        "alineacion": "left",
+        "id": "blk_1789955649132_yyzp5",
+        "negrita": false,
+        "contenido": "trabajador.sucursal",
+        "tipo": "campo_automatico",
+        "fontSize": 12,
+        "label": "Sucursal / Faena",
+        "orden": 8
+      },
+      {
+        "negrita": false,
+        "label": "Cargo",
+        "contenido": "trabajador.cargo",
+        "id": "blk_1789955657708_o4yuw",
+        "orden": 9,
+        "tipo": "campo_automatico",
+        "alineacion": "left",
+        "fontSize": 12
+      },
+      {
+        "alineacion": "left",
+        "negrita": false,
+        "orden": 10,
+        "id": "blk_1789957843289_t8h52",
+        "contenido": "",
+        "fontSize": 12,
+        "tipo": "fecha"
+      },
+      {
+        "orden": 11,
+        "fontSize": 12,
+        "tipo": "linea",
+        "alineacion": "left",
+        "negrita": false,
+        "contenido": "",
+        "id": "blk_1789955695569_dos01"
+      },
+      {
+        "id": "blk_1789966647310_m6zom",
+        "tipo": "espaciador",
+        "fontSize": 12,
+        "alineacion": "left",
+        "altura": 30,
+        "contenido": "",
+        "orden": 12,
+        "negrita": false
+      },
+      {
+        "alineacion": "left",
+        "orden": 13,
+        "negrita": false,
+        "contenido": "",
+        "tipo": "firma",
+        "fontSize": 12,
+        "id": "blk_1789963029870_lcdsa"
+      },
+      {
+        "fontSize": 12,
+        "negrita": false,
+        "contenido": "",
+        "alineacion": "left",
+        "id": "blk_1789955697873_jihii",
+        "orden": 14,
+        "tipo": "espaciador"
+      }
+    ],
+    "actualizadoEn": "2026-09-24T17:51:46.875Z"
+  },
+  {
+    "id": "doctpl_1790212291228_ekz4h",
+    "nombre": "Formulario Entrega EPP — Formato Oficial (SG-SST)",
+    "tipo": "EPP",
+    "estado": "activo",
+    "creadoPor": "lO3y3BxvSFTD6CWh99cMFuzQpOu1",
+    "firmaConfig": {
+      "pageType": "last",
+      "posicionX": 350,
+      "posicionY": 90
+    },
+    "creadoEn": "2026-09-24T01:11:31.228Z",
+    "version": 2,
+    "bloques": [
+      {
+        "tituloSistema": "EPP",
+        "tituloDocumento": "FORMULARIO DE ENTREGA DE ELEMENTOS DE PROTECCIÓN PERSONAL",
+        "tipo": "encabezado_iso",
+        "orden": 0,
+        "codigoDocumento": "SG-SST",
+        "versionDocumento": "001",
+        "id": "pre_encabezado_iso_8rtzf",
+        "imageWidth": 65
+      },
+      {
+        "orden": 1,
+        "altura": 6,
+        "id": "pre_espaciador_8ucu3",
+        "tipo": "espaciador"
+      },
+      {
+        "fontSize": 10,
+        "id": "pre_subtitulo_oar90",
+        "orden": 2,
+        "tipo": "subtitulo",
+        "contenido": "DATOS DEL FUNCIONARIO",
+        "negrita": true,
+        "alineacion": "center"
+      },
+      {
+        "id": "pre_linea_7mchv",
+        "orden": 3,
+        "tipo": "linea"
+      },
+      {
+        "id": "pre_campo_automatico_967x8",
+        "label": "Nombre y Apellidos",
+        "orden": 4,
+        "contenido": "trabajador.nombre",
+        "tipo": "campo_automatico"
+      },
+      {
+        "label": "RUT",
+        "orden": 5,
+        "id": "pre_campo_automatico_bn1fx",
+        "tipo": "campo_automatico",
+        "contenido": "trabajador.rut"
+      },
+      {
+        "tipo": "campo_automatico",
+        "id": "pre_campo_automatico_u7gjs",
+        "label": "Cargo",
+        "orden": 6,
+        "contenido": "trabajador.cargo"
+      },
+      {
+        "tipo": "campo_automatico",
+        "label": "Proceso (Instalación / Sucursal)",
+        "orden": 7,
+        "id": "pre_campo_automatico_k88g7",
+        "contenido": "trabajador.sucursal"
+      },
+      {
+        "tipo": "campo_automatico",
+        "label": "Fecha",
+        "orden": 8,
+        "contenido": "documento.fecha",
+        "id": "pre_campo_automatico_vzr3z"
+      },
+      {
+        "orden": 9,
+        "id": "pre_espaciador_vn36h",
+        "tipo": "espaciador",
+        "altura": 4
+      },
+      {
+        "orden": 10,
+        "contenido": "DOTACIÓN PERSONAL",
+        "negrita": true,
+        "id": "pre_subtitulo_9otn8",
+        "tipo": "subtitulo",
+        "alineacion": "center",
+        "fontSize": 10
+      },
+      {
+        "tipo": "linea",
+        "orden": 11,
+        "id": "pre_linea_np9z1"
+      },
+      {
+        "tipo": "dotacion_personal",
+        "orden": 12,
+        "filas_dotacion": [
+          {
+            "claveTalla": "trabajador.talleCalzado",
+            "label": "Zapato"
+          },
+          {
+            "label": "Chaqueta",
+            "claveTalla": "trabajador.talleChaqueta"
+          },
+          {
+            "label": "Pantalón",
+            "claveTalla": "trabajador.tallePantalon"
+          },
+          {
+            "label": "Camisa",
+            "claveTalla": "trabajador.talleCamisa"
+          },
+          {
+            "claveTalla": "trabajador.talleGeologo",
+            "label": "Geólogo"
+          }
+        ],
+        "id": "pre_dotacion_personal_5r139"
+      },
+      {
+        "id": "pre_espaciador_dom7r",
+        "tipo": "espaciador",
+        "orden": 13,
+        "altura": 4
+      },
+      {
+        "contenido": "ELEMENTOS DE PROTECCIÓN PERSONAL",
+        "id": "pre_subtitulo_sp32e",
+        "orden": 14,
+        "alineacion": "center",
+        "negrita": true,
+        "fontSize": 10,
+        "tipo": "subtitulo"
+      },
+      {
+        "orden": 15,
+        "tipo": "linea",
+        "id": "pre_linea_syh6c"
+      },
+      {
+        "id": "pre_checklist_2col_29yik",
+        "tipo": "checklist_2col",
+        "orden": 16,
+        "filas_epp": [
+          {
+            "label": "Camisa Negra con logo Empresa",
+            "claveTalla": "trabajador.talleCamisa"
+          },
+          {
+            "claveTalla": "trabajador.tallePantalon",
+            "label": "Pantalón cargo color negro"
+          },
+          {
+            "label": "Polar color negro",
+            "claveTalla": "trabajador.tallePolar"
+          },
+          {
+            "label": "Chaqueta roja con logo",
+            "claveTalla": "trabajador.talleChaqueta"
+          },
+          {
+            "claveTalla": "trabajador.talleGeologo",
+            "label": "Geólogo rojo con logo"
+          },
+          {
+            "label": "Gorro Polar"
+          },
+          {
+            "label": "Cuello polar"
+          },
+          {
+            "label": "Zapato de seguridad",
+            "claveTalla": "trabajador.talleCalzado"
+          },
+          {
+            "label": "Casco seguridad blanco con logo"
+          },
+          {
+            "label": "Lentes de sol filtro UV"
+          },
+          {
+            "label": "Protector Auditivo Tipo Orejera"
+          },
+          {
+            "label": "Primera Capa"
+          },
+          {
+            "label": "Botas Impermeables con Puntera Acero",
+            "claveTalla": "trabajador.talleCalzado"
+          },
+          {
+            "label": "Gafas de Seguridad"
+          },
+          {
+            "label": "Guantes"
+          },
+          {
+            "label": "Chaleco anticorte"
+          },
+          {
+            "label": "Chaleco Antibalas"
+          },
+          {
+            "label": "Gorro color negro"
+          },
+          {
+            "label": "Mascarillas"
+          }
+        ]
+      },
+      {
+        "tipo": "espaciador",
+        "altura": 8,
+        "orden": 17,
+        "id": "pre_espaciador_y9arg"
+      },
+      {
+        "alineacion": "center",
+        "tipo": "subtitulo",
+        "id": "pre_subtitulo_yg6va",
+        "contenido": "FIRMAS",
+        "fontSize": 10,
+        "negrita": true,
+        "orden": 18
+      },
+      {
+        "tipo": "linea",
+        "id": "pre_linea_dyu67",
+        "orden": 19
+      },
+      {
+        "altura": 35,
+        "orden": 20,
+        "tipo": "espaciador",
+        "id": "pre_espaciador_b4qh1"
+      },
+      {
+        "id": "pre_firma_xrapu",
+        "tipo": "firma",
+        "label": "RECIBE",
+        "orden": 21
+      }
+    ],
+    "actualizadoEn": "2026-09-24T01:20:58.651Z"
+  }
+]

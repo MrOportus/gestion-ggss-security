@@ -1,4 +1,4 @@
-﻿/**
+/**
  * NovedadSeguimientoModal.tsx
  *
  * Modal principal del seguimiento de una novedad.
@@ -26,6 +26,7 @@ import {
   getSeguimientos,
   formatSeguimientoFecha,
   SeguimientoBaseParams,
+  markSeguimientoAsRead,
 } from '../../lib/novedades/seguimientoService';
 import { useAppStore } from '../../store/useAppStore';
 import type { RegistroNovedad, SeguimientoNovedad, SeguimientoTipo } from '../../types';
@@ -68,8 +69,8 @@ const NovedadSeguimientoModal: React.FC<NovedadSeguimientoModalProps> = ({
   const [seguimientos, setSeguimientos] = useState<SeguimientoNovedad[]>([]);
   const [loadingHilo, setLoadingHilo] = useState(true);
 
-  // Modo: 'ver' | 'agregar' | 'resolver'
-  const [modo, setModo] = useState<'ver' | 'agregar' | 'resolver'>('ver');
+  // Modo: 'ver' | 'resolver'
+  const [modo, setModo] = useState<'ver' | 'resolver'>('ver');
   const [mensaje, setMensaje] = useState('');
   const [foto, setFoto] = useState<string | null>(null);       // preview base64
   const [fotoBlob, setFotoBlob] = useState<File | null>(null); // para subir
@@ -96,8 +97,16 @@ const NovedadSeguimientoModal: React.FC<NovedadSeguimientoModalProps> = ({
       }
     };
     cargar();
+
+    // Marcar como leído al abrir
+    if (novedad.id && usuario.rol) {
+      markSeguimientoAsRead(novedad.id, usuario.rol, usuario.nombre).catch(e => {
+        console.error('[SeguimientoModal] Error al marcar como leido:', e);
+      });
+    }
+
     return () => { mounted = false; };
-  }, [novedad.id]);
+  }, [novedad.id, usuario.rol, usuario.nombre]);
 
   // Scroll al final cuando llegan nuevos mensajes
   useEffect(() => {
@@ -129,8 +138,10 @@ const NovedadSeguimientoModal: React.FC<NovedadSeguimientoModalProps> = ({
 
   // ── Enviar seguimiento (normal o resolucion) ──────────────────────────────
   const handleEnviar = async (tipo: SeguimientoTipo) => {
-    const textoFinal = mensaje.trim();
-    if (!textoFinal || textoFinal.length < 5) {
+    let textoFinal = mensaje.trim();
+    if (tipo === 'resolucion' && !textoFinal) {
+      textoFinal = 'Resuelto';
+    } else if (!textoFinal || textoFinal.length < 5) {
       setError('El mensaje debe tener al menos 5 caracteres.');
       return;
     }
@@ -198,13 +209,14 @@ const NovedadSeguimientoModal: React.FC<NovedadSeguimientoModalProps> = ({
 
   // ── Contenido del modal ───────────────────────────────────────────────────
   const content = (
-    <div className="fixed inset-0 z-[150] flex flex-col bg-slate-50 animate-in slide-in-from-bottom-4 duration-300 h-[100dvh]">
-      {/* Header */}
-      <div className="bg-white px-4 py-3 flex items-center gap-3 shadow-sm border-b shrink-0">
-        <button
-          onClick={() => modo !== 'ver' ? setModo('ver') : onClose()}
-          className="p-2 text-slate-500 hover:bg-slate-100 rounded-xl transition-all"
-        >
+    <div className="fixed inset-0 z-[150] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-0 md:p-6 animate-in fade-in duration-200">
+      <div className="flex flex-col bg-slate-50 w-full h-[100dvh] md:h-[90vh] md:max-w-4xl md:rounded-[2rem] md:shadow-2xl md:border md:border-white/20 overflow-hidden animate-in slide-in-from-bottom-8 duration-300">
+        {/* Header */}
+        <div className="bg-white px-4 py-3 md:py-4 md:px-6 flex items-center gap-3 shadow-sm border-b shrink-0">
+          <button
+            onClick={() => modo !== 'ver' ? setModo('ver') : onClose()}
+            className="p-2 text-slate-500 hover:bg-slate-100 rounded-xl transition-all"
+          >
           {modo !== 'ver' ? <ArrowLeft size={22} /> : <X size={22} />}
         </button>
         <div className="flex-1 min-w-0">
@@ -222,18 +234,17 @@ const NovedadSeguimientoModal: React.FC<NovedadSeguimientoModalProps> = ({
       </div>
 
       {/* Descripcion de la novedad */}
-      <div className="mx-4 mt-3 bg-white border border-slate-100 rounded-2xl p-4 shadow-sm shrink-0">
-        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Novedad original</p>
-        <p className="text-sm font-bold text-slate-700 leading-relaxed">{novedad.descripcion}</p>
-        <p className="text-[10px] text-slate-400 font-medium mt-1.5">
+      <div className="mx-4 md:mx-8 mt-3 md:mt-6 bg-white border border-slate-100 rounded-2xl p-4 md:p-6 shadow-sm shrink-0">
+        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 md:mb-2 md:text-xs">Novedad original</p>
+        <p className="text-sm md:text-base font-bold text-slate-700 leading-relaxed">{novedad.descripcion}</p>
+        <p className="text-[10px] md:text-xs text-slate-400 font-medium mt-1.5 md:mt-2">
           Por {novedad.autorNombre}
           {novedad.fechaHoraDispositivo ? ` · ${formatSeguimientoFecha(novedad.fechaHoraDispositivo)}` : ''}
         </p>
       </div>
 
-      {/* MODO: VER hilo */}
-      {modo === 'ver' && (
-        <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
+      {/* HISTORIAL Y FORMULARIO (Siempre visible en el fondo) */}
+      <div className="flex-1 overflow-y-auto px-4 md:px-8 py-4 md:py-6 space-y-4 md:space-y-6">
           {loadingHilo && (
             <div className="flex items-center justify-center py-12 gap-3 text-slate-400">
               <Loader2 size={22} className="animate-spin" />
@@ -249,13 +260,21 @@ const NovedadSeguimientoModal: React.FC<NovedadSeguimientoModalProps> = ({
           {!loadingHilo && seguimientos.map((seg) => {
             const esMio = seg.usuarioId === usuario.uid;
             const esResolucion = seg.tipo === 'resolucion';
+            const isAdminMsg = ['admin', 'supervisor', 'jefe_operaciones'].includes(seg.rol);
+            const isCurrentUserAdmin = ['admin', 'supervisor', 'jefe_operaciones'].includes(usuario.rol);
+            
+            // Si el mensaje es de un admin y el que lee NO es admin, ocultamos su nombre.
+            const displayNombre = (isAdminMsg && !isCurrentUserAdmin) 
+              ? 'Admin-Aspro' 
+              : (esMio ? 'Tú' : seg.usuarioNombre);
+
             return (
               <div
                 key={seg.id}
                 className={`flex flex-col ${esMio ? 'items-end' : 'items-start'}`}
               >
                 {/* Burbuja */}
-                <div className={`max-w-[85%] rounded-2xl px-4 py-3 shadow-sm ${
+                <div className={`max-w-[85%] md:max-w-[70%] rounded-2xl px-4 py-3 md:px-5 md:py-4 shadow-sm ${
                   esResolucion
                     ? 'bg-emerald-100 border border-emerald-200'
                     : esMio
@@ -267,7 +286,7 @@ const NovedadSeguimientoModal: React.FC<NovedadSeguimientoModalProps> = ({
                     <p className={`text-[10px] font-black uppercase tracking-widest ${
                       esResolucion ? 'text-emerald-700' : esMio ? 'text-blue-200' : 'text-slate-500'
                     }`}>
-                      {esMio ? 'Tú' : seg.usuarioNombre}
+                      {displayNombre}
                     </p>
                     <span className={`px-1.5 py-0.5 rounded text-[8px] font-black uppercase ${
                       esResolucion ? 'bg-emerald-200 text-emerald-800' : esMio ? 'bg-blue-500 text-blue-100' : 'bg-slate-100 text-slate-500'
@@ -307,223 +326,195 @@ const NovedadSeguimientoModal: React.FC<NovedadSeguimientoModalProps> = ({
               </div>
             );
           })}
-          <div ref={bottomRef} />
-        </div>
-      )}
-
-      {/* MODO: AGREGAR seguimiento */}
-      {modo === 'agregar' && (
-        <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
-          <div className="space-y-2">
-            <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">
-              Mensaje de seguimiento *
-            </label>
-            <textarea
-              value={mensaje}
-              onChange={e => setMensaje(e.target.value)}
-              rows={5}
-              placeholder="Describe el estado actual, acciones realizadas o informacion relevante para el proximo turno."
-              autoFocus
-              className="w-full px-4 py-3 bg-white border-2 border-slate-200 rounded-2xl focus:border-blue-500 outline-none transition-all font-medium text-slate-700 placeholder-slate-400 resize-none text-sm"
-            />
-            <p className={`text-[10px] font-bold px-1 ${mensaje.trim().length < 5 ? 'text-red-400' : 'text-emerald-500'}`}>
-              {mensaje.trim().length} caracteres (minimo 5)
-            </p>
-          </div>
-
-          {/* Foto opcional */}
-          <div className="space-y-2">
-            <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">
-              Fotografia opcional
-            </label>
-            {foto ? (
-              <div className="relative inline-block">
-                <img src={foto} alt="Preview" className="w-32 h-32 object-cover rounded-2xl border-2 border-slate-200" />
-                <button
-                  onClick={() => { setFoto(null); setFotoBlob(null); }}
-                  className="absolute -top-2 -right-2 w-7 h-7 bg-red-500 text-white rounded-full flex items-center justify-center shadow active:scale-90 transition-all"
-                >
-                  <X size={14} />
-                </button>
-              </div>
-            ) : (
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  onClick={() => handleAgregarFoto('camera')}
-                  className="p-4 bg-white border-2 border-dashed border-slate-300 rounded-2xl flex flex-col items-center gap-2 active:scale-95 transition-all hover:border-blue-400 hover:bg-blue-50"
-                >
-                  <Camera size={20} className="text-slate-400" />
-                  <span className="text-xs font-bold text-slate-500">Tomar foto</span>
-                </button>
-                <button
-                  onClick={() => handleAgregarFoto('gallery')}
-                  className="p-4 bg-white border-2 border-dashed border-slate-300 rounded-2xl flex flex-col items-center gap-2 active:scale-95 transition-all hover:border-blue-400 hover:bg-blue-50"
-                >
-                  <ImageIcon size={20} className="text-slate-400" />
-                  <span className="text-xs font-bold text-slate-500">Desde galeria</span>
-                </button>
-              </div>
-            )}
-          </div>
-
-          {error && (
-            <div className="bg-red-50 border border-red-200 rounded-2xl p-4 flex gap-3 items-start">
-              <AlertCircle size={18} className="text-red-500 shrink-0 mt-0.5" />
-              <p className="text-sm font-bold text-red-700">{error}</p>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* MODO: RESOLVER novedad */}
-      {modo === 'resolver' && (
-        <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
-          <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4">
-            <div className="flex items-center gap-2 mb-2">
-              <ShieldCheck size={18} className="text-emerald-600" />
-              <p className="text-sm font-black text-emerald-800">Resolver novedad</p>
-            </div>
-            <p className="text-xs text-emerald-700 font-medium leading-relaxed">
-              Al resolver, la novedad se marcara como resuelta y desaparecera del listado de pendientes.
-              El historial se conserva permanentemente.
-            </p>
-          </div>
-
-          <div className="space-y-2">
-            <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">
-              Nota de resolucion *
-            </label>
-            <textarea
-              value={mensaje}
-              onChange={e => setMensaje(e.target.value)}
-              rows={5}
-              placeholder="Describe como se resolvio la novedad y que acciones se tomaron."
-              autoFocus
-              className="w-full px-4 py-3 bg-white border-2 border-emerald-300 rounded-2xl focus:border-emerald-500 outline-none transition-all font-medium text-slate-700 placeholder-slate-400 resize-none text-sm"
-            />
-            <p className={`text-[10px] font-bold px-1 ${mensaje.trim().length < 5 ? 'text-red-400' : 'text-emerald-500'}`}>
-              {mensaje.trim().length} caracteres (minimo 5)
-            </p>
-          </div>
-
-          {/* Foto opcional */}
-          <div className="space-y-2">
-            <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">
-              Fotografia de cierre (opcional)
-            </label>
-            {foto ? (
-              <div className="relative inline-block">
-                <img src={foto} alt="Preview" className="w-32 h-32 object-cover rounded-2xl border-2 border-emerald-200" />
-                <button
-                  onClick={() => { setFoto(null); setFotoBlob(null); }}
-                  className="absolute -top-2 -right-2 w-7 h-7 bg-red-500 text-white rounded-full flex items-center justify-center shadow active:scale-90 transition-all"
-                >
-                  <X size={14} />
-                </button>
-              </div>
-            ) : (
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  onClick={() => handleAgregarFoto('camera')}
-                  className="p-4 bg-white border-2 border-dashed border-emerald-200 rounded-2xl flex flex-col items-center gap-2 active:scale-95 transition-all"
-                >
-                  <Camera size={20} className="text-emerald-400" />
-                  <span className="text-xs font-bold text-slate-500">Tomar foto</span>
-                </button>
-                <button
-                  onClick={() => handleAgregarFoto('gallery')}
-                  className="p-4 bg-white border-2 border-dashed border-emerald-200 rounded-2xl flex flex-col items-center gap-2 active:scale-95 transition-all"
-                >
-                  <ImageIcon size={20} className="text-emerald-400" />
-                  <span className="text-xs font-bold text-slate-500">Desde galeria</span>
-                </button>
-              </div>
-            )}
-          </div>
-
-          {/* Confirmacion previa */}
-          {!confirmResolucion && (
-            <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4">
-              <p className="text-xs text-amber-700 font-bold">
-                Confirma que la novedad fue efectivamente resuelta antes de marcarla como tal.
+          
+          {/* Indicador de lectura (solo admin lo ve, indicando si el guardia lo leyó) */}
+          {['admin', 'supervisor', 'jefe_operaciones'].includes(usuario.rol) && novedad.readByWorkerEn && seguimientos.length > 0 && (
+            <div className="flex justify-end pr-1 mt-1">
+              <p className="text-[10px] font-bold text-slate-400 flex items-center gap-1">
+                <CheckCircle size={10} className="text-blue-500" />
+                Visto por {novedad.readByWorkerPor || 'Guardia'} a las {formatSeguimientoFecha(novedad.readByWorkerEn)}
               </p>
             </div>
           )}
 
-          {error && (
-            <div className="bg-red-50 border border-red-200 rounded-2xl p-4 flex gap-3 items-start">
-              <AlertCircle size={18} className="text-red-500 shrink-0 mt-0.5" />
-              <p className="text-sm font-bold text-red-700">{error}</p>
+          <div ref={bottomRef} />
+
+          {novedad.estado !== 'resuelta' && (
+            <div className="pt-4 border-t border-slate-100 mt-6 space-y-4">
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">
+                  Mensaje de seguimiento *
+                </label>
+                <textarea
+                  value={mensaje}
+                  onChange={e => setMensaje(e.target.value)}
+                  rows={4}
+                  placeholder="Describe el estado actual, acciones realizadas o informacion relevante para el proximo turno."
+                  className="w-full px-4 py-3 bg-white border-2 border-slate-200 rounded-2xl focus:border-blue-500 outline-none transition-all font-medium text-slate-700 placeholder-slate-400 resize-none text-sm"
+                />
+                <p className={`text-[10px] font-bold px-1 ${mensaje.trim().length < 5 ? 'text-red-400' : 'text-emerald-500'}`}>
+                  {mensaje.trim().length} caracteres (minimo 5)
+                </p>
+              </div>
+
+              {/* Foto opcional */}
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">
+                  Fotografia opcional
+                </label>
+                {foto ? (
+                  <div className="relative inline-block">
+                    <img src={foto} alt="Preview" className="w-32 h-32 object-cover rounded-2xl border-2 border-slate-200" />
+                    <button
+                      onClick={() => { setFoto(null); setFotoBlob(null); }}
+                      className="absolute -top-2 -right-2 w-7 h-7 bg-red-500 text-white rounded-full flex items-center justify-center shadow active:scale-90 transition-all"
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex gap-3">
+                    <button
+                      onClick={() => handleAgregarFoto('camera')}
+                      className="px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl flex items-center gap-2 active:scale-95 transition-all hover:bg-slate-100 text-slate-600"
+                    >
+                      <Camera size={16} />
+                      <span className="text-xs font-bold">Camara</span>
+                    </button>
+                    <button
+                      onClick={() => handleAgregarFoto('gallery')}
+                      className="px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl flex items-center gap-2 active:scale-95 transition-all hover:bg-slate-100 text-slate-600"
+                    >
+                      <ImageIcon size={16} />
+                      <span className="text-xs font-bold">Galeria</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {error && (
+                <div className="bg-red-50 border border-red-200 rounded-2xl p-4 flex gap-3 items-start">
+                  <AlertCircle size={18} className="text-red-500 shrink-0 mt-0.5" />
+                  <p className="text-sm font-bold text-red-700">{error}</p>
+                </div>
+              )}
             </div>
           )}
         </div>
-      )}
 
-      {/* Barra de acciones */}
-      <div className="shrink-0 bg-white border-t border-slate-100 shadow-[0_-8px_20px_-5px_rgba(0,0,0,0.08)] px-4 py-4 space-y-2 pb-[calc(1rem+env(safe-area-inset-bottom,0px))]">
-        {/* VER: botones de accion */}
-        {modo === 'ver' && (
-          <div className="grid grid-cols-2 gap-3">
-            <button
-              onClick={() => { setMensaje(''); setFoto(null); setFotoBlob(null); setError(null); setModo('agregar'); }}
-              className="py-4 bg-blue-600 hover:bg-blue-700 text-white rounded-[1.5rem] font-black text-sm uppercase tracking-widest shadow-lg shadow-blue-200 active:scale-95 transition-all flex items-center justify-center gap-2"
-            >
-              <Send size={16} />
-              Agregar nota
-            </button>
-            <button
-              onClick={() => { setMensaje(''); setFoto(null); setFotoBlob(null); setError(null); setConfirmResolucion(false); setModo('resolver'); }}
-              disabled={novedad.estado === 'resuelta'}
-              className="py-4 bg-emerald-500 hover:bg-emerald-600 text-white rounded-[1.5rem] font-black text-sm uppercase tracking-widest shadow-lg shadow-emerald-200 active:scale-95 transition-all flex items-center justify-center gap-2 disabled:opacity-40"
-            >
-              <CheckCircle size={16} />
-              Resolver
-            </button>
-          </div>
-        )}
+      {/* OVERLAY: MODAL DE RESOLUCIÓN */}
+      {modo === 'resolver' && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200 p-4">
+          <div className="bg-white rounded-3xl w-full max-w-sm shadow-2xl p-6 flex flex-col gap-4 animate-in zoom-in-95 duration-200">
+            
+            <div className="flex items-center gap-3 text-emerald-600">
+              <ShieldCheck size={28} />
+              <h3 className="text-lg font-black text-slate-800">¿Marcar resuelto?</h3>
+            </div>
+            
+            <p className="text-sm text-slate-600 font-medium">
+              Esta acción cerrará la novedad y la quitará de pendientes.
+            </p>
 
-        {/* AGREGAR: confirmar seguimiento normal */}
-        {modo === 'agregar' && (
-          <button
-            onClick={() => handleEnviar('seguimiento')}
-            disabled={enviando || mensaje.trim().length < 5}
-            className="w-full py-5 bg-blue-600 hover:bg-blue-700 text-white rounded-[2rem] font-black text-sm uppercase tracking-widest shadow-xl shadow-blue-200 active:scale-95 transition-all disabled:opacity-40 flex items-center justify-center gap-2"
-          >
-            {enviando ? (
-              <><Loader2 size={20} className="animate-spin" /> Guardando...</>
-            ) : (
-              <><Send size={20} /> Guardar como pendiente</>
+            <div className="space-y-2 mt-2">
+              <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">
+                Nota de cierre (Opcional)
+              </label>
+              <textarea
+                value={mensaje}
+                onChange={e => setMensaje(e.target.value)}
+                rows={3}
+                placeholder="Si lo dejas vacío, se registrará como 'Resuelto'."
+                autoFocus
+                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl focus:border-emerald-500 outline-none transition-all font-medium text-slate-700 placeholder-slate-400 resize-none text-sm"
+              />
+            </div>
+
+            {/* Foto opcional */}
+            <div className="space-y-2">
+              <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">
+                Evidencia (Opcional)
+              </label>
+              {foto ? (
+                <div className="relative inline-block">
+                  <img src={foto} alt="Preview" className="w-24 h-24 object-cover rounded-2xl border-2 border-emerald-200" />
+                  <button
+                    onClick={() => { setFoto(null); setFotoBlob(null); }}
+                    className="absolute -top-2 -right-2 w-7 h-7 bg-red-500 text-white rounded-full flex items-center justify-center shadow active:scale-90 transition-all"
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+              ) : (
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => handleAgregarFoto('camera')}
+                    className="flex-1 py-2 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-center gap-2 active:scale-95 transition-all hover:bg-emerald-50 hover:text-emerald-700 text-slate-600"
+                  >
+                    <Camera size={16} />
+                    <span className="text-[10px] font-bold uppercase tracking-widest">Cámara</span>
+                  </button>
+                  <button
+                    onClick={() => handleAgregarFoto('gallery')}
+                    className="flex-1 py-2 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-center gap-2 active:scale-95 transition-all hover:bg-emerald-50 hover:text-emerald-700 text-slate-600"
+                  >
+                    <ImageIcon size={16} />
+                    <span className="text-[10px] font-bold uppercase tracking-widest">Galería</span>
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {error && (
+              <div className="bg-red-50 border border-red-200 rounded-2xl p-3 flex gap-3 items-start">
+                <AlertCircle size={16} className="text-red-500 shrink-0 mt-0.5" />
+                <p className="text-xs font-bold text-red-700">{error}</p>
+              </div>
             )}
-          </button>
-        )}
 
-        {/* RESOLVER: confirmacion doble */}
-        {modo === 'resolver' && (
-          <>
-            {!confirmResolucion ? (
+            <div className="flex gap-3 mt-4">
               <button
-                onClick={() => setConfirmResolucion(true)}
-                disabled={mensaje.trim().length < 5}
-                className="w-full py-5 bg-amber-500 hover:bg-amber-600 text-white rounded-[2rem] font-black text-sm uppercase tracking-widest shadow-xl shadow-amber-200 active:scale-95 transition-all disabled:opacity-40 flex items-center justify-center gap-2"
+                onClick={() => { setModo('ver'); setError(null); }}
+                className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-2xl font-black text-xs uppercase tracking-widest active:scale-95 transition-all"
               >
-                <ShieldCheck size={20} />
-                Confirmar resolucion
+                Cancelar
               </button>
-            ) : (
               <button
                 onClick={() => handleEnviar('resolucion')}
-                disabled={enviando || mensaje.trim().length < 5}
-                className="w-full py-5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-[2rem] font-black text-sm uppercase tracking-widest shadow-xl shadow-emerald-200 active:scale-95 transition-all disabled:opacity-40 flex items-center justify-center gap-2"
+                disabled={enviando}
+                className="flex-1 py-3 bg-emerald-500 hover:bg-emerald-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-emerald-200 active:scale-95 transition-all flex items-center justify-center gap-2 disabled:opacity-40"
               >
-                {enviando ? (
-                  <><Loader2 size={20} className="animate-spin" /> Resolviendo...</>
-                ) : (
-                  <><CheckCircle size={20} /> Marcar como resuelta</>
-                )}
+                {enviando ? <Loader2 size={16} className="animate-spin" /> : 'Confirmar'}
               </button>
-            )}
-          </>
-        )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Barra de acciones PRINCIPAL */}
+      <div className="shrink-0 bg-white border-t border-slate-100 shadow-[0_-8px_20px_-5px_rgba(0,0,0,0.08)] px-4 py-4 md:px-8 md:py-6 space-y-2 pb-[calc(1rem+env(safe-area-inset-bottom,0px))] relative z-0">
+        <div className="grid grid-cols-2 gap-3 md:gap-6">
+            <button
+              onClick={() => handleEnviar('seguimiento')}
+              disabled={enviando || mensaje.trim().length < 5 || novedad.estado === 'resuelta'}
+              className="py-4 md:py-5 bg-blue-600 hover:bg-blue-700 text-white rounded-[1.5rem] md:rounded-[2rem] font-black text-sm md:text-base uppercase tracking-widest shadow-lg shadow-blue-200 active:scale-95 transition-all flex items-center justify-center gap-2 disabled:opacity-40"
+            >
+              {enviando ? (
+                <><Loader2 size={18} className="animate-spin" /> Enviando...</>
+              ) : (
+                <><Send size={18} /> Enviar Nota</>
+              )}
+            </button>
+            <button
+              onClick={() => { setError(null); setConfirmResolucion(false); setModo('resolver'); }}
+              disabled={novedad.estado === 'resuelta'}
+              className="py-4 md:py-5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-[1.5rem] md:rounded-[2rem] font-black text-sm md:text-base uppercase tracking-widest shadow-lg shadow-emerald-200 active:scale-95 transition-all flex items-center justify-center gap-2 disabled:opacity-40"
+            >
+              <CheckCircle size={18} />
+              Resolver
+            </button>
+        </div>
+      </div>
       </div>
     </div>
   );

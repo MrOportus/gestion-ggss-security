@@ -195,7 +195,12 @@ export const AdminNovedadesSeguimiento: React.FC = () => {
                 onClick={() => setNovedadAbierta(nov)}
                 className="text-left bg-white border border-slate-200 rounded-2xl p-5 shadow-sm hover:shadow-md hover:border-blue-300 transition-all active:scale-[0.99] flex flex-col h-full"
               >
-                <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center justify-between mb-3 relative">
+                  {nov.unreadAdminCount ? (
+                    <div className="absolute -top-7 -right-7 bg-red-500 text-white text-[11px] font-black rounded-full min-w-[24px] h-6 px-1.5 flex items-center justify-center shadow-lg border-2 border-white z-10 animate-bounce">
+                      {nov.unreadAdminCount}
+                    </div>
+                  ) : null}
                   <span className={`px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-widest ${prio.bg} ${prio.color}`}>
                     {prio.label}
                   </span>

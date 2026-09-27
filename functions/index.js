@@ -274,19 +274,22 @@ exports.notificarSeguimientoNovedad = onDocumentCreated(
                 .where('siteId', 'in', [sucursalId, Number(sucursalId), String(sucursalId)])
                 .get();
 
-            if (activeShiftsQuery.empty) {
-                console.log(`[FCM-NOVEDADES] No hay trabajadores activos en la sucursal ${sucursalId}.`);
-                return;
-            }
-
             // Extraer employeeIds únicos
             const employeeIds = new Set();
-            activeShiftsQuery.forEach(doc => {
-                const data = doc.data();
-                if (data.employeeId) {
-                    employeeIds.add(data.employeeId);
-                }
-            });
+            
+            if (!activeShiftsQuery.empty) {
+                activeShiftsQuery.forEach(doc => {
+                    const data = doc.data();
+                    if (data.employeeId) {
+                        employeeIds.add(data.employeeId);
+                    }
+                });
+            }
+
+            // Añadir siempre al autor de la novedad
+            if (novedad.autorId) {
+                employeeIds.add(novedad.autorId);
+            }
 
             // Excluir al autor del seguimiento
             if (seguimiento.usuarioId) {
