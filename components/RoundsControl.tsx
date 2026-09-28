@@ -371,6 +371,13 @@ const RoundsControl: React.FC<RoundsControlProps> = ({ onBack }) => {
 
     const handleStopRound = async () => {
         if (!activeRound) return;
+
+        // Validación: mínimo 2 fotos para finalizar la ronda
+        if (localEvidences.length < 2) {
+            showNotification(`Debe tomar al menos 2 fotos. Actual: ${localEvidences.length}`, "warning");
+            return;
+        }
+
         setLoading(true);
 
         try {

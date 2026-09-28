@@ -80,6 +80,9 @@ const NovedadSeguimientoModal: React.FC<NovedadSeguimientoModalProps> = ({
   // Confirmacion de resolucion
   const [confirmResolucion, setConfirmResolucion] = useState(false);
 
+  // Visor de imagen en pantalla completa
+  const [fullScreenImage, setFullScreenImage] = useState<string | null>(null);
+
   const bottomRef = useRef<HTMLDivElement>(null);
 
   // ── Cargar historial de seguimiento al abrir ──────────────────────────────
@@ -312,7 +315,8 @@ const NovedadSeguimientoModal: React.FC<NovedadSeguimientoModalProps> = ({
                     <img
                       src={seg.fotoUrl}
                       alt="Evidencia"
-                      className="mt-2 w-full max-h-48 object-cover rounded-xl border border-white/20"
+                      onClick={() => setFullScreenImage(seg.fotoUrl!)}
+                      className="mt-2 w-full max-h-48 object-cover rounded-xl border border-white/20 cursor-pointer hover:opacity-90 transition-opacity"
                     />
                   )}
 
@@ -516,6 +520,28 @@ const NovedadSeguimientoModal: React.FC<NovedadSeguimientoModalProps> = ({
         </div>
       </div>
       </div>
+
+      {/* Visor de Imagen en Pantalla Completa */}
+      {fullScreenImage && (
+        <div 
+          className="fixed inset-0 z-[200] bg-black/95 flex items-center justify-center p-4 animate-in fade-in duration-200"
+          onClick={() => setFullScreenImage(null)}
+        >
+          <button 
+            className="absolute top-6 right-6 text-white hover:text-slate-300 transition-colors p-2 bg-black/50 rounded-full"
+            onClick={() => setFullScreenImage(null)}
+          >
+            <X size={32} />
+          </button>
+          <img 
+            src={fullScreenImage} 
+            alt="Evidencia Completa" 
+            className="max-w-full max-h-full object-contain rounded-xl shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
+      )}
+
     </div>
   );
 
