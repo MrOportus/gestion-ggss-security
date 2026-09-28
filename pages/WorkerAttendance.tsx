@@ -149,38 +149,50 @@ const WorkerAttendance: React.FC = () => {
     }
   }, [step]);
   
-  // ── SUCURSAL ASIGNADA DEL DÍA ────────────────────────────────────────
+  // ── SUCURSAL ASIGNADA DEL DÍA (tiempo real) ─────────────────────────
   const [assignedSiteId, setAssignedSiteId] = useState<string | null>(null);
+  const [assignedSiteName, setAssignedSiteName] = useState<string | null>(null);
 
   useEffect(() => {
     if (!employee) return;
-    const fetchAssignedSite = async () => {
-      try {
-        const now = new Date();
-        const isEarlyMorning = now.getHours() < 12;
-        if (isEarlyMorning) {
-          now.setHours(now.getHours() - 12); // Consider yesterday for night shifts if early morning
-        }
-        const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-        
-        const q = query(
-          collection(db, 'TurnosProgramados'),
-          where('employeeId', '==', employee.id),
-          where('fecha', '==', dateStr),
-          limit(1)
-        );
-        const snap = await getDocs(q);
-        if (!snap.empty) {
-          setAssignedSiteId(snap.docs[0].data().sucursalId || null);
+
+    // Calcular fecha considerando turnos nocturnos en madrugada
+    const now = new Date();
+    if (now.getHours() < 12) now.setHours(now.getHours() - 12);
+    const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+
+    // CORRECCIÓN: la colección real es 'programacion' con campos 'date' y 'siteId'
+    const q = query(
+      collection(db, 'programacion'),
+      where('employeeId', '==', employee.id),
+      where('date', '==', dateStr),
+      limit(1)
+    );
+
+    // onSnapshot: actualización en tiempo real, sin race condition
+    const unsubscribe = onSnapshot(q, (snap) => {
+      if (!snap.empty) {
+        const data = snap.docs[0].data();
+        // siteId puede ser number o string según el origen
+        const rawSiteId = data.siteId != null ? String(data.siteId) : null;
+        setAssignedSiteId(rawSiteId);
+        if (rawSiteId) {
+          const foundSite = sites.find(s => String(s.id) === rawSiteId);
+          setAssignedSiteName(foundSite?.name || null);
         } else {
-          setAssignedSiteId(null);
+          setAssignedSiteName(null);
         }
-      } catch (e) {
-        console.warn("Error fetching assigned site:", e);
+      } else {
+        setAssignedSiteId(null);
+        setAssignedSiteName(null);
       }
-    };
-    fetchAssignedSite();
-  }, [employee]);
+    }, (e) => {
+      console.warn('[WorkerAttendance] Error en onSnapshot programacion:', e);
+    });
+
+    return () => unsubscribe();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [employee?.id]);  // Re-suscribirse solo si cambia el empleado
   // ── Contador de tiempo transcurrido ──────────────────────────────────
   const [elapsedTime, setElapsedTime] = useState('00h 00m');
   const elapsedIntervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -811,8 +823,10 @@ const WorkerAttendance: React.FC = () => {
         timestamp: actionTimestamp,
         locationLat: finalCoords!.lat,
         locationLng: finalCoords!.lng,
-        siteId: employee.currentSiteId ?? null,
-        siteName: sites.find(s => s.id === employee.currentSiteId)?.name || 'Sin Sucursal',
+        siteId: activeLog.siteId ?? (employee.currentSiteId ?? null),
+        siteName: sites.find(s => String(s.id) === String(activeLog.siteId))?.name
+               || sites.find(s => s.id === employee.currentSiteId)?.name
+               || 'Sin Sucursal',
         shiftId: activeLog.shiftId || null,
         localDate: dateStr,
         // Campos de cierre
@@ -943,8 +957,9 @@ const WorkerAttendance: React.FC = () => {
     </div>
   );
 
-  const resolvedSiteId = activeLog?.siteId || assignedSiteId || employee?.currentSiteId;
-  const currentSite = sites.find(s => s.id === resolvedSiteId);
+  const resolvedSiteId = activeLog?.siteId ?? assignedSiteId ?? employee?.currentSiteId;
+  // Comparación robusta: convertir a string porque siteId puede ser number o string según el origen
+  const currentSite = sites.find(s => String(s.id) === String(resolvedSiteId));
   const displayShortName = employee ? `${employee.firstName} ${employee.lastNamePaterno.charAt(0).toUpperCase()}.` : '';
 
   // Horario del turno activo
