@@ -1123,13 +1123,13 @@ const WorkerAttendance: React.FC = () => {
                 </button>
 
                 <button
-                  onClick={() => setStep('market')}
-                  className="w-full py-6 bg-indigo-600 hover:bg-indigo-700 text-white rounded-[2rem] shadow-xl shadow-indigo-200 flex flex-col items-center justify-center gap-2 transition-all active:scale-95 group border-b-8 border-indigo-800 relative mt-4 overflow-hidden"
+                  onClick={() => setStep('documents')}
+                  className="w-full py-6 bg-slate-800 hover:bg-slate-900 text-white rounded-[2rem] shadow-xl shadow-slate-200 flex flex-col items-center justify-center gap-2 transition-all active:scale-95 group border-b-8 border-slate-950 relative mt-4 overflow-hidden"
                 >
                   <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -mr-16 -mt-16 blur-xl pointer-events-none"></div>
-                  <Zap size={32} className="text-yellow-400 group-hover:scale-110 transition-transform drop-shadow-md" />
-                  <span className="text-lg font-black tracking-widest">TURNOS EXTRA</span>
-                  <div className="px-3 py-1 bg-white/20 rounded-full text-[10px] font-bold uppercase tracking-widest mt-1">Ver Solicitudes</div>
+                  <ShieldCheck size={32} className="text-emerald-400 group-hover:scale-110 transition-transform drop-shadow-md" />
+                  <span className="text-lg font-black tracking-widest">MIS DOCUMENTOS</span>
+                  <div className="px-3 py-1 bg-white/20 rounded-full text-[10px] font-bold uppercase tracking-widest mt-1">Ver mis archivos</div>
                 </button>
               </div>
             ) : (
@@ -1195,14 +1195,6 @@ const WorkerAttendance: React.FC = () => {
                     <div className="absolute top-0 right-0 w-24 h-24 bg-white/10 rounded-full -mr-12 -mt-12 blur-xl pointer-events-none" />
                     <BookOpen size={28} />
                     <span className="text-xl font-black tracking-wider uppercase">Novedades</span>
-                  </button>
-
-                  <button
-                    onClick={() => setStep('market')}
-                    className="w-full py-6 bg-indigo-600 hover:bg-indigo-700 text-white rounded-[2rem] shadow-xl shadow-indigo-200 flex items-center justify-center gap-3 transition-all active:scale-95 border-b-8 border-indigo-800"
-                  >
-                    <Zap size={28} className="text-yellow-400" />
-                    <span className="text-xl font-black tracking-wider uppercase">TURNOS EXTRA</span>
                   </button>
 
                   <button
