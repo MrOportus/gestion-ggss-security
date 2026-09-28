@@ -15,7 +15,6 @@ interface ProgramacionDoc {
 const MyFixedShifts: React.FC = () => {
   const { currentUser, sites } = useAppStore();
   const [turnos, setTurnos] = useState<ProgramacionDoc[]>([]);
-  const [activeTab, setActiveTab] = useState<'proximos' | 'historial'>('proximos');
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -58,12 +57,6 @@ const MyFixedShifts: React.FC = () => {
   // Filtrar próximos vs pasados
   // Consideramos de hoy hasta +15 días como Próximos
   const proximosTurnos = turnos.filter(t => t.date >= todayStr && t.date <= maxDateStr && t.status !== 'descanso');
-  const historialTurnos = turnos.filter(t => t.date < todayStr && t.status !== 'descanso');
-
-  // Ordenar historial de más reciente a más antiguo
-  historialTurnos.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-
-  const displayedTurnos = activeTab === 'proximos' ? proximosTurnos : historialTurnos;
 
   const getShiftTypeDetails = (status: 'programado' | 'noche' | 'descanso') => {
     switch (status) {
@@ -109,30 +102,6 @@ const MyFixedShifts: React.FC = () => {
         </div>
       </div>
 
-      {/* Tabs */}
-      <div className="flex bg-slate-100 p-1.5 rounded-2xl border border-slate-200">
-        <button
-          onClick={() => setActiveTab('proximos')}
-          className={`flex-1 py-3 text-sm font-black uppercase tracking-wider rounded-xl transition-all ${
-            activeTab === 'proximos'
-              ? 'bg-white text-blue-700 shadow-sm border border-slate-200/50'
-              : 'text-slate-500 hover:text-slate-700'
-          }`}
-        >
-          Próximos ({proximosTurnos.length})
-        </button>
-        <button
-          onClick={() => setActiveTab('historial')}
-          className={`flex-1 py-3 text-sm font-black uppercase tracking-wider rounded-xl transition-all ${
-            activeTab === 'historial'
-              ? 'bg-white text-blue-700 shadow-sm border border-slate-200/50'
-              : 'text-slate-500 hover:text-slate-700'
-          }`}
-        >
-          Historial ({historialTurnos.length})
-        </button>
-      </div>
-
       {/* Content */}
       <div className="space-y-4">
         {loading ? (
@@ -140,14 +109,14 @@ const MyFixedShifts: React.FC = () => {
             <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
             <p className="text-slate-500 font-bold">Cargando tu programación...</p>
           </div>
-        ) : displayedTurnos.length === 0 ? (
+        ) : proximosTurnos.length === 0 ? (
           <div className="bg-white p-12 rounded-[2rem] border border-slate-200 text-center space-y-4 shadow-sm">
             <div className="w-16 h-16 bg-slate-50 rounded-2xl flex items-center justify-center mx-auto text-slate-400 border border-slate-100">
               <Calendar size={28} />
             </div>
             <div>
               <h3 className="text-lg font-bold text-slate-800">
-                {activeTab === 'proximos' ? 'No tienes próximos turnos fijos' : 'No tienes historial de turnos fijos'}
+                No tienes próximos turnos fijos
               </h3>
               <p className="text-slate-500 text-sm max-w-sm mx-auto mt-1">
                 Comunícate con tu supervisor si consideras que deberías tener turnos planificados en el cuadrante.
@@ -156,7 +125,7 @@ const MyFixedShifts: React.FC = () => {
           </div>
         ) : (
           <div className="grid gap-4">
-            {displayedTurnos.map(turno => {
+            {proximosTurnos.map(turno => {
               const sucursal = sites.find(s => s.id.toString() === turno.siteId.toString())?.name || 'Sucursal Principal';
               const details = getShiftTypeDetails(turno.status);
               
@@ -173,11 +142,7 @@ const MyFixedShifts: React.FC = () => {
               return (
                 <div
                   key={turno.id}
-                  className={`bg-white p-6 rounded-3xl shadow-lg border transition-all duration-300 ${
-                    activeTab === 'proximos'
-                      ? 'border-blue-500/30 hover:border-blue-500'
-                      : 'border-slate-100 opacity-75'
-                  }`}
+                  className="bg-white p-6 rounded-3xl shadow-lg border transition-all duration-300 border-blue-500/30 hover:border-blue-500"
                 >
                   <div className="flex flex-col md:flex-row justify-between md:items-center gap-6">
                     <div className="space-y-3 flex-1">
