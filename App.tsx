@@ -225,6 +225,10 @@ const App: React.FC = () => {
             window.dispatchEvent(new CustomEvent('app-navigate', { detail: { type: 'new_doc' } }));
           } else if (data && data.type === 'market_turno') {
             window.dispatchEvent(new CustomEvent('app-navigate', { detail: { type: 'market_turno' } }));
+          } else if (data && data.type === 'novedad_seguimiento') {
+            window.dispatchEvent(new CustomEvent('app-navigate', {
+              detail: { type: 'novedad_seguimiento', novedadId: data.novedadId }
+            }));
           }
         });
         nativeListeners.push(actionListener);
@@ -305,12 +309,24 @@ const App: React.FC = () => {
         if (messaging && isSubscribed) {
           unsubscribeWeb = onMessage(messaging, (payload) => {
             console.log('[FCM Web] Mensaje en primer plano:', payload);
-            if (payload.notification && document.visibilityState === 'visible' && isSubscribed) {
-              showNotification(
-                `${payload.notification.title}: ${payload.notification.body}`,
-                'info'
-              );
-              // Reproducir sonido personalizado en web
+            if (document.visibilityState === 'visible' && isSubscribed) {
+              const data = payload.data || {};
+              const tipo = data.type;
+
+              // Manejar novedad_seguimiento: solo mostrar toast (no navegar para no interrumpir)
+              if (tipo === 'novedad_seguimiento') {
+                showNotification(
+                  `💬 ${payload.notification?.title || 'Nuevo mensaje'}: ${payload.notification?.body || 'Tienes un mensaje en una novedad con seguimiento.'}`,
+                  'info'
+                );
+              } else if (payload.notification) {
+                showNotification(
+                  `${payload.notification.title}: ${payload.notification.body}`,
+                  'info'
+                );
+              }
+
+              // Reproducir sonido
               try {
                 const audio = new Audio('/Notificacion-GGSS.mp3');
                 audio.play().catch(err => console.warn('[PUSH Web] Audio.play bloqueado o fallido:', err));

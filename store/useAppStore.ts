@@ -1754,7 +1754,7 @@ export const useAppStore = create<AppState>()(
         }));
         setTimeout(() => {
           get().hideNotification(id);
-        }, 4000);
+        }, 8000);
       },
 
       hideNotification: (id) => {

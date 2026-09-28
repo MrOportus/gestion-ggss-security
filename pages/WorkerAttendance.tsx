@@ -113,6 +113,32 @@ const WorkerAttendance: React.FC = () => {
   const [showNovedadesModal, setShowNovedadesModal] = useState(false);
   const [novedadNota, setNovedadNota] = useState('');
   const [novedadFoto, setNovedadFoto] = useState<string | null>(null);
+
+  // ── Badge de mensajes no leídos en novedades del guardia ─────────────
+  const [unreadWorkerTotal, setUnreadWorkerTotal] = useState(0);
+
+  useEffect(() => {
+    if (!currentUser?.uid) return;
+    // Solo filtramos por autorUid (un solo campo) para evitar índice compuesto.
+    // El conteo de unread se calcula en cliente.
+    const q = query(
+      collection(db, 'novedades'),
+      where('autorUid', '==', currentUser.uid),
+      where('requiereSeguimiento', '==', true)
+    );
+    const unsub = onSnapshot(q, (snap) => {
+      let total = 0;
+      snap.forEach(d => {
+        const count = d.data().unreadWorkerCount;
+        if (typeof count === 'number' && count > 0) total += count;
+      });
+      setUnreadWorkerTotal(total);
+    }, (err) => {
+      console.warn('[WorkerAttendance] Error leyendo unreadWorkerCount:', err);
+    });
+    return () => unsub();
+  }, [currentUser?.uid]);
+
   const [novedadFotoBlob, setNovedadFotoBlob] = useState<File | null>(null);
   const [novedadStatus, setNovedadStatus] = useState<'resolucion' | 'seguimiento' | null>(null);
   const [novedadError, setNovedadError] = useState<string | null>(null);
@@ -375,6 +401,9 @@ const WorkerAttendance: React.FC = () => {
         setStep('documents');
       } else if (type === 'market_turno') {
         setStep('market');
+      } else if (type === 'novedad_seguimiento') {
+        // No navegar automáticamente — el badge rojo indica el mensaje pendiente
+        // El guardia decide cuándo revisar sin interrumpir su flujo actual
       }
     };
 
@@ -1187,7 +1216,7 @@ const WorkerAttendance: React.FC = () => {
                     </button>
                   )}
 
-                  {/* Incidentes */}
+                  {/* Incidentes / Novedades */}
                   <button
                     onClick={() => setStep('incidencias')}
                     className="w-full py-6 bg-amber-500 hover:bg-amber-600 text-white rounded-[2rem] shadow-xl shadow-amber-200 flex items-center justify-center gap-3 transition-all active:scale-95 border-b-8 border-amber-700 relative overflow-hidden"
@@ -1195,6 +1224,11 @@ const WorkerAttendance: React.FC = () => {
                     <div className="absolute top-0 right-0 w-24 h-24 bg-white/10 rounded-full -mr-12 -mt-12 blur-xl pointer-events-none" />
                     <BookOpen size={28} />
                     <span className="text-xl font-black tracking-wider uppercase">Novedades</span>
+                    {unreadWorkerTotal > 0 && (
+                      <span className="absolute top-3 right-4 min-w-[22px] h-[22px] bg-red-500 border-2 border-white text-white text-[11px] font-black rounded-full flex items-center justify-center px-1 shadow-lg animate-bounce">
+                        {unreadWorkerTotal > 99 ? '99+' : unreadWorkerTotal}
+                      </span>
+                    )}
                   </button>
 
                   <button
