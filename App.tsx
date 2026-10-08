@@ -54,7 +54,8 @@ import ShiftManagement from './pages/ShiftManagement';
 import LoansPage from './pages/LoansPage';
 import DocumentsPage from './pages/DocumentsPage';
 import AdminLibroNovedadesPage from './pages/AdminLibroNovedadesPage';
-import { StickyNote, Navigation, CalendarDays, Receipt, ShieldCheck, Zap, Info, User, BookOpen } from 'lucide-react';
+import { StickyNote, Navigation, CalendarDays, Receipt, ShieldCheck, Zap, Info, User, BookOpen, ClipboardCheck, Plus } from 'lucide-react';
+import VisitasSupervisorPage from './pages/VisitasSupervisorPage';
 // NOTA: firebase/messaging y lib/firebase.messaging se importan dinámicamente
 // solo en contexto web para evitar interferencia con el plugin nativo de Capacitor
 import PanelAdminSolicitudes from './components/PanelAdminSolicitudes';
@@ -79,7 +80,7 @@ const App: React.FC = () => {
   }
 
   const { currentUser, logout, fetchInitialData, isLoading, initializeAuthListener, registerFCMToken, showNotification, processSyncQueue, authInitialized, showConfirmation } = useAppStore();
-  const [currentView, setCurrentView] = useState<'dashboard' | 'employees' | 'tasks' | 'sites' | 'payments' | 'supervisor_mgmt' | 'mandante_mgmt' | 'notes' | 'attendance' | 'rounds' | 'shift_management' | 'loans' | 'documents' | 'solicitudes_turnos_extra' | 'hr_contracts' | 'attendance_shadow_qa' | 'libro_novedades'>('dashboard');
+  const [currentView, setCurrentView] = useState<'dashboard' | 'employees' | 'tasks' | 'sites' | 'payments' | 'supervisor_mgmt' | 'mandante_mgmt' | 'notes' | 'attendance' | 'rounds' | 'shift_management' | 'loans' | 'documents' | 'solicitudes_turnos_extra' | 'hr_contracts' | 'attendance_shadow_qa' | 'libro_novedades' | 'visitas_supervisor'>('dashboard');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   
   const { connected } = useNetworkStatus();
@@ -112,6 +113,14 @@ const App: React.FC = () => {
         SyncManager.destroy();
       }
     };
+  }, [currentUser, processSyncQueue]);
+
+  // Supervisores: reintentos de sincronización (red/foreground) para Visitas de Supervisor.
+  // No ejecuta la migración de cola (es solo para el flujo guardia).
+  useEffect(() => {
+    if (currentUser && currentUser.role === 'supervisor') {
+      SyncManager.init(processSyncQueue, currentUser.uid);
+    }
   }, [currentUser, processSyncQueue]);
 
   const handleLogout = async () => {
@@ -483,6 +492,13 @@ const App: React.FC = () => {
             <span className="font-medium">Dashboard</span>
           </button>
 
+          {(currentUser.role === 'admin' || currentUser.role === 'supervisor') && (
+            <button onClick={() => setCurrentView('visitas_supervisor')} className={navItemClass('visitas_supervisor')}>
+              <ClipboardCheck size={20} className="text-emerald-600" />
+              <span className="font-medium">Visitas de Supervisor</span>
+            </button>
+          )}
+
           {currentUser.role === 'admin' && (
             <button onClick={() => setCurrentView('employees')} className={navItemClass('employees')}>
               <Users size={20} />
@@ -649,7 +665,8 @@ const App: React.FC = () => {
                                     currentView === 'documents' ? 'Documentos' : 
                                       currentView === 'hr_contracts' ? 'Panel RRHH' :
                                         currentView === 'attendance_shadow_qa' ? 'Shadow QA' :
-                                        currentView === 'solicitudes_turnos_extra' ? 'Solicitudes Turnos Extra' : currentView}
+                                        currentView === 'solicitudes_turnos_extra' ? 'Solicitudes Turnos Extra' : 
+                                        currentView === 'visitas_supervisor' ? 'Visitas de Supervisor' : currentView}
 
 
               </span>
@@ -671,6 +688,12 @@ const App: React.FC = () => {
                 <div className="flex items-center gap-3"><LayoutDashboard size={20} /> Dashboard</div>
                 <ChevronRight size={16} className="text-slate-300" />
               </button>
+              {(currentUser.role === 'admin' || currentUser.role === 'supervisor') && (
+                <button onClick={() => handleNavChange('visitas_supervisor')} className={mobileNavItemClass('visitas_supervisor')}>
+                  <div className="flex items-center gap-3"><ClipboardCheck size={20} className="text-emerald-600" /> Visitas de Supervisor</div>
+                  <ChevronRight size={16} className="text-slate-300" />
+                </button>
+              )}
               {currentUser.role === 'admin' && (
                 <button onClick={() => handleNavChange('employees')} className={mobileNavItemClass('employees')}>
                   <div className="flex items-center gap-3"><Users size={20} /> Empleados</div>
@@ -785,6 +808,7 @@ const App: React.FC = () => {
         <div className="flex-1 overflow-y-auto">
           <div className="animate-fade-in pb-24 md:pb-0">
             {currentView === 'dashboard' && <AdminDashboard />}
+            {currentView === 'visitas_supervisor' && (currentUser.role === 'admin' || currentUser.role === 'supervisor') && <VisitasSupervisorPage />}
             {currentView === 'employees' && currentUser.role === 'admin' && <EmployeesPage />}
             {currentView === 'tasks' && <TasksPage />}
             {currentView === 'sites' && <SitesPage />}

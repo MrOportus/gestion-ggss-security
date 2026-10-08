@@ -359,6 +359,19 @@ export const useAppStore = create<AppState>()(
                 });
                 await SyncQueueService.markCompleted(item.id);
                 console.log(`[SyncQueue] UPLOAD_NOVEDAD_PHOTO ${item.id} sincronizado. URL: ${downloadUrl}`);
+
+              } else if (item.actionType === 'ADD_VISITA_SUPERVISOR') {
+                // Módulo Visitas de Supervisor: doc idempotente (ID = visitId)
+                const { sincronizarDocumentoVisita } = await import('../lib/visitasSupervisor/visitasService');
+                await sincronizarDocumentoVisita(item);
+                await SyncQueueService.markCompleted(item.id);
+                console.log(`[SyncQueue] ADD_VISITA_SUPERVISOR ${item.payload?.visitId} sincronizado.`);
+
+              } else if (item.actionType === 'UPLOAD_VISITA_PHOTO') {
+                const { sincronizarFotoVisita } = await import('../lib/visitasSupervisor/visitasService');
+                await sincronizarFotoVisita(item, get().uploadBase64, userId);
+                await SyncQueueService.markCompleted(item.id);
+                console.log(`[SyncQueue] UPLOAD_VISITA_PHOTO ${item.payload?.fotoId} sincronizado.`);
               }
 
             } catch (err: any) {
@@ -535,8 +548,14 @@ export const useAppStore = create<AppState>()(
 
           // 3. Cargar Tareas de Supervisores (Solo Admin/Supervisor)
           let loadedTasks: SupervisorTask[] = [];
-          if (currentUser.role === 'admin' || currentUser.role === 'supervisor') {
+          if (currentUser.role === 'admin') {
             const taskSnapshot = await getDocs(collection(db, "SupervisorTasks"));
+            taskSnapshot.forEach((doc) => {
+              loadedTasks.push({ ...doc.data(), id: doc.id } as SupervisorTask);
+            });
+          } else if (currentUser.role === 'supervisor') {
+            const q = query(collection(db, "SupervisorTasks"), where("supervisorId", "==", currentUser.uid));
+            const taskSnapshot = await getDocs(q);
             taskSnapshot.forEach((doc) => {
               loadedTasks.push({ ...doc.data(), id: doc.id } as SupervisorTask);
             });
@@ -880,9 +899,18 @@ export const useAppStore = create<AppState>()(
 
         try {
           let q;
-          if (currentUser.role === 'admin' || currentUser.role === 'supervisor' || currentUser.role === 'mandante') {
-            // Admin/Mandante: Últimos 200 logs globales
+          if (currentUser.role === 'admin' || currentUser.role === 'mandante' || currentUser.role === 'rrhh') {
+            // Admin/Mandante/RRHH: Últimos 200 logs globales
             q = query(collection(db, "Asistencia"), orderBy("timestamp", "desc"), limit(200));
+          } else if (currentUser.role === 'supervisor') {
+            // Supervisor debe usar Backend para asistencia por las reglas complejas de Firestore, 
+            // en el estado inicial solo nos traemos los suyos propios para evitar el Permission Denied.
+            q = query(
+              collection(db, "Asistencia"),
+              where("employeeId", "==", currentUser.uid),
+              orderBy("timestamp", "desc"),
+              limit(50)
+            );
           } else {
             // Worker: Solo sus propios logs, últimos 50
             q = query(
@@ -898,7 +926,7 @@ export const useAppStore = create<AppState>()(
           set({ attendanceLogs: logs });
 
           // Ejecutar limpieza de turnos antiguos (>24h) de manera asíncrona
-          if (currentUser.role === 'admin' || currentUser.role === 'supervisor') {
+          if (currentUser.role === 'admin') {
             get().checkAndCloseStaleShifts();
           }
         } catch (error) { console.error("Error fetching attendance logs:", error); }
@@ -2005,7 +2033,7 @@ export const useAppStore = create<AppState>()(
 
         try {
           let q;
-          if (currentUser.role === 'admin' || currentUser.role === 'supervisor') {
+          if (currentUser.role === 'admin') {
             // OPTIMIZACIÓN: Limitar a 100 documentos para admin
             q = query(collection(db, "documents"), orderBy("createdAt", "desc"), limit(100));
           } else {

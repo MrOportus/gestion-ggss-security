@@ -4,7 +4,7 @@ export interface QueueItem {
     id: string;
     operationId: string; // UUID idempotente — se usa como ID del documento en Firebase para evitar duplicados
     userId: string;      // Firebase UID del usuario que creó la operación
-    actionType: 'ADD_ROUND' | 'UPDATE_ROUND' | 'UPLOAD_EVIDENCE' | 'ADD_NOVEDAD' | 'UPLOAD_NOVEDAD_PHOTO' | 'CHECK_IN' | 'CHECK_OUT';
+    actionType: 'ADD_ROUND' | 'UPDATE_ROUND' | 'UPLOAD_EVIDENCE' | 'ADD_NOVEDAD' | 'UPLOAD_NOVEDAD_PHOTO' | 'CHECK_IN' | 'CHECK_OUT' | 'ADD_VISITA_SUPERVISOR' | 'UPLOAD_VISITA_PHOTO';
     payload: any;
     status: 'PENDING' | 'SYNCING' | 'SYNCED' | 'ERROR';
     timestamp: string;
@@ -143,6 +143,27 @@ export const SyncQueueService = {
         });
         for (const id of toRemove) {
             await syncQueue.removeItem(id);
+        }
+    },
+
+    /** Resets the retry count and status for queue items related to a specific visit */
+    async resetRetriesForVisit(visitId: string): Promise<void> {
+        const itemsToUpdate: QueueItem[] = [];
+        await syncQueue.iterate((value: QueueItem) => {
+            if (value.operationId === `visita_${visitId}` || value.operationId?.startsWith(`foto_${visitId}_`)) {
+                if (value.retryCount > 0 || value.status === 'ERROR') {
+                    value.retryCount = 0;
+                    value.status = 'PENDING';
+                    value.lastError = undefined;
+                    itemsToUpdate.push(value);
+                }
+            }
+        });
+        for (const item of itemsToUpdate) {
+            await syncQueue.setItem(item.id, item);
+        }
+        if (itemsToUpdate.length > 0) {
+            console.log(`[SyncQueue] Se han reseteado los reintentos de ${itemsToUpdate.length} ítems para la visita ${visitId}`);
         }
     },
 

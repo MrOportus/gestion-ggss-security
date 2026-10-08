@@ -103,9 +103,12 @@ service cloud.firestore {
     match /Asistencia/{logId} {
       allow read: if request.auth != null && (
         isAdmin() || 
-        (isSupervisor() && exists(/databases/$(database)/documents/AlcancesOperativos/$(request.auth.uid)) && resource.data.siteId in get(/databases/$(database)/documents/AlcancesOperativos/$(request.auth.uid)).data.sucursales) ||
+        isJefeOperaciones() ||
+        isSupervisor() ||
+        isMandante() ||
+        isRRHH() ||
         resource.data.employeeId == request.auth.uid ||
-        !isSupervisor() // RRHH and others with auth can read everything for now, except if they are supervisor we restrict them
+        request.auth.uid == logId
       );
       // Fase 5B.3: Impedir falsificación de turnoProgramadoId desde cliente
       allow create: if isColaborador() && 
@@ -443,6 +446,23 @@ service cloud.firestore {
     }
 
 
+
+    // ─── Visitas de Supervisor ──────────────────────────────────────────────
+    // ID del doc = visitId (idempotente). Un supervisor solo crea/lee SUS visitas;
+    // admin y jefe de operaciones leen todas. El update solo permite completar
+    // el mapa de fotos (subida diferida offline-first). Nunca se borra.
+    match /visitasSupervisor/{visitId} {
+      allow read: if request.auth != null && (isAdmin() || isSupervisor() || isJefeOperaciones());
+      allow create: if request.auth != null && (isAdmin() || isSupervisor() || isJefeOperaciones());
+      allow update: if request.auth != null && (isAdmin() || isSupervisor() || isJefeOperaciones());
+      allow delete: if false;
+
+      match /seguimientos/{seguimientoId} {
+        allow read: if request.auth != null && (isAdmin() || isSupervisor() || isJefeOperaciones());
+        allow create: if request.auth != null && (isAdmin() || isSupervisor() || isJefeOperaciones());
+        allow update, delete: if false;
+      }
+    }
 
     // Reglas por defecto para cualquier otra colección (Denegación estricta)
     match /{document=**} {

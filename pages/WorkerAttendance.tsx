@@ -2044,8 +2044,8 @@ const WorkerAttendance: React.FC = () => {
                       "{pendingNovedades[currentNovedadIndex].ultimoSeguimientoMsg}" - {' '}
                       {(() => {
                         const nov = pendingNovedades[currentNovedadIndex];
-                        const isAdmin = nov.ultimoSeguimientoRol 
-                          ? ['admin', 'supervisor', 'jefe_operaciones'].includes(nov.ultimoSeguimientoRol)
+                        const isAdmin = (nov as any).ultimoSeguimientoRol 
+                          ? ['admin', 'supervisor', 'jefe_operaciones'].includes((nov as any).ultimoSeguimientoRol)
                           : (nov.readByAdminPor === nov.ultimoSeguimientoPor);
                         return isAdmin ? 'Admin-Aspro' : nov.ultimoSeguimientoPor;
                       })()}

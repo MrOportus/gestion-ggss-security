@@ -286,12 +286,7 @@ exports.notificarSeguimientoNovedad = onDocumentCreated(
                 });
             }
 
-            // Añadir siempre al autor de la novedad
-            if (novedad.autorId) {
-                employeeIds.add(novedad.autorId);
-            }
-
-            // Excluir al autor del seguimiento
+            // Excluir al autor del seguimiento (no se notifica a sí mismo)
             if (seguimiento.usuarioId) {
                 employeeIds.delete(seguimiento.usuarioId);
             }
