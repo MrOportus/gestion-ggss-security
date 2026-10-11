@@ -54,8 +54,9 @@ import ShiftManagement from './pages/ShiftManagement';
 import LoansPage from './pages/LoansPage';
 import DocumentsPage from './pages/DocumentsPage';
 import AdminLibroNovedadesPage from './pages/AdminLibroNovedadesPage';
-import { StickyNote, Navigation, CalendarDays, Receipt, ShieldCheck, Zap, Info, User, BookOpen, ClipboardCheck, Plus } from 'lucide-react';
+import { StickyNote, Navigation, CalendarDays, Receipt, ShieldCheck, Zap, Info, User, BookOpen, ClipboardCheck, Plus, PenTool } from 'lucide-react';
 import VisitasSupervisorPage from './pages/VisitasSupervisorPage';
+import SignatureModal from './components/SignatureModal';
 // NOTA: firebase/messaging y lib/firebase.messaging se importan dinámicamente
 // solo en contexto web para evitar interferencia con el plugin nativo de Capacitor
 import PanelAdminSolicitudes from './components/PanelAdminSolicitudes';
@@ -79,9 +80,13 @@ const App: React.FC = () => {
     return <ValidacionPage initialValidationId={validationId} />;
   }
 
-  const { currentUser, logout, fetchInitialData, isLoading, initializeAuthListener, registerFCMToken, showNotification, processSyncQueue, authInitialized, showConfirmation } = useAppStore();
+  const { currentUser, logout, fetchInitialData, isLoading, initializeAuthListener, registerFCMToken, showNotification, processSyncQueue, authInitialized, showConfirmation, employees, updateEmployee, digitalDocuments } = useAppStore();
   const [currentView, setCurrentView] = useState<'dashboard' | 'employees' | 'tasks' | 'sites' | 'payments' | 'supervisor_mgmt' | 'mandante_mgmt' | 'notes' | 'attendance' | 'rounds' | 'shift_management' | 'loans' | 'documents' | 'solicitudes_turnos_extra' | 'hr_contracts' | 'attendance_shadow_qa' | 'libro_novedades' | 'visitas_supervisor'>('dashboard');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [showSupervisorSigModal, setShowSupervisorSigModal] = useState(false);
+
+  const supervisorEmp = employees.find(e => e.id === currentUser?.uid);
+  const pendingDocsCount = digitalDocuments.filter(d => d.assignedTo === currentUser?.uid && d.status === 'pending').length;
   
   const { connected } = useNetworkStatus();
 
@@ -122,6 +127,38 @@ const App: React.FC = () => {
       SyncManager.init(processSyncQueue, currentUser.uid);
     }
   }, [currentUser, processSyncQueue]);
+
+  // Redirección de seguridad y enfoque inicial para supervisores (enfocado en visitas)
+  useEffect(() => {
+    if (currentUser?.role === 'supervisor') {
+      const forbiddenViews = ['sites', 'tasks', 'shift_management', 'payments', 'loans', 'attendance'];
+      if (forbiddenViews.includes(currentView)) {
+        setCurrentView('visitas_supervisor');
+      }
+    }
+  }, [currentUser?.role, currentView]);
+
+  useEffect(() => {
+    if (currentUser?.role === 'supervisor' && currentView === 'dashboard') {
+      setCurrentView('visitas_supervisor');
+    }
+  }, [currentUser?.role]);
+
+  const handleSaveSupervisorSignature = async (dataUrl: string) => {
+    if (!currentUser?.uid) return;
+    try {
+      await updateEmployee(currentUser.uid, {
+        signatureUrl: dataUrl,
+        signatureUpdatedAt: new Date().toISOString()
+      });
+      setShowSupervisorSigModal(false);
+      showNotification("Firma digital registrada con éxito.", "success");
+    } catch (e) {
+      console.error("Error al guardar la firma del supervisor:", e);
+      showNotification("Error al guardar la firma.", "error");
+      throw e;
+    }
+  };
 
   const handleLogout = async () => {
     try {
@@ -487,10 +524,12 @@ const App: React.FC = () => {
         </div>
 
         <nav className="flex-1 px-4 py-6 space-y-2 overflow-y-auto">
-          <button onClick={() => setCurrentView('dashboard')} className={navItemClass('dashboard')}>
-            <LayoutDashboard size={20} />
-            <span className="font-medium">Dashboard</span>
-          </button>
+          {currentUser.role !== 'supervisor' && (
+            <button onClick={() => setCurrentView('dashboard')} className={navItemClass('dashboard')}>
+              <LayoutDashboard size={20} />
+              <span className="font-medium">Dashboard</span>
+            </button>
+          )}
 
           {(currentUser.role === 'admin' || currentUser.role === 'supervisor') && (
             <button onClick={() => setCurrentView('visitas_supervisor')} className={navItemClass('visitas_supervisor')}>
@@ -506,20 +545,26 @@ const App: React.FC = () => {
             </button>
           )}
 
-          <button onClick={() => setCurrentView('sites')} className={navItemClass('sites')}>
-            <MapPin size={20} />
-            <span className="font-medium">Sucursales</span>
-          </button>
+          {currentUser.role !== 'supervisor' && (
+            <button onClick={() => setCurrentView('sites')} className={navItemClass('sites')}>
+              <MapPin size={20} />
+              <span className="font-medium">Sucursales</span>
+            </button>
+          )}
 
-          <button onClick={() => setCurrentView('tasks')} className={navItemClass('tasks')}>
-            <ClipboardList size={20} />
-            <span className="font-medium">Tareas Recurrentes</span>
-          </button>
+          {currentUser.role !== 'supervisor' && (
+            <button onClick={() => setCurrentView('tasks')} className={navItemClass('tasks')}>
+              <ClipboardList size={20} />
+              <span className="font-medium">Tareas Recurrentes</span>
+            </button>
+          )}
 
-          <button onClick={() => setCurrentView('shift_management')} className={navItemClass('shift_management')}>
-            <CalendarDays size={20} />
-            <span className="font-medium">Gestión de Turnos</span>
-          </button>
+          {currentUser.role !== 'supervisor' && (
+            <button onClick={() => setCurrentView('shift_management')} className={navItemClass('shift_management')}>
+              <CalendarDays size={20} />
+              <span className="font-medium">Gestión de Turnos</span>
+            </button>
+          )}
 
           {currentUser.role === 'admin' && (
             <button onClick={() => setCurrentView('solicitudes_turnos_extra')} className={navItemClass('solicitudes_turnos_extra')}>
@@ -528,20 +573,44 @@ const App: React.FC = () => {
             </button>
           )}
 
-          <button onClick={() => setCurrentView('payments')} className={navItemClass('payments')}>
-            <DollarSign size={20} />
-            <span className="font-medium">Pago de Turnos</span>
-          </button>
+          {currentUser.role !== 'supervisor' && (
+            <button onClick={() => setCurrentView('payments')} className={navItemClass('payments')}>
+              <DollarSign size={20} />
+              <span className="font-medium">Pago de Turnos</span>
+            </button>
+          )}
 
-          <button onClick={() => setCurrentView('loans')} className={navItemClass('loans')}>
-            <Receipt size={20} />
-            <span className="font-medium">Préstamos</span>
-          </button>
+          {currentUser.role !== 'supervisor' && (
+            <button onClick={() => setCurrentView('loans')} className={navItemClass('loans')}>
+              <Receipt size={20} />
+              <span className="font-medium">Préstamos</span>
+            </button>
+          )}
 
           <button onClick={() => setCurrentView('documents')} className={navItemClass('documents')}>
             <ShieldCheck size={20} />
-            <span className="font-medium">Documentos</span>
+            <span className="font-medium flex-1 text-left">Documentos</span>
+            {pendingDocsCount > 0 && (
+              <span className="bg-rose-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full">
+                {pendingDocsCount}
+              </span>
+            )}
           </button>
+
+          {currentUser.role === 'supervisor' && (
+            <button
+              onClick={() => setShowSupervisorSigModal(true)}
+              className="w-full flex items-center justify-between px-4 py-3 rounded-lg text-slate-600 hover:bg-slate-50 transition-all font-medium text-sm"
+            >
+              <div className="flex items-center gap-3">
+                <PenTool size={20} className={supervisorEmp?.signatureUrl ? "text-emerald-600" : "text-amber-500"} />
+                <span>Mi Firma Digital</span>
+              </div>
+              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${supervisorEmp?.signatureUrl ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                {supervisorEmp?.signatureUrl ? 'Activa' : 'Pendiente'}
+              </span>
+            </button>
+          )}
 
           {(currentUser.role === 'admin' || currentUser.role === 'rrhh') && (
             <button onClick={() => setCurrentView('hr_contracts')} className={navItemClass('hr_contracts')}>
@@ -556,10 +625,12 @@ const App: React.FC = () => {
             <span className="font-medium">Notas y Tareas</span>
           </button>
 
-          <button onClick={() => setCurrentView('attendance')} className={navItemClass('attendance')}>
-            <Clock size={20} />
-            <span className="font-medium">Asistencia</span>
-          </button>
+          {currentUser.role !== 'supervisor' && (
+            <button onClick={() => setCurrentView('attendance')} className={navItemClass('attendance')}>
+              <Clock size={20} />
+              <span className="font-medium">Asistencia</span>
+            </button>
+          )}
 
           {currentUser.role === 'admin' && (
             <button onClick={() => setCurrentView('libro_novedades')} className={navItemClass('libro_novedades')}>
@@ -672,25 +743,29 @@ const App: React.FC = () => {
               </span>
             </div>
           </div>
-          <button
-            onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-            className="p-2 text-slate-600 bg-slate-50 rounded-lg hover:bg-slate-100 active:bg-slate-200 transition shrink-0"
-          >
-            {isMobileMenuOpen ? <X size={24} /> : <Menu size={24} />}
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+              className="p-2 text-slate-600 bg-slate-50 rounded-lg hover:bg-slate-100 active:bg-slate-200 transition shrink-0"
+            >
+              {isMobileMenuOpen ? <X size={24} /> : <Menu size={24} />}
+            </button>
+          </div>
         </header>
 
         {/* MENÚ DESPLEGABLE MÓVIL */}
         {isMobileMenuOpen && (
-          <div className="md:hidden absolute top-[70px] left-0 right-0 bottom-0 bg-white/95 backdrop-blur-sm z-40 animate-in slide-in-from-top-5 duration-200 flex flex-col">
-            <nav className="flex-1 overflow-y-auto">
-              <button onClick={() => handleNavChange('dashboard')} className={mobileNavItemClass('dashboard')}>
-                <div className="flex items-center gap-3"><LayoutDashboard size={20} /> Dashboard</div>
-                <ChevronRight size={16} className="text-slate-300" />
-              </button>
+          <div className="md:hidden absolute top-[88px] left-0 right-0 bottom-0 bg-white/95 backdrop-blur-sm z-40 animate-in slide-in-from-top-5 duration-200 flex flex-col">
+            <nav className="flex-1 overflow-y-auto pt-4 pb-28">
               {(currentUser.role === 'admin' || currentUser.role === 'supervisor') && (
                 <button onClick={() => handleNavChange('visitas_supervisor')} className={mobileNavItemClass('visitas_supervisor')}>
                   <div className="flex items-center gap-3"><ClipboardCheck size={20} className="text-emerald-600" /> Visitas de Supervisor</div>
+                  <ChevronRight size={16} className="text-slate-300" />
+                </button>
+              )}
+              {currentUser.role !== 'supervisor' && (
+                <button onClick={() => handleNavChange('dashboard')} className={mobileNavItemClass('dashboard')}>
+                  <div className="flex items-center gap-3"><LayoutDashboard size={20} /> Dashboard</div>
                   <ChevronRight size={16} className="text-slate-300" />
                 </button>
               )}
@@ -700,36 +775,71 @@ const App: React.FC = () => {
                   <ChevronRight size={16} className="text-slate-300" />
                 </button>
               )}
-              <button onClick={() => handleNavChange('sites')} className={mobileNavItemClass('sites')}>
-                <div className="flex items-center gap-3"><MapPin size={20} /> Sucursales</div>
-                <ChevronRight size={16} className="text-slate-300" />
-              </button>
-              <button onClick={() => handleNavChange('tasks')} className={mobileNavItemClass('tasks')}>
-                <div className="flex items-center gap-3"><ClipboardList size={20} /> Tareas Recurrentes</div>
-                <ChevronRight size={16} className="text-slate-300" />
-              </button>
-              <button onClick={() => handleNavChange('shift_management')} className={mobileNavItemClass('shift_management')}>
-                <div className="flex items-center gap-3"><CalendarDays size={20} /> Gestión de Turnos</div>
-                <ChevronRight size={16} className="text-slate-300" />
-              </button>
+              {currentUser.role !== 'supervisor' && (
+                <button onClick={() => handleNavChange('sites')} className={mobileNavItemClass('sites')}>
+                  <div className="flex items-center gap-3"><MapPin size={20} /> Sucursales</div>
+                  <ChevronRight size={16} className="text-slate-300" />
+                </button>
+              )}
+              {currentUser.role !== 'supervisor' && (
+                <button onClick={() => handleNavChange('tasks')} className={mobileNavItemClass('tasks')}>
+                  <div className="flex items-center gap-3"><ClipboardList size={20} /> Tareas Recurrentes</div>
+                  <ChevronRight size={16} className="text-slate-300" />
+                </button>
+              )}
+              {currentUser.role !== 'supervisor' && (
+                <button onClick={() => handleNavChange('shift_management')} className={mobileNavItemClass('shift_management')}>
+                  <div className="flex items-center gap-3"><CalendarDays size={20} /> Gestión de Turnos</div>
+                  <ChevronRight size={16} className="text-slate-300" />
+                </button>
+              )}
               {currentUser.role === 'admin' && (
                 <button onClick={() => handleNavChange('solicitudes_turnos_extra')} className={mobileNavItemClass('solicitudes_turnos_extra')}>
                   <div className="flex items-center gap-3"><Zap size={20} className="text-yellow-500" /> Turnos Extra</div>
                   <ChevronRight size={16} className="text-slate-300" />
                 </button>
               )}
-              <button onClick={() => handleNavChange('payments')} className={mobileNavItemClass('payments')}>
-                <div className="flex items-center gap-3"><DollarSign size={20} /> Pago de Turnos</div>
-                <ChevronRight size={16} className="text-slate-300" />
-              </button>
-              <button onClick={() => handleNavChange('loans')} className={mobileNavItemClass('loans')}>
-                <div className="flex items-center gap-3"><Receipt size={20} /> Préstamos</div>
-                <ChevronRight size={16} className="text-slate-300" />
-              </button>
+              {currentUser.role !== 'supervisor' && (
+                <button onClick={() => handleNavChange('payments')} className={mobileNavItemClass('payments')}>
+                  <div className="flex items-center gap-3"><DollarSign size={20} /> Pago de Turnos</div>
+                  <ChevronRight size={16} className="text-slate-300" />
+                </button>
+              )}
+              {currentUser.role !== 'supervisor' && (
+                <button onClick={() => handleNavChange('loans')} className={mobileNavItemClass('loans')}>
+                  <div className="flex items-center gap-3"><Receipt size={20} /> Préstamos</div>
+                  <ChevronRight size={16} className="text-slate-300" />
+                </button>
+              )}
               <button onClick={() => handleNavChange('documents')} className={mobileNavItemClass('documents')}>
-                <div className="flex items-center gap-3"><ShieldCheck size={20} /> Documentos</div>
+                <div className="flex items-center gap-3">
+                  <ShieldCheck size={20} /> Documentos
+                  {pendingDocsCount > 0 && (
+                    <span className="bg-rose-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full ml-1">
+                      {pendingDocsCount}
+                    </span>
+                  )}
+                </div>
                 <ChevronRight size={16} className="text-slate-300" />
               </button>
+
+              {currentUser.role === 'supervisor' && (
+                <button
+                  onClick={() => {
+                    setIsMobileMenuOpen(false);
+                    setShowSupervisorSigModal(true);
+                  }}
+                  className="w-full flex items-center justify-between px-6 py-4 border-b border-slate-100 text-sm font-bold text-slate-700"
+                >
+                  <div className="flex items-center gap-3">
+                    <PenTool size={20} className={supervisorEmp?.signatureUrl ? "text-emerald-600" : "text-amber-500"} />
+                    <span>Mi Firma Digital</span>
+                  </div>
+                  <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full ${supervisorEmp?.signatureUrl ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                    {supervisorEmp?.signatureUrl ? 'Registrada' : 'Registrar'}
+                  </span>
+                </button>
+              )}
               {(currentUser.role === 'admin' || currentUser.role === 'rrhh') && (
                 <button onClick={() => handleNavChange('hr_contracts')} className={mobileNavItemClass('hr_contracts')}>
                   <div className="flex items-center gap-3"><ClipboardList size={20} /> Panel RRHH</div>
@@ -741,10 +851,12 @@ const App: React.FC = () => {
                 <div className="flex items-center gap-3"><StickyNote size={20} /> Notas y Tareas</div>
                 <ChevronRight size={16} className="text-slate-300" />
               </button>
-              <button onClick={() => handleNavChange('attendance')} className={mobileNavItemClass('attendance')}>
-                <div className="flex items-center gap-3"><Clock size={20} /> Asistencia</div>
-                <ChevronRight size={16} className="text-slate-300" />
-              </button>
+              {currentUser.role !== 'supervisor' && (
+                <button onClick={() => handleNavChange('attendance')} className={mobileNavItemClass('attendance')}>
+                  <div className="flex items-center gap-3"><Clock size={20} /> Asistencia</div>
+                  <ChevronRight size={16} className="text-slate-300" />
+                </button>
+              )}
 
               {currentUser.role === 'admin' && (
                 <button onClick={() => handleNavChange('libro_novedades')} className={mobileNavItemClass('libro_novedades')}>
@@ -810,22 +922,22 @@ const App: React.FC = () => {
             {currentView === 'dashboard' && <AdminDashboard />}
             {currentView === 'visitas_supervisor' && (currentUser.role === 'admin' || currentUser.role === 'supervisor') && <VisitasSupervisorPage />}
             {currentView === 'employees' && currentUser.role === 'admin' && <EmployeesPage />}
-            {currentView === 'tasks' && <TasksPage />}
-            {currentView === 'sites' && <SitesPage />}
-            {currentView === 'payments' && (
+            {currentView === 'tasks' && currentUser.role !== 'supervisor' && <TasksPage />}
+            {currentView === 'sites' && currentUser.role !== 'supervisor' && <SitesPage />}
+            {currentView === 'payments' && currentUser.role !== 'supervisor' && (
               <div className="p-6 max-w-7xl mx-auto">
                 <DailyShiftPayment />
               </div>
             )}
             {currentView === 'notes' && <NotesPage />}
-            {currentView === 'attendance' && <AttendancePage />}
+            {currentView === 'attendance' && currentUser.role !== 'supervisor' && <AttendancePage />}
             {currentView === 'libro_novedades' && currentUser.role === 'admin' && <AdminLibroNovedadesPage />}
             {currentView === 'rounds' && currentUser.role === 'admin' && <RoundsAdminPage />}
             {currentView === 'supervisor_mgmt' && currentUser.role === 'admin' && <SupervisorManagement />}
             {currentView === 'mandante_mgmt' && currentUser.role === 'admin' && <MandanteManagement />}
-            {currentView === 'shift_management' && <ShiftManagement />}
+            {currentView === 'shift_management' && currentUser.role !== 'supervisor' && <ShiftManagement />}
             {currentView === 'solicitudes_turnos_extra' && currentUser.role === 'admin' && <PanelAdminSolicitudes />}
-            {currentView === 'loans' && <LoansPage />}
+            {currentView === 'loans' && currentUser.role !== 'supervisor' && <LoansPage />}
             {currentView === 'documents' && <DocumentsPage />}
             {currentView === 'hr_contracts' && (currentUser.role === 'admin' || currentUser.role === 'rrhh') && <HRContractsDashboard />}
             {currentView === 'attendance_shadow_qa' && (
@@ -845,6 +957,66 @@ const App: React.FC = () => {
 
           </div>
         </div>
+        {/* BOTTOM NAVIGATION PARA SUPERVISOR (CELULAR): Documentos, Visitas (destacado al centro), Notas */}
+        {currentUser.role === 'supervisor' && (
+          <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-md border-t border-slate-200/80 z-30 px-6 py-2 shadow-2xl safe-area-bottom">
+            <div className="flex items-center justify-between max-w-md mx-auto relative">
+              {/* 1. DOCUMENTOS (Izquierda) */}
+              <button
+                onClick={() => handleNavChange('documents')}
+                className={`flex flex-col items-center justify-center flex-1 py-1 relative transition-all active:scale-95 ${
+                  currentView === 'documents' ? 'text-blue-600 font-black' : 'text-slate-400 hover:text-slate-600 font-bold'
+                }`}
+              >
+                <div className="relative">
+                  <ShieldCheck size={24} className={currentView === 'documents' ? 'stroke-[2.5]' : ''} />
+                  {pendingDocsCount > 0 && (
+                    <span className="absolute -top-1 -right-2.5 min-w-[18px] h-[18px] bg-rose-500 text-white rounded-full text-[10px] font-black flex items-center justify-center px-1 animate-pulse shadow-md border-2 border-white">
+                      {pendingDocsCount}
+                    </span>
+                  )}
+                </div>
+                <span className="text-[11px] tracking-tight mt-1">Documentos</span>
+              </button>
+
+              {/* 2. VISITAS (Centro destacado y más grande) */}
+              <div className="flex-1 flex justify-center -mt-6">
+                <button
+                  onClick={() => handleNavChange('visitas_supervisor')}
+                  className="flex flex-col items-center group active:scale-95 transition-transform"
+                >
+                  <div
+                    className={`w-14 h-14 rounded-full flex items-center justify-center shadow-xl transition-all duration-200 border-4 border-white ${
+                      currentView === 'visitas_supervisor'
+                        ? 'bg-emerald-600 text-white shadow-emerald-600/40 ring-4 ring-emerald-500/20 scale-105'
+                        : 'bg-emerald-500 text-white shadow-emerald-500/30 hover:bg-emerald-600'
+                    }`}
+                  >
+                    <ClipboardCheck size={28} className="stroke-[2.5]" />
+                  </div>
+                  <span
+                    className={`text-[11px] tracking-tight mt-1 transition-colors ${
+                      currentView === 'visitas_supervisor' ? 'text-emerald-700 font-black' : 'text-slate-500 font-bold'
+                    }`}
+                  >
+                    Visitas
+                  </span>
+                </button>
+              </div>
+
+              {/* 3. NOTAS (Derecha) */}
+              <button
+                onClick={() => handleNavChange('notes')}
+                className={`flex flex-col items-center justify-center flex-1 py-1 transition-all active:scale-95 ${
+                  currentView === 'notes' ? 'text-blue-600 font-black' : 'text-slate-400 hover:text-slate-600 font-bold'
+                }`}
+              >
+                <StickyNote size={24} className={currentView === 'notes' ? 'stroke-[2.5]' : ''} />
+                <span className="text-[11px] tracking-tight mt-1">Notas</span>
+              </button>
+            </div>
+          </nav>
+        )}
       </main>
       <GlobalOverlay />
       {/* Banner de actualización de APK — visible para todos los roles */}
@@ -852,6 +1024,14 @@ const App: React.FC = () => {
 
       {/* Render FCM Diagnostic overlay for admin views */}
       {renderFcmDebugOverlay()}
+
+      {/* Modal de Firma para Supervisor */}
+      <SignatureModal
+        isOpen={showSupervisorSigModal}
+        onClose={() => setShowSupervisorSigModal(false)}
+        onSave={handleSaveSupervisorSignature}
+        existingSignature={supervisorEmp?.signatureUrl}
+      />
     </div>
   );
 };

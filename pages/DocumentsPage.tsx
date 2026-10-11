@@ -37,6 +37,7 @@ import { APP_VERSION } from '../components/AppUpdateBanner';
 import CorporateDocsManager from '../components/phase5/CorporateDocsManager';
 import TemplateList from '../components/documentTemplates/TemplateList';
 import TemplateMassAssignModal from '../components/documentTemplates/TemplateMassAssignModal';
+import SignatureModal from '../components/SignatureModal';
 
 // Configurar worker de react-pdf (Usando el patrón recomendado para Vite)
 pdfjs.GlobalWorkerOptions.workerSrc = new URL(
@@ -66,6 +67,7 @@ const DocumentsPage: React.FC = () => {
         addSignatureTemplate,
         updateSignatureTemplate,
         deleteSignatureTemplate,
+        updateEmployee,
     } = useAppStore();
 
     const [activeTab, setActiveTab] = useState<'pending' | 'signed' | 'all' | 'corporate' | 'templates'>('pending');
@@ -74,6 +76,10 @@ const DocumentsPage: React.FC = () => {
     const [showTemplateMassModal, setShowTemplateMassModal] = useState(false);
     const [selectedDocToSign, setSelectedDocToSign] = useState<DigitalDocument | null>(null);
     const [isSigning, setIsSigning] = useState(false);
+    const [showSignatureModal, setShowSignatureModal] = useState(false);
+    const [pendingSignDocAfterRegister, setPendingSignDocAfterRegister] = useState<DigitalDocument | null>(null);
+
+    const myEmployee = useMemo(() => employees.find(e => e.id === currentUser?.uid), [employees, currentUser]);
 
     // Visualizador de PDF
     const [viewingDoc, setViewingDoc] = useState<DigitalDocument | null>(null);
@@ -551,14 +557,54 @@ const DocumentsPage: React.FC = () => {
         }, signedStoragePath);
     };
 
+    // Guardar firma registrada directamente desde el módulo de documentos
+    const handleSaveSignature = async (dataUrl: string) => {
+        if (!currentUser?.uid) return;
+        try {
+            await updateEmployee(currentUser.uid, {
+                signatureUrl: dataUrl,
+                signatureUpdatedAt: new Date().toISOString()
+            });
+            setShowSignatureModal(false);
+            showNotification("Firma registrada con éxito.", "success");
+
+            // Si el usuario intentaba firmar un documento específico, proceder a firmarlo
+            if (pendingSignDocAfterRegister) {
+                const doc = pendingSignDocAfterRegister;
+                setPendingSignDocAfterRegister(null);
+                const currentWorker = employees.find(e => e.id === currentUser?.uid);
+                const updatedWorker = { ...(currentWorker || {}), signatureUrl: dataUrl, signatureUpdatedAt: new Date().toISOString() };
+                setSelectedDocToSign(doc);
+                setIsSigning(true);
+                try {
+                    await performSign(doc, updatedWorker);
+                    showNotification("Documento firmado correctamente", "success");
+                } catch (error) {
+                    console.error("Error al firmar documento tras registrar firma:", error);
+                    showNotification("Error al firmar el documento", "error");
+                } finally {
+                    setIsSigning(false);
+                    setSelectedDocToSign(null);
+                }
+            }
+        } catch (e) {
+            console.error("Error al guardar firma en DocumentsPage:", e);
+            showNotification("Error al guardar la firma.", "error");
+            throw e;
+        }
+    };
+
     const handleSignIndividual = async (docToSign: DigitalDocument) => {
         const workerEmployee = employees.find(e => e.id === currentUser?.uid);
         if (!workerEmployee?.signatureUrl) {
             setAlertDialog({
-                title: "Firma no registrada",
-                message: "No tienes una firma registrada. Por favor, ve a 'Mi Perfil' para registrar tu firma antes de continuar.",
-                type: 'warning',
-                onConfirm: () => {}
+                title: "Firma Digital Requerida",
+                message: "No tienes una firma digital registrada en el sistema. ¿Deseas registrar tu firma ahora para proceder con la firma del documento?",
+                type: 'confirm',
+                onConfirm: () => {
+                    setPendingSignDocAfterRegister(docToSign);
+                    setShowSignatureModal(true);
+                }
             });
             return;
         }
@@ -586,19 +632,21 @@ const DocumentsPage: React.FC = () => {
 
     const handleBulkSign = async () => {
         const workerEmployee = employees.find(e => e.id === currentUser?.uid);
-        if (!workerEmployee?.signatureUrl) {
-            setAlertDialog({
-                title: "Firma no registrada",
-                message: "No tienes una firma registrada. Por favor, ve a 'Mi Perfil' para registrar tu firma antes de continuar.",
-                type: 'warning',
-                onConfirm: () => {}
-            });
-            return;
-        }
-
         const pendingDocs = filteredDocs.filter(d => d.status === 'pending');
         if (pendingDocs.length === 0) {
             showNotification("No tienes documentos pendientes de firma", "warning");
+            return;
+        }
+
+        if (!workerEmployee?.signatureUrl) {
+            setAlertDialog({
+                title: "Firma Digital Requerida",
+                message: `Para firmar estos ${pendingDocs.length} documentos primero necesitas registrar tu firma. ¿Deseas registrar tu firma ahora?`,
+                type: 'confirm',
+                onConfirm: () => {
+                    setShowSignatureModal(true);
+                }
+            });
             return;
         }
 
@@ -709,6 +757,47 @@ const DocumentsPage: React.FC = () => {
                         </div>
                     )}
 
+                </div>
+            )}
+
+            {/* ESTADO DE FIRMA DIGITAL (TRABAJADOR / SUPERVISOR) */}
+            {currentUser?.role !== 'admin' && (
+                <div className="bg-white rounded-3xl p-5 border border-slate-100 shadow-sm flex flex-col sm:flex-row items-center justify-between gap-4">
+                    <div className="flex items-center gap-4">
+                        <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 ${myEmployee?.signatureUrl ? 'bg-emerald-50 text-emerald-600' : 'bg-blue-50 text-blue-600'}`}>
+                            <PenTool size={22} />
+                        </div>
+                        <div>
+                            <div className="flex items-center gap-2">
+                                <h3 className="font-black text-slate-800 text-sm">Mi Firma Digital</h3>
+                                {myEmployee?.signatureUrl ? (
+                                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase bg-emerald-100 text-emerald-700 flex items-center gap-1">
+                                        <CheckCircle size={10} /> Registrada
+                                    </span>
+                                ) : (
+                                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase bg-amber-100 text-amber-700 animate-pulse">
+                                        Sin registrar
+                                    </span>
+                                )}
+                            </div>
+                            <p className="text-xs text-slate-500 font-medium mt-1">
+                                {myEmployee?.signatureUrl
+                                    ? 'Tu firma digital está activa para firmar contratos, anexos y documentos.'
+                                    : 'Registra tu trazo una sola vez para poder firmar digitalmente tus documentos.'}
+                            </p>
+                        </div>
+                    </div>
+                    <button
+                        onClick={() => setShowSignatureModal(true)}
+                        className={`w-full sm:w-auto px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center justify-center gap-2 ${
+                            myEmployee?.signatureUrl
+                                ? 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                                : 'bg-blue-600 hover:bg-blue-700 text-white shadow-lg shadow-blue-200 active:scale-95'
+                        }`}
+                    >
+                        <PenTool size={14} />
+                        {myEmployee?.signatureUrl ? 'Cambiar Firma' : 'Registrar Mi Firma'}
+                    </button>
                 </div>
             )}
 
@@ -2109,6 +2198,16 @@ const DocumentsPage: React.FC = () => {
                     </div>
                 </div>
             )}
+            {/* MODAL DE FIRMA DIGITAL */}
+            <SignatureModal
+                isOpen={showSignatureModal}
+                onClose={() => {
+                    setShowSignatureModal(false);
+                    setPendingSignDocAfterRegister(null);
+                }}
+                onSave={handleSaveSignature}
+                existingSignature={myEmployee?.signatureUrl}
+            />
         </div>
     );
 };
