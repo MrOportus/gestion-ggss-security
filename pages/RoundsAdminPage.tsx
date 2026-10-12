@@ -23,19 +23,47 @@ import {
 } from 'lucide-react';
 import RouteMapModal from '../components/RouteMapModal';
 
+const getLocalDateStr = (d: Date = new Date()) => {
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+
+const getDaysAgoStr = (daysAgo: number) => {
+    const d = new Date();
+    d.setDate(d.getDate() - daysAgo);
+    return getLocalDateStr(d);
+};
+
+const getRoundDate = (dateStr: string) => {
+    if (!dateStr) return '';
+    if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+        return dateStr;
+    }
+    try {
+        const d = new Date(dateStr);
+        if (isNaN(d.getTime())) return dateStr.substring(0, 10);
+        return getLocalDateStr(d);
+    } catch {
+        return dateStr.substring(0, 10);
+    }
+};
+
 const RoundsAdminPage: React.FC = () => {
     const { guardRounds, sites, showConfirmation, employees, fetchGuardRounds, showNotification, currentUser } = useAppStore();
     const [searchTerm, setSearchTerm] = useState('');
     const [notesSearch, setNotesSearch] = useState('');
     const [resultFilter, setResultFilter] = useState<'all' | 'SIN_NOVEDAD' | 'CON_NOVEDAD' | 'SOSPECHA'>('all');
-    const [startDateFilter, setStartDateFilter] = useState('');
-    const [endDateFilter, setEndDateFilter] = useState('');
+    const [startDateFilter, setStartDateFilter] = useState(() => getDaysAgoStr(7));
+    const [endDateFilter, setEndDateFilter] = useState(() => getLocalDateStr());
     const [selectedSiteId, setSelectedSiteId] = useState<string | 'all'>('all');
     const [selectedRound, setSelectedRound] = useState<any | null>(null);
 
     // Pagination state
     const [currentPage, setCurrentPage] = useState(1);
     const [itemsPerPage, setItemsPerPage] = useState(20);
+
+    React.useEffect(() => {
+        fetchGuardRounds();
+    }, [fetchGuardRounds]);
 
     React.useEffect(() => {
         setCurrentPage(1);
@@ -136,7 +164,7 @@ const RoundsAdminPage: React.FC = () => {
         const matchesResult = resultFilter === 'all' || round.result === resultFilter;
 
         let matchesDate = true;
-        const roundDate = round.startTime.substring(0, 10);
+        const roundDate = getRoundDate(round.startTime);
         if (startDateFilter) {
             matchesDate = matchesDate && roundDate >= startDateFilter;
         }
@@ -194,7 +222,7 @@ const RoundsAdminPage: React.FC = () => {
                             />
                         </div>
 
-                        <div className="flex gap-2 w-full lg:w-auto">
+                        <div className="flex items-center gap-2 w-full lg:w-auto">
                             <div className="relative w-full">
                                 <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
                                 <input
@@ -214,6 +242,29 @@ const RoundsAdminPage: React.FC = () => {
                                     title="Fecha Hasta"
                                 />
                             </div>
+                            {(startDateFilter || endDateFilter) ? (
+                                <button
+                                    onClick={() => {
+                                        setStartDateFilter('');
+                                        setEndDateFilter('');
+                                    }}
+                                    className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-colors shrink-0"
+                                    title="Limpiar filtro de fechas (ver todas)"
+                                >
+                                    <X size={16} />
+                                </button>
+                            ) : (
+                                <button
+                                    onClick={() => {
+                                        setStartDateFilter(getDaysAgoStr(7));
+                                        setEndDateFilter(getLocalDateStr());
+                                    }}
+                                    className="px-2.5 py-2 bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-bold rounded-xl transition-colors shrink-0 whitespace-nowrap"
+                                    title="Reaplicar filtro de últimos 7 días"
+                                >
+                                    7 días
+                                </button>
+                            )}
                         </div>
 
                         <select

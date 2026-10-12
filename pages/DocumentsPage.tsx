@@ -38,6 +38,7 @@ import CorporateDocsManager from '../components/phase5/CorporateDocsManager';
 import TemplateList from '../components/documentTemplates/TemplateList';
 import TemplateMassAssignModal from '../components/documentTemplates/TemplateMassAssignModal';
 import SignatureModal from '../components/SignatureModal';
+import SharedSignatureBatchModal from '../components/SharedSignatureBatchModal';
 
 // Configurar worker de react-pdf (Usando el patrón recomendado para Vite)
 pdfjs.GlobalWorkerOptions.workerSrc = new URL(
@@ -74,6 +75,7 @@ const DocumentsPage: React.FC = () => {
     const [searchTerm, setSearchTerm] = useState('');
     const [showUploadModal, setShowUploadModal] = useState(false);
     const [showTemplateMassModal, setShowTemplateMassModal] = useState(false);
+    const [showSharedSigBatchModal, setShowSharedSigBatchModal] = useState(false);
     const [selectedDocToSign, setSelectedDocToSign] = useState<DigitalDocument | null>(null);
     const [isSigning, setIsSigning] = useState(false);
     const [showSignatureModal, setShowSignatureModal] = useState(false);
@@ -168,7 +170,7 @@ const DocumentsPage: React.FC = () => {
     const [tplForm, setTplForm] = useState<Omit<SignatureTemplate, 'id' | 'creadoEn' | 'actualizadoEn'>>({
         nombre: '', docType: 'Contrato', pageType: 'last', posicionX: 237, posicionY: 40
     });
-    
+
     // Estados para previsualizar documento en el Gestor de Plantillas
     const [tplDemoFile, setTplDemoFile] = useState<File | null>(null);
     const [tplDemoUrl, setTplDemoUrl] = useState<string | null>(null);
@@ -446,7 +448,7 @@ const DocumentsPage: React.FC = () => {
             height: 50,
         });
 
-        const font     = await pdfDoc.embedFont(StandardFonts.Helvetica);
+        const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
         const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
 
         const { width: pageW } = selectedPage.getSize();
@@ -454,21 +456,21 @@ const DocumentsPage: React.FC = () => {
             day: '2-digit', month: '2-digit', year: 'numeric',
             hour: '2-digit', minute: '2-digit'
         });
-        const userName    = `${worker.firstName} ${worker.lastNamePaterno}`.toUpperCase();
-        const rut         = worker.rut;
-        const email       = worker.email || 'N/A';
+        const userName = `${worker.firstName} ${worker.lastNamePaterno}`.toUpperCase();
+        const rut = worker.rut;
+        const email = worker.email || 'N/A';
         const uniqueSigId = `SIG-${Math.random().toString(36).substring(2, 11).toUpperCase()}`;
-        const appVersion  = APP_VERSION;
+        const appVersion = APP_VERSION;
 
         // ── Sello digital estético: rectángulo doble centrado en la parte final ──
-        const stamW  = 180;   // ancho del sello reducido
-        const stamH  = 48;    // alto del sello aumentado ligeramente
-        const stamX  = (pageW - stamW) / 2;  // siempre centrado al final
-        const stamY  = 25;    // siempre en la parte inferior
+        const stamW = 180;   // ancho del sello reducido
+        const stamH = 48;    // alto del sello aumentado ligeramente
+        const stamX = (pageW - stamW) / 2;  // siempre centrado al final
+        const stamY = 25;    // siempre en la parte inferior
 
-        const inkColor  = rgb(0.10, 0.23, 0.43);  // azul corporativo oscuro
-        const bgColor   = rgb(1, 1, 1);            // fondo blanco puro
-        const gap       = 2;                        // separación entre bordes reducida
+        const inkColor = rgb(0.10, 0.23, 0.43);  // azul corporativo oscuro
+        const bgColor = rgb(1, 1, 1);            // fondo blanco puro
+        const gap = 2;                        // separación entre bordes reducida
 
         // Borde exterior
         selectedPage.drawRectangle({
@@ -493,14 +495,14 @@ const DocumentsPage: React.FC = () => {
         });
 
         // ── Textos dentro del sello ──────────────────────────────────
-        const pad   = 6;     // padding interno aumentado
+        const pad = 6;     // padding interno aumentado
         const lineH = 7.5;   // separación entre líneas aumentada
 
         // Línea 0 — Nombre (grande, bold)
-        const nameSize   = 7.5;
-        const nameWidth  = fontBold.widthOfTextAtSize(userName, nameSize);
-        const nameX      = stamX + (stamW - nameWidth) / 2;  // centrado
-        const nameY      = stamY + stamH - pad - nameSize;
+        const nameSize = 7.5;
+        const nameWidth = fontBold.widthOfTextAtSize(userName, nameSize);
+        const nameX = stamX + (stamW - nameWidth) / 2;  // centrado
+        const nameY = stamY + stamH - pad - nameSize;
         selectedPage.drawText(userName, {
             x: nameX, y: nameY, size: nameSize, font: fontBold, color: inkColor,
         });
@@ -677,7 +679,7 @@ const DocumentsPage: React.FC = () => {
 
     return (
         <div className="p-4 md:p-6 max-w-7xl mx-auto space-y-6">
-            
+
             {/* HEADER */}
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
@@ -686,19 +688,16 @@ const DocumentsPage: React.FC = () => {
                 </div>
 
                 {currentUser?.role === 'admin' && (
-                    <div className="flex flex-col gap-2 self-start md:self-auto">
+                    <div className="flex flex-col sm:flex-row gap-2 self-start md:self-auto">
                         <button
-                            onClick={() => {
-                                setWizardStep('docs');
-                                setShowUploadModal(true);
-                            }}
-                            className="w-full py-3 px-6 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl text-xs font-black uppercase tracking-widest shadow-xl shadow-blue-200 transition-all active:scale-95 flex items-center justify-center gap-2"
+                            onClick={() => setShowSharedSigBatchModal(true)}
+                            className="w-full sm:w-auto py-3 px-5 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl text-xs font-black uppercase tracking-widest shadow-xl shadow-blue-200 transition-all active:scale-95 flex items-center justify-center gap-2"
                         >
-                            <Plus size={16} /> Asignación Masiva / Cargar
+                            <Layers size={16} /> Carga Masiva Documentos
                         </button>
                         <button
                             onClick={() => setShowTemplateMassModal(true)}
-                            className="w-full py-3 px-6 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl text-xs font-black uppercase tracking-widest shadow-xl shadow-indigo-200 transition-all active:scale-95 flex items-center justify-center gap-2"
+                            className="w-full sm:w-auto py-3 px-5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl text-xs font-black uppercase tracking-widest shadow-xl shadow-indigo-200 transition-all active:scale-95 flex items-center justify-center gap-2"
                         >
                             <FileText size={16} /> Asignar desde Plantillas
                         </button>
@@ -789,11 +788,10 @@ const DocumentsPage: React.FC = () => {
                     </div>
                     <button
                         onClick={() => setShowSignatureModal(true)}
-                        className={`w-full sm:w-auto px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center justify-center gap-2 ${
-                            myEmployee?.signatureUrl
+                        className={`w-full sm:w-auto px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center justify-center gap-2 ${myEmployee?.signatureUrl
                                 ? 'bg-slate-100 hover:bg-slate-200 text-slate-700'
                                 : 'bg-blue-600 hover:bg-blue-700 text-white shadow-lg shadow-blue-200 active:scale-95'
-                        }`}
+                            }`}
                     >
                         <PenTool size={14} />
                         {myEmployee?.signatureUrl ? 'Cambiar Firma' : 'Registrar Mi Firma'}
@@ -807,8 +805,8 @@ const DocumentsPage: React.FC = () => {
                     <div>
                         <h2 className="text-base font-black text-amber-900 tracking-tight">Firma Digital</h2>
                         <p className="text-xs font-bold text-amber-700 mt-1">
-                            {pendingDocsCount === 0 
-                                ? 'No tienes documentos pendientes de firma.' 
+                            {pendingDocsCount === 0
+                                ? 'No tienes documentos pendientes de firma.'
                                 : `Tienes ${pendingDocsCount} ${pendingDocsCount === 1 ? 'documento pendiente' : 'documentos pendientes'} de firma.`}
                         </p>
                     </div>
@@ -1144,6 +1142,12 @@ const DocumentsPage: React.FC = () => {
             )}
 
             {/* MODAL / ASISTENTE DE ASIGNACIÓN MASIVA (WIZARD) */}
+            {showSharedSigBatchModal && (
+                <SharedSignatureBatchModal
+                    isOpen={showSharedSigBatchModal}
+                    onClose={() => setShowSharedSigBatchModal(false)}
+                />
+            )}
             {showTemplateMassModal && <TemplateMassAssignModal onClose={() => setShowTemplateMassModal(false)} />}
             {showUploadModal && (
                 <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
@@ -1154,8 +1158,8 @@ const DocumentsPage: React.FC = () => {
                                 <h2 className="text-xl font-black text-slate-900 uppercase">Asignador Documental Masivo</h2>
                                 <p className="text-slate-400 text-xs font-black uppercase tracking-widest leading-none mt-1.5">
                                     {wizardStep === 'docs' ? 'Paso 1: Documentos' :
-                                     wizardStep === 'destinatarios' ? 'Paso 2: Destinatarios' :
-                                     wizardStep === 'confirmacion' ? 'Paso 3: Confirmación' : 'Paso 4: Resultado'}
+                                        wizardStep === 'destinatarios' ? 'Paso 2: Destinatarios' :
+                                            wizardStep === 'confirmacion' ? 'Paso 3: Confirmación' : 'Paso 4: Resultado'}
                                 </p>
                             </div>
                             <button onClick={resetWizard} className="p-2 hover:bg-slate-100 rounded-full transition-colors text-slate-400">
@@ -1290,7 +1294,7 @@ const DocumentsPage: React.FC = () => {
                                                     <Settings size={14} className="text-blue-600" />
                                                     Configuración Manual
                                                 </p>
-                                                
+
                                                 <div className="grid grid-cols-2 gap-4">
                                                     <div className="space-y-2">
                                                         <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Página de Firma</label>
@@ -1364,7 +1368,19 @@ const DocumentsPage: React.FC = () => {
                                                                 onLoadSuccess={({ numPages }) => setManualDemoNumPages(numPages)}
                                                                 loading={<Loader2 className="animate-spin text-blue-500 mx-auto" size={24} />}
                                                             >
-                                                                <div className="relative inline-block shadow-lg rounded bg-white">
+                                                                <div
+                                                                    onClick={(e) => {
+                                                                        const rect = e.currentTarget.getBoundingClientRect();
+                                                                        const ratioX = (e.clientX - rect.left) / rect.width;
+                                                                        const ratioY = (e.clientY - rect.top) / rect.height;
+                                                                        let newX = Math.round((ratioX * 612) - 60);
+                                                                        let newY = Math.round(((1 - ratioY) * 792) - 25);
+                                                                        setSigPosicionX(Math.max(10, Math.min(612 - 130, newX)));
+                                                                        setSigPosicionY(Math.max(10, Math.min(792 - 60, newY)));
+                                                                    }}
+                                                                    className="relative inline-block shadow-lg rounded bg-white cursor-crosshair select-none group"
+                                                                    title="Haz clic en cualquier punto para ubicar la firma"
+                                                                >
                                                                     <Page
                                                                         pageNumber={sigPageType === 'last' ? (manualDemoNumPages || 1) : Math.min(sigPageNumber || 1, manualDemoNumPages || 1)}
                                                                         width={window.innerWidth < 640 ? window.innerWidth - 80 : 400}
@@ -1373,7 +1389,7 @@ const DocumentsPage: React.FC = () => {
                                                                     />
                                                                     {/* Recuadro de vista previa de firma — Carta (612×792) */}
                                                                     <div
-                                                                        className="absolute bg-blue-500/10 border-2 border-blue-600/50 rounded flex items-center justify-center p-[2px]"
+                                                                        className="absolute bg-blue-500/20 border-2 border-blue-600 rounded-lg flex items-center justify-center p-[2px] shadow-md transition-all pointer-events-none"
                                                                         style={{
                                                                             width: `${(120 / 612) * 100}%`,
                                                                             height: `${(50 / 792) * 100}%`,
@@ -1381,8 +1397,8 @@ const DocumentsPage: React.FC = () => {
                                                                             left: `${(sigPosicionX / 612) * 100}%`,
                                                                         }}
                                                                     >
-                                                                        <div className="w-full h-full border border-blue-600/30 flex items-center justify-center text-[7px] font-black text-blue-800 uppercase tracking-tighter text-center leading-tight">
-                                                                            Firma y<br/>Huella
+                                                                        <div className="w-full h-full border border-dashed border-blue-600/40 rounded flex items-center justify-center text-[7px] font-black text-blue-900 uppercase tracking-tighter text-center leading-tight bg-white/40">
+                                                                            Firma y<br />Huella
                                                                         </div>
                                                                     </div>
                                                                 </div>
@@ -1406,27 +1422,24 @@ const DocumentsPage: React.FC = () => {
                                             <button
                                                 type="button"
                                                 onClick={() => setAssigneeType('all')}
-                                                className={`px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center gap-1.5 ${
-                                                    assigneeType === 'all' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                                                }`}
+                                                className={`px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center gap-1.5 ${assigneeType === 'all' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                                                    }`}
                                             >
                                                 <Users size={14} /> Todos los Colaboradores
                                             </button>
                                             <button
                                                 type="button"
                                                 onClick={() => setAssigneeType('sucursal')}
-                                                className={`px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center gap-1.5 ${
-                                                    assigneeType === 'sucursal' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                                                }`}
+                                                className={`px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center gap-1.5 ${assigneeType === 'sucursal' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                                                    }`}
                                             >
                                                 <Building size={14} /> Por Sucursal (Instalación)
                                             </button>
                                             <button
                                                 type="button"
                                                 onClick={() => setAssigneeType('colaboradores')}
-                                                className={`px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center gap-1.5 ${
-                                                    assigneeType === 'colaboradores' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                                                }`}
+                                                className={`px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center gap-1.5 ${assigneeType === 'colaboradores' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                                                    }`}
                                             >
                                                 <Users size={14} /> Colaboradores Específicos
                                             </button>
@@ -1464,9 +1477,8 @@ const DocumentsPage: React.FC = () => {
                                                                     setSelectedSites(prev => [...prev, site.id]);
                                                                 }
                                                             }}
-                                                            className={`p-4 border rounded-3xl text-left flex flex-col justify-between h-24 transition-all ${
-                                                                isSelected ? 'border-blue-500 bg-blue-50/30' : 'border-slate-100 hover:border-slate-300 bg-slate-50/50'
-                                                            }`}
+                                                            className={`p-4 border rounded-3xl text-left flex flex-col justify-between h-24 transition-all ${isSelected ? 'border-blue-500 bg-blue-50/30' : 'border-slate-100 hover:border-slate-300 bg-slate-50/50'
+                                                                }`}
                                                         >
                                                             <span className="text-xs font-black text-slate-700 truncate w-full">{site.name}</span>
                                                             <span className="text-[9px] font-bold text-slate-400 mt-2 bg-slate-100 px-2 py-0.5 rounded-lg w-fit">
@@ -1506,9 +1518,8 @@ const DocumentsPage: React.FC = () => {
                                                                     setSelectedEmployees(prev => [...prev, emp.id]);
                                                                 }
                                                             }}
-                                                            className={`p-3 border rounded-2xl text-left flex items-center gap-3 transition-all ${
-                                                                isSelected ? 'border-blue-500 bg-blue-50/30' : 'border-slate-100 hover:border-slate-300 bg-slate-50/50'
-                                                            }`}
+                                                            className={`p-3 border rounded-2xl text-left flex items-center gap-3 transition-all ${isSelected ? 'border-blue-500 bg-blue-50/30' : 'border-slate-100 hover:border-slate-300 bg-slate-50/50'
+                                                                }`}
                                                         >
                                                             <input
                                                                 type="checkbox"
@@ -1573,8 +1584,8 @@ const DocumentsPage: React.FC = () => {
                                                     <span className="text-xs font-bold text-slate-500">Tipo de destinatarios:</span>
                                                     <span className="text-xs font-black text-slate-800 uppercase tracking-wide">
                                                         {assigneeType === 'all' ? 'Todos los colaboradores' :
-                                                         assigneeType === 'sucursal' ? `${selectedSites.length} sucursales` :
-                                                         `${selectedEmployees.length} colaboradores`}
+                                                            assigneeType === 'sucursal' ? `${selectedSites.length} sucursales` :
+                                                                `${selectedEmployees.length} colaboradores`}
                                                     </span>
                                                 </div>
                                                 <div className="flex justify-between items-center py-2">
@@ -1821,9 +1832,8 @@ const DocumentsPage: React.FC = () => {
             {alertDialog && (
                 <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[200] flex items-center justify-center p-4">
                     <div className="bg-white rounded-[2rem] p-6 max-w-sm w-full text-center space-y-6 shadow-2xl animate-in zoom-in-95 duration-200 border border-slate-100">
-                        <div className={`w-14 h-14 rounded-2xl flex items-center justify-center mx-auto ${
-                            alertDialog.type === 'confirm' ? 'bg-blue-50 text-blue-600' : 'bg-amber-50 text-amber-600'
-                        }`}>
+                        <div className={`w-14 h-14 rounded-2xl flex items-center justify-center mx-auto ${alertDialog.type === 'confirm' ? 'bg-blue-50 text-blue-600' : 'bg-amber-50 text-amber-600'
+                            }`}>
                             {alertDialog.type === 'confirm' ? <PenTool size={28} /> : <Info size={28} />}
                         </div>
                         <div className="space-y-2">
@@ -1847,11 +1857,10 @@ const DocumentsPage: React.FC = () => {
                                     alertDialog.onConfirm();
                                     setAlertDialog(null);
                                 }}
-                                className={`px-6 py-3 text-white rounded-2xl text-xs font-black uppercase tracking-widest shadow-lg transition-all flex-1 ${
-                                    alertDialog.type === 'confirm' 
-                                        ? 'bg-blue-600 hover:bg-blue-700 shadow-blue-100' 
+                                className={`px-6 py-3 text-white rounded-2xl text-xs font-black uppercase tracking-widest shadow-lg transition-all flex-1 ${alertDialog.type === 'confirm'
+                                        ? 'bg-blue-600 hover:bg-blue-700 shadow-blue-100'
                                         : 'bg-amber-500 hover:bg-amber-600 shadow-amber-100'
-                                }`}
+                                    }`}
                             >
                                 Aceptar
                             </button>
@@ -1872,7 +1881,7 @@ const DocumentsPage: React.FC = () => {
                             <p className="text-sm font-bold text-slate-500">Procesando {bulkSignProgress.current} de {bulkSignProgress.total}...</p>
                         </div>
                         <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
-                            <div 
+                            <div
                                 className="bg-blue-600 h-full transition-all duration-300"
                                 style={{ width: `${(bulkSignProgress.current / bulkSignProgress.total) * 100}%` }}
                             ></div>
@@ -1897,7 +1906,7 @@ const DocumentsPage: React.FC = () => {
                                 <X size={24} />
                             </button>
                         </div>
-                        
+
                         <div className="flex-1 overflow-y-auto p-6 md:p-8">
                             {!tplModalOpen ? (
                                 <div className="space-y-6">
@@ -1989,7 +1998,7 @@ const DocumentsPage: React.FC = () => {
                                     <h3 className="text-sm font-black text-slate-700 uppercase tracking-widest border-b border-slate-100 pb-2">
                                         {tplEditing ? 'Editar Plantilla' : 'Crear Nueva Plantilla'}
                                     </h3>
-                                    
+
                                     <div className="space-y-4">
                                         <div className="space-y-2">
                                             <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Nombre de la Plantilla</label>
@@ -2118,7 +2127,7 @@ const DocumentsPage: React.FC = () => {
                                                     </button>
                                                 )}
                                             </div>
-                                            
+
                                             {tplDemoUrl && (
                                                 <div className="mt-2 bg-slate-200 border border-slate-300 rounded-xl overflow-y-auto max-h-[350px] flex justify-center p-4">
                                                     <Document
@@ -2126,7 +2135,22 @@ const DocumentsPage: React.FC = () => {
                                                         onLoadSuccess={({ numPages }) => setTplDemoNumPages(numPages)}
                                                         loading={<Loader2 className="animate-spin text-blue-500 mx-auto" size={24} />}
                                                     >
-                                                        <div className="relative inline-block shadow-lg rounded bg-white">
+                                                        <div
+                                                            onClick={(e) => {
+                                                                const rect = e.currentTarget.getBoundingClientRect();
+                                                                const ratioX = (e.clientX - rect.left) / rect.width;
+                                                                const ratioY = (e.clientY - rect.top) / rect.height;
+                                                                let newX = Math.round((ratioX * 612) - 60);
+                                                                let newY = Math.round(((1 - ratioY) * 792) - 25);
+                                                                setTplForm(prev => ({
+                                                                    ...prev,
+                                                                    posicionX: Math.max(10, Math.min(612 - 130, newX)),
+                                                                    posicionY: Math.max(10, Math.min(792 - 60, newY))
+                                                                }));
+                                                            }}
+                                                            className="relative inline-block shadow-lg rounded bg-white cursor-crosshair select-none group"
+                                                            title="Haz clic en cualquier punto para ubicar la firma"
+                                                        >
                                                             <Page
                                                                 pageNumber={tplForm.pageType === 'last' ? (tplDemoNumPages || 1) : Math.min(tplForm.pageNumber || 1, tplDemoNumPages || 1)}
                                                                 width={window.innerWidth < 640 ? window.innerWidth - 80 : 400}
@@ -2135,7 +2159,7 @@ const DocumentsPage: React.FC = () => {
                                                             />
                                                             {/* Recuadro de vista previa de firma — dimensiones Carta (612×792 pts) */}
                                                             <div
-                                                                className="absolute bg-blue-500/10 border-2 border-blue-600/50 rounded flex items-center justify-center p-[2px]"
+                                                                className="absolute bg-blue-500/20 border-2 border-blue-600 rounded-lg flex items-center justify-center p-[2px] shadow-md transition-all pointer-events-none"
                                                                 style={{
                                                                     width: `${(120 / 612) * 100}%`,
                                                                     height: `${(50 / 792) * 100}%`,
@@ -2143,7 +2167,7 @@ const DocumentsPage: React.FC = () => {
                                                                     left: `${((tplForm.posicionX ?? 246) / 612) * 100}%`,
                                                                 }}
                                                             >
-                                                                <div className="w-full h-full border border-blue-600/30 flex items-center justify-center text-[7px] font-black text-blue-800 uppercase tracking-tighter text-center">
+                                                                <div className="w-full h-full border border-dashed border-blue-600/40 rounded flex items-center justify-center text-[7px] font-black text-blue-900 uppercase tracking-tighter text-center bg-white/40">
                                                                     Firma y Huella
                                                                 </div>
                                                             </div>

@@ -184,7 +184,7 @@ interface AppState {
   uploadBase64: (base64String: string, path: string) => Promise<string>;
   // Digital Document Actions
   fetchDigitalDocuments: () => Promise<void>;
-  addDigitalDocument: (doc: Omit<DigitalDocument, 'id' | 'createdAt' | 'status'>) => Promise<void>;
+  addDigitalDocument: (doc: Omit<DigitalDocument, 'id' | 'createdAt' | 'status'>) => Promise<string>;
   signDigitalDocument: (id: string, signedUrl: string, metadata: DigitalDocument['metadata'], signedStoragePath?: string) => Promise<void>;
   deleteDigitalDocument: (id: string) => Promise<void>;
   unsubDigitalDocuments: () => void;
@@ -2073,7 +2073,7 @@ export const useAppStore = create<AppState>()(
       },
 
       addDigitalDocument: async (docData) => {
-        const id = "digdoc_" + Date.now();
+        const id = (docData as any).id || `digdoc_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
         const newDoc: DigitalDocument = {
           ...docData,
           id,
@@ -2082,8 +2082,11 @@ export const useAppStore = create<AppState>()(
         };
         try {
           await setDoc(doc(db, "documents", id), newDoc);
-          // Ya no hacemos set manual porque onSnapshot se encarga
-        } catch (error) { console.error("Error adding digital document:", error); }
+          return id;
+        } catch (error) { 
+          console.error("Error adding digital document:", error); 
+          throw error;
+        }
       },
 
       signDigitalDocument: async (id, signedUrl, metadata, signedStoragePath?) => {
