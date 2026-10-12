@@ -20,7 +20,8 @@ export class LegacyAdapter {
     siteId: string | number,
     dateStr: string, // YYYY-MM-DD
     status: 'programado' | 'noche' | 'descanso' | null,
-    currentUserUid: string
+    currentUserUid: string,
+    horario?: { inicio: string; termino: string }
   ) {
     try {
       const monthKey = dateStr.substring(0, 7); // YYYY-MM
@@ -51,13 +52,13 @@ export class LegacyAdapter {
       if (status === 'noche') codigo = 'N';
       if (status === 'descanso') codigo = 'D';
 
-      let inicio = '07:30';
-      let termino = '19:30';
+      let inicio = horario?.inicio || '07:30';
+      let termino = horario?.termino || '19:30';
       let cruza = false;
 
       if (codigo === 'N') {
-        inicio = '19:30';
-        termino = '07:30';
+        inicio = horario?.termino || '19:30';
+        termino = horario?.inicio || '07:30';
         cruza = true;
       }
 

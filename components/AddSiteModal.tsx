@@ -1,8 +1,8 @@
 
 import React, { useState, useEffect } from 'react';
 import { useAppStore } from '../store/useAppStore';
-import { X, Save, MapPin, Building2, Briefcase, Edit2, Trash2, AlertTriangle, ShieldCheck, Plus, Package } from 'lucide-react';
-import { Site } from '../types';
+import { X, Save, MapPin, Building2, Briefcase, Edit2, Trash2, AlertTriangle, ShieldCheck, Plus, Package, Clock, RotateCcw } from 'lucide-react';
+import { Site, DEFAULT_SITE_HORARIO } from '../types';
 
 interface AddSiteModalProps {
   onClose: () => void;
@@ -18,6 +18,7 @@ const AddSiteModal: React.FC<AddSiteModalProps> = ({ onClose, siteToEdit }) => {
   const [formData, setFormData] = useState<Partial<Site>>({
     active: true,
     cargosFijos: DEFAULT_CARGOS_FIJOS,
+    horario: DEFAULT_SITE_HORARIO,
   });
 
   const [newCargoInput, setNewCargoInput] = useState('');
@@ -32,11 +33,16 @@ const AddSiteModal: React.FC<AddSiteModalProps> = ({ onClose, siteToEdit }) => {
         cargosFijos: (siteToEdit.cargosFijos && siteToEdit.cargosFijos.length > 0)
           ? siteToEdit.cargosFijos
           : DEFAULT_CARGOS_FIJOS,
+        horario: {
+          inicio: siteToEdit.horario?.inicio || DEFAULT_SITE_HORARIO.inicio,
+          termino: siteToEdit.horario?.termino || DEFAULT_SITE_HORARIO.termino,
+        },
       });
     } else {
       setFormData({
         active: true,
         cargosFijos: DEFAULT_CARGOS_FIJOS,
+        horario: DEFAULT_SITE_HORARIO,
       });
     }
   }, [siteToEdit]);
@@ -44,6 +50,23 @@ const AddSiteModal: React.FC<AddSiteModalProps> = ({ onClose, siteToEdit }) => {
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value, type, checked } = e.target;
     setFormData(prev => ({ ...prev, [name]: type === 'checkbox' ? checked : value }));
+  };
+
+  const handleHorarioChange = (field: 'inicio' | 'termino', val: string) => {
+    setFormData(prev => ({
+      ...prev,
+      horario: {
+        inicio: field === 'inicio' ? val : (prev.horario?.inicio || DEFAULT_SITE_HORARIO.inicio),
+        termino: field === 'termino' ? val : (prev.horario?.termino || DEFAULT_SITE_HORARIO.termino),
+      }
+    }));
+  };
+
+  const handleResetHorario = () => {
+    setFormData(prev => ({
+      ...prev,
+      horario: { ...DEFAULT_SITE_HORARIO }
+    }));
   };
 
   const handleAddCargoFijo = (itemToAdd?: string) => {
@@ -79,6 +102,10 @@ const AddSiteModal: React.FC<AddSiteModalProps> = ({ onClose, siteToEdit }) => {
       cargosFijos: (formData.cargosFijos && formData.cargosFijos.length > 0)
         ? formData.cargosFijos
         : DEFAULT_CARGOS_FIJOS,
+      horario: {
+        inicio: formData.horario?.inicio?.trim() || DEFAULT_SITE_HORARIO.inicio,
+        termino: formData.horario?.termino?.trim() || DEFAULT_SITE_HORARIO.termino,
+      },
     };
 
     if (siteToEdit) {
@@ -184,6 +211,62 @@ const AddSiteModal: React.FC<AddSiteModalProps> = ({ onClose, siteToEdit }) => {
             <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Dirección Completa *</label>
                 <input name="address" value={formData.address || ''} required onChange={handleChange} className={inputClass} placeholder="Av. Principal 123, Comuna" />
+            </div>
+
+            {/* SECCIÓN HORARIO DE FUNCIONAMIENTO DE LA SUCURSAL */}
+            <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-3">
+                <div className="flex items-center justify-between">
+                    <label className="text-sm font-bold text-slate-800 flex items-center gap-2">
+                        <Clock size={16} className="text-blue-600" />
+                        Horario de Funcionamiento de la Sucursal
+                    </label>
+                    <span className="text-[11px] font-bold text-blue-700 bg-blue-50 px-2.5 py-0.5 rounded-full border border-blue-200">
+                        {formData.horario?.inicio || '07:30'} a {formData.horario?.termino || '19:30'}
+                    </span>
+                </div>
+                <p className="text-xs text-slate-500 leading-relaxed">
+                    Jornada horaria propia de la sucursal. Se establece automáticamente de <strong>07:30 a 19:30</strong> como base y sirve de referencia exclusiva para la planificación de turnos.
+                </p>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                    <div>
+                        <label className="block text-xs font-bold text-slate-600 mb-1">
+                            Hora Inicio (Apertura / Entrada) *
+                        </label>
+                        <input
+                            type="time"
+                            value={formData.horario?.inicio || '07:30'}
+                            onChange={(e) => handleHorarioChange('inicio', e.target.value)}
+                            required
+                            className={inputClass}
+                        />
+                    </div>
+                    <div>
+                        <label className="block text-xs font-bold text-slate-600 mb-1">
+                            Hora Término (Cierre / Salida) *
+                        </label>
+                        <input
+                            type="time"
+                            value={formData.horario?.termino || '19:30'}
+                            onChange={(e) => handleHorarioChange('termino', e.target.value)}
+                            required
+                            className={inputClass}
+                        />
+                    </div>
+                </div>
+
+                <div className="flex items-center justify-between pt-2 border-t border-slate-100">
+                    <span className="text-[11px] text-slate-400 font-medium">
+                        Predeterminado del sistema: 07:30 - 19:30
+                    </span>
+                    <button
+                        type="button"
+                        onClick={handleResetHorario}
+                        className="text-xs font-bold text-blue-600 hover:text-blue-800 flex items-center gap-1 transition"
+                    >
+                        <RotateCcw size={12} /> Restablecer (07:30 a 19:30)
+                    </button>
+                </div>
             </div>
 
             {/* SECCIÓN CARGOS FIJOS DE LA SUCURSAL */}

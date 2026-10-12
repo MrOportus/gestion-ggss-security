@@ -71,6 +71,10 @@ export const useShiftManagementFacade = () => {
           
           let accion = status === null ? 'delete' : 'create';
           const cruzaMedianoche = status === 'noche';
+
+          // Horario de funcionamiento de la sucursal como referencia exclusiva
+          const siteInicio = site?.horario?.inicio || '07:30';
+          const siteTermino = site?.horario?.termino || '19:30';
           
           callableChangesByColab[empId].push({
             colaboradorId: empId,
@@ -79,8 +83,8 @@ export const useShiftManagementFacade = () => {
             fechaOperacional: dateStr,
             codigoTurno: status === 'noche' ? 'N' : (status === 'descanso' ? 'D' : 'X'),
             horarioSnapshot: status === 'descanso' || status === null ? null : {
-              inicio: cruzaMedianoche ? '19:30' : '07:30',
-              termino: cruzaMedianoche ? '07:30' : '19:30',
+              inicio: cruzaMedianoche ? siteTermino : siteInicio,
+              termino: cruzaMedianoche ? siteInicio : siteTermino,
               cruzaMedianoche,
             },
             estado: status === null ? 'cancelado' : (status === 'noche' ? 'programado' : status),
@@ -120,8 +124,15 @@ export const useShiftManagementFacade = () => {
             const isNight = progDoc?.status === 'noche' || progDoc?.turno === 'N' || progDoc?.codigoTurno === 'N';
             const [year, month, dayNum] = dateStr.split('-').map(Number);
 
-            let startH = 7, startM = 30, endH = 19, endM = 30;
-            if (isNight) { startH = 19; startM = 30; endH = 7; endM = 30; }
+            const siteInicio = site?.horario?.inicio || '07:30';
+            const siteTermino = site?.horario?.termino || '19:30';
+            const [pStartH, pStartM] = siteInicio.split(':').map(Number);
+            const [pEndH, pEndM] = siteTermino.split(':').map(Number);
+
+            let startH = isNight ? pEndH : pStartH;
+            let startM = isNight ? pEndM : pStartM;
+            let endH = isNight ? pStartH : pEndH;
+            let endM = isNight ? pStartM : pEndM;
 
             const startTimestamp = new Date(year, month - 1, dayNum, startH, startM).toISOString();
             let endTimestamp = new Date(year, month - 1, dayNum, endH, endM).toISOString();

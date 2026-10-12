@@ -40,7 +40,7 @@ import DocumentsPage from './DocumentsPage';
 import { GlobalOverlay } from '../components/GlobalOverlay';
 import { db, auth } from '../lib/firebase';
 import { collection, query, where, getDocs, getDoc, onSnapshot, doc as firestoreDoc, limit, updateDoc, setDoc, deleteDoc, Timestamp, orderBy } from 'firebase/firestore';
-import { CompanyDocument } from '../types';
+import { CompanyDocument, DEFAULT_SITE_HORARIO } from '../types';
 import { EmailAuthProvider, reauthenticateWithCredential, updatePassword } from 'firebase/auth';
 import { addSeguimiento, esEsquemaNuevo } from '../lib/novedades/seguimientoService';
 import type { RegistroNovedad } from '../types';
@@ -60,8 +60,8 @@ import { toAbsoluteMinutes } from '../lib/phase5/shadowResolver';
 // ── Constantes de horarios de turno ───────────────────────────────────────
 // Resolver Shadow trasladado al backend en Subfase 5B.3───────────────────────────────────────
 const SHIFT_SCHEDULES: Record<string, { inicio: string; termino: string }> = {
-  programado: { inicio: '07:30', termino: '19:30' },
-  noche:      { inicio: '19:30', termino: '07:30' },
+  programado: { inicio: DEFAULT_SITE_HORARIO.inicio, termino: DEFAULT_SITE_HORARIO.termino },
+  noche:      { inicio: DEFAULT_SITE_HORARIO.termino, termino: DEFAULT_SITE_HORARIO.inicio },
 };
 
 
@@ -640,12 +640,20 @@ const WorkerAttendance: React.FC = () => {
       const actionTimestamp = now.toISOString();
       
       const shiftStatus = validatedShiftDoc?.status || 'programado';
-      const schedule = SHIFT_SCHEDULES[shiftStatus] || SHIFT_SCHEDULES.programado;
-      
       const shiftSiteId = validatedShiftDoc?.siteId ? String(validatedShiftDoc.siteId) : null;
       if (!shiftSiteId) {
         throw new Error("No se pudo determinar la sucursal del turno programado.");
       }
+
+      const shiftSite = sites.find(s => s.id.toString() === shiftSiteId);
+      const isNight = shiftStatus === 'noche';
+      const siteInicio = shiftSite?.horario?.inicio || DEFAULT_SITE_HORARIO.inicio;
+      const siteTermino = shiftSite?.horario?.termino || DEFAULT_SITE_HORARIO.termino;
+
+      const schedule = {
+        inicio: isNight ? siteTermino : siteInicio,
+        termino: isNight ? siteInicio : siteTermino,
+      };
 
       const shiftId = `prog_${shiftSiteId}_${employee!.id}_${dateStr}`;
 
@@ -658,7 +666,7 @@ const WorkerAttendance: React.FC = () => {
         locationLat: finalCoords!.lat,
         locationLng: finalCoords!.lng,
         siteId: isNaN(Number(shiftSiteId)) ? shiftSiteId : Number(shiftSiteId),
-        siteName: sites.find(s => s.id.toString() === shiftSiteId)?.name || 'Sin Sucursal',
+        siteName: shiftSite?.name || 'Sin Sucursal',
         shiftId: shiftId,
         localDate: dateStr,
         // Nuevos campos
@@ -991,10 +999,31 @@ const WorkerAttendance: React.FC = () => {
   const currentSite = sites.find(s => String(s.id) === String(resolvedSiteId));
   const displayShortName = employee ? `${employee.firstName} ${employee.lastNamePaterno.charAt(0).toUpperCase()}.` : '';
 
-  // Horario del turno activo
-  const activeShiftSchedule = activeLog?.turnoProgramadoStatus
-    ? SHIFT_SCHEDULES[activeLog.turnoProgramadoStatus] || SHIFT_SCHEDULES.programado
-    : null;
+  // Horario del turno activo (calculado dinámicamente según la sucursal asignada)
+  const activeShiftSchedule = React.useMemo(() => {
+    const isNight = activeLog?.turnoProgramadoStatus === 'noche';
+    const siteInicio = currentSite?.horario?.inicio || DEFAULT_SITE_HORARIO.inicio;
+    const siteTermino = currentSite?.horario?.termino || DEFAULT_SITE_HORARIO.termino;
+
+    if (currentSite?.horario) {
+      return {
+        inicio: isNight ? siteTermino : siteInicio,
+        termino: isNight ? siteInicio : siteTermino,
+      };
+    }
+
+    if (activeLog?.turnoProgramadoInicio && activeLog?.turnoProgramadoTermino) {
+      return {
+        inicio: activeLog.turnoProgramadoInicio,
+        termino: activeLog.turnoProgramadoTermino,
+      };
+    }
+
+    return {
+      inicio: isNight ? siteTermino : siteInicio,
+      termino: isNight ? siteInicio : siteTermino,
+    };
+  }, [currentSite, activeLog]);
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col font-sans">
@@ -1040,8 +1069,16 @@ const WorkerAttendance: React.FC = () => {
             <div className="w-10 h-10 bg-blue-500/20 rounded-xl flex items-center justify-center text-blue-300">
               <MapPin size={22} />
             </div>
-            <div className="flex-1">
-              <p className="text-[10px] text-blue-300 uppercase font-black tracking-widest leading-none mb-1">Sucursal Asignada</p>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center justify-between gap-2 mb-1">
+                <p className="text-[10px] text-blue-300 uppercase font-black tracking-widest leading-none">Sucursal Asignada</p>
+                {currentSite && (
+                  <span className="text-[10px] font-bold text-blue-200 bg-white/10 px-2 py-0.5 rounded-full flex items-center gap-1 shrink-0">
+                    <Clock size={10} className="text-blue-300" />
+                    {currentSite.horario ? `${currentSite.horario.inicio} - ${currentSite.horario.termino}` : `${DEFAULT_SITE_HORARIO.inicio} - ${DEFAULT_SITE_HORARIO.termino}`}
+                  </span>
+                )}
+              </div>
               <p className="font-bold text-sm line-clamp-1">{currentSite?.name || 'SIN ASIGNACIÓN'}</p>
             </div>
           </div>
@@ -1777,7 +1814,7 @@ const WorkerAttendance: React.FC = () => {
               <div className="flex justify-between items-center">
                 <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Turno</span>
                 <span className="text-sm font-bold text-slate-700">
-                  {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  {currentSite?.horario ? `${currentSite.horario.inicio} - ${currentSite.horario.termino}` : `${DEFAULT_SITE_HORARIO.inicio} - ${DEFAULT_SITE_HORARIO.termino}`}
                 </span>
               </div>
             </div>

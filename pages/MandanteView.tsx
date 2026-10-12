@@ -4,6 +4,7 @@ import { collection, query, orderBy, limit, onSnapshot } from 'firebase/firestor
 import { useAppStore } from '../store/useAppStore';
 import ThumbnailImage from '../components/ThumbnailImage';
 import RouteMapModal from '../components/RouteMapModal';
+import { DEFAULT_SITE_HORARIO } from '../types';
 import {
     Navigation, Search, MapPin, ExternalLink, Loader2, Camera,
     ShieldCheck, AlertCircle, ShieldAlert, LogOut, RefreshCw,
@@ -96,12 +97,20 @@ const ActiveGuardBanner = ({ attendanceLogs, employees, weekRounds, selectedSite
                     if (isSelected) {
                         const roundsThisWeek = weekRounds.filter((r: any) => (r.workerId || r.workerName) === (latest.employeeId || latest.employeeName) && String(r.siteId) === sid).length;
                         
+                        const matchedSite = allowedSites.find((s:any) => String(s.id) === sid);
+                        const isNight = latest.turnoProgramadoStatus === 'noche';
+                        const siteInicio = matchedSite?.horario?.inicio || DEFAULT_SITE_HORARIO.inicio;
+                        const siteTermino = matchedSite?.horario?.termino || DEFAULT_SITE_HORARIO.termino;
+                        const shiftRange = isNight ? `${siteTermino} - ${siteInicio}` : `${siteInicio} - ${siteTermino}`;
+                        const scheduledEnd = isNight ? siteInicio : siteTermino;
+
                         active.push({
                             id: latest.employeeId,
                             name: latest.employeeName,
-                            siteName: latest.siteName || allowedSites.find((s:any) => String(s.id) === sid)?.name || 'Instalación',
+                            siteName: latest.siteName || matchedSite?.name || 'Instalación',
                             checkInTime: new Date(latest.timestamp).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' }),
-                            scheduledEnd: latest.turnoProgramadoTermino || '--:--',
+                            scheduledEnd,
+                            shiftRange,
                             roundsThisWeek
                         });
                     }
@@ -141,7 +150,23 @@ const ActiveGuardBanner = ({ attendanceLogs, employees, weekRounds, selectedSite
                         <h3 className="font-black text-slate-800 text-lg leading-tight uppercase tracking-tight">
                             {activeGuards.length > 0 ? 'Servicio Operativo' : 'Sin servicio activo'}
                         </h3>
-                        <p className="text-xs font-bold text-slate-500 mt-0.5">{siteName}</p>
+                        <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                            <p className="text-xs font-bold text-slate-500">{siteName}</p>
+                            {selectedSiteId !== 'all' && (
+                                (() => {
+                                    const s = allowedSites.find((site: any) => String(site.id) === selectedSiteId);
+                                    if (!s) return null;
+                                    const inicio = s.horario?.inicio || DEFAULT_SITE_HORARIO.inicio;
+                                    const termino = s.horario?.termino || DEFAULT_SITE_HORARIO.termino;
+                                    return (
+                                        <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-full border border-blue-200">
+                                            <Clock size={11} className="text-blue-500" />
+                                            <span>Horario: {inicio} - {termino}</span>
+                                        </span>
+                                    );
+                                })()
+                            )}
+                        </div>
                     </div>
                 </div>
                 
@@ -178,8 +203,10 @@ const ActiveGuardBanner = ({ attendanceLogs, employees, weekRounds, selectedSite
                                         <p className="font-bold text-slate-700">{guard.checkInTime}</p>
                                     </div>
                                     <div className="border-l border-slate-200 pl-2">
-                                        <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-0.5">Salida</p>
-                                        <p className="font-bold text-slate-700">{guard.scheduledEnd}</p>
+                                        <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-0.5">Turno</p>
+                                        <p className="font-bold text-slate-700 text-xs" title={`Horario de la instalación: ${guard.shiftRange}`}>
+                                            {guard.shiftRange}
+                                        </p>
                                     </div>
                                     <div className="border-l border-slate-200 pl-2">
                                         <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-0.5" title="Rondas esta semana">Rondas (Sem)</p>

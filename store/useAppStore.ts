@@ -1216,6 +1216,7 @@ export const useAppStore = create<AppState>()(
         const newSite: Site = {
           id: tempId,
           cargosFijos: site.cargosFijos && site.cargosFijos.length > 0 ? site.cargosFijos : ['Chaleco Anticorte'],
+          horario: site.horario || { inicio: '07:30', termino: '19:30' },
           ...site
         };
         set(state => ({ sites: [...state.sites, newSite] }));
@@ -1258,6 +1259,7 @@ export const useAppStore = create<AppState>()(
           const site = {
             id: tempId,
             cargosFijos: s.cargosFijos && s.cargosFijos.length > 0 ? s.cargosFijos : ['Chaleco Anticorte'],
+            horario: s.horario || { inicio: '07:30', termino: '19:30' },
             ...s
           };
           sitesToAdd.push(site);

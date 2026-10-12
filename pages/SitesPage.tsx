@@ -1,10 +1,10 @@
 
 import React, { useState, useRef } from 'react';
 import { useAppStore } from '../store/useAppStore';
-import { Search, Plus, MapPin, Building2, FileSpreadsheet, Edit2 } from 'lucide-react';
+import { Search, Plus, MapPin, Building2, FileSpreadsheet, Edit2, Clock } from 'lucide-react';
 import AddSiteModal from '../components/AddSiteModal';
 import * as XLSX from 'xlsx';
-import { Site } from '../types';
+import { Site, DEFAULT_SITE_HORARIO } from '../types';
 
 const SitesPage: React.FC = () => {
   const { sites, bulkAddSites, toggleSiteStatus, showNotification, currentUser, employees } = useAppStore();
@@ -18,10 +18,12 @@ const SitesPage: React.FC = () => {
 
   const filteredSites = sites.filter(s => {
     const cargosStr = (s.cargosFijos || ['Chaleco Anticorte']).join(' ').toLowerCase();
+    const horarioStr = `${s.horario?.inicio || DEFAULT_SITE_HORARIO.inicio} ${s.horario?.termino || DEFAULT_SITE_HORARIO.termino}`.toLowerCase();
     const matchesSearch = s.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       s.address.toLowerCase().includes(searchTerm.toLowerCase()) ||
       (s.empresa && s.empresa.toLowerCase().includes(searchTerm.toLowerCase())) ||
-      cargosStr.includes(searchTerm.toLowerCase());
+      cargosStr.includes(searchTerm.toLowerCase()) ||
+      horarioStr.includes(searchTerm.toLowerCase());
     
     if (currentUser?.role === 'supervisor') {
       return matchesSearch && currentEmp?.assignedSites?.includes(s.id);
@@ -91,6 +93,7 @@ const SitesPage: React.FC = () => {
             name: name,
             address: address,
             cargosFijos: ['Chaleco Anticorte'],
+            horario: { ...DEFAULT_SITE_HORARIO },
             active: true
           };
         }).filter(item => item !== null);
@@ -114,7 +117,7 @@ const SitesPage: React.FC = () => {
   };
 
   return (
-    <div className="p-4 md:p-6 max-w-7xl mx-auto space-y-6">
+    <div className="p-4 md:p-6 max-w-[1400px] mx-auto space-y-6">
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Gestión de Sucursales</h1>
@@ -164,22 +167,23 @@ const SitesPage: React.FC = () => {
       {/* Tabla de Sucursales */}
       <div className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm text-slate-600">
+          <table className="min-w-[1050px] w-full text-left text-sm text-slate-600">
             <thead className="bg-slate-50 text-slate-700 font-semibold border-b border-slate-200">
               <tr>
-                <th className="px-6 py-4">Empresa / Cliente</th>
-                <th className="px-6 py-4">RUT E°</th>
-                <th className="px-6 py-4">Obra / Faena</th>
-                <th className="px-6 py-4">Dirección</th>
-                <th className="px-6 py-4">Cargos Fijos</th>
-                <th className="px-6 py-4 text-center">Estado</th>
-                <th className="px-6 py-4 text-right">Acciones</th>
+                <th className="px-4 py-3.5 whitespace-nowrap">Empresa / Cliente</th>
+                <th className="px-4 py-3.5 whitespace-nowrap">RUT E°</th>
+                <th className="px-4 py-3.5 whitespace-nowrap">Obra / Faena</th>
+                <th className="px-4 py-3.5 whitespace-nowrap">Dirección</th>
+                <th className="px-4 py-3.5 whitespace-nowrap">Horario</th>
+                <th className="px-4 py-3.5 whitespace-nowrap">Cargos Fijos</th>
+                <th className="px-4 py-3.5 text-center whitespace-nowrap">Estado</th>
+                <th className="px-4 py-3.5 text-center whitespace-nowrap min-w-[90px]">Acciones</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {filteredSites.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-6 py-12 flex flex-col items-center justify-center text-center">
+                  <td colSpan={8} className="px-6 py-12 flex flex-col items-center justify-center text-center">
                     <Building2 size={48} className="text-slate-200 mb-4" />
                     <p className="text-slate-400 font-medium">No se encontraron sucursales registradas.</p>
                   </td>
@@ -189,35 +193,45 @@ const SitesPage: React.FC = () => {
                   const cargos = (site.cargosFijos && site.cargosFijos.length > 0)
                     ? site.cargosFijos
                     : ['Chaleco Anticorte'];
+                  const horarioInicio = site.horario?.inicio || DEFAULT_SITE_HORARIO.inicio;
+                  const horarioTermino = site.horario?.termino || DEFAULT_SITE_HORARIO.termino;
 
                   return (
                     <tr key={site.id} className={`hover:bg-slate-50 transition-colors ${!site.active ? 'bg-red-50/20' : ''}`}>
-                      <td className="px-6 py-4">
-                        <div className="font-bold text-slate-800">{site.empresa || '-'}</div>
+                      <td className="px-4 py-3.5">
+                        <div className="font-bold text-slate-800 whitespace-nowrap">{site.empresa || '-'}</div>
                       </td>
-                      <td className="px-6 py-4 font-mono text-slate-500">{site.rutEmpresa || '-'}</td>
-                      <td className="px-6 py-4">
+                      <td className="px-4 py-3.5 font-mono text-slate-500 whitespace-nowrap">{site.rutEmpresa || '-'}</td>
+                      <td className="px-4 py-3.5">
                         <div className="flex items-center gap-2">
-                          <div className="p-1.5 bg-blue-50 text-blue-600 rounded">
+                          <div className="p-1.5 bg-blue-50 text-blue-600 rounded shrink-0">
                             <Building2 size={14} />
                           </div>
-                          <span className="font-medium text-slate-900">{site.name}</span>
+                          <span className="font-medium text-slate-900 truncate max-w-[200px]" title={site.name}>
+                            {site.name}
+                          </span>
                         </div>
                       </td>
-                      <td className="px-6 py-4">
+                      <td className="px-4 py-3.5">
                         <div className="flex items-center gap-2 text-slate-500">
                           <MapPin size={14} className="shrink-0 text-slate-400" />
-                          <span className="truncate max-w-[200px]">{site.address}</span>
+                          <span className="truncate max-w-[220px]" title={site.address}>{site.address}</span>
                         </div>
                       </td>
-                      <td className="px-6 py-4">
-                        <div className="flex flex-wrap gap-1 max-w-[260px]">
+                      <td className="px-4 py-3.5 whitespace-nowrap">
+                        <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-blue-50 text-blue-700 border border-blue-200 text-xs font-bold whitespace-nowrap shadow-sm">
+                          <Clock size={13} className="text-blue-500 shrink-0" />
+                          <span>{horarioInicio} - {horarioTermino}</span>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3.5">
+                        <div className="flex flex-wrap gap-1 max-w-[240px]">
                           {cargos.map((cargo, i) => {
                             const isChaleco = cargo.toLowerCase().includes('chaleco');
                             return (
                               <span
                                 key={i}
-                                className={`text-[10px] font-bold px-2 py-0.5 rounded-md border ${
+                                className={`text-[10px] font-bold px-2 py-0.5 rounded-md border whitespace-nowrap ${
                                   isChaleco
                                     ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
                                     : 'bg-slate-50 text-slate-700 border-slate-200'
@@ -229,7 +243,7 @@ const SitesPage: React.FC = () => {
                           })}
                         </div>
                       </td>
-                      <td className="px-6 py-4 text-center">
+                      <td className="px-4 py-3.5 text-center whitespace-nowrap">
                         <button
                           onClick={() => isAdmin && toggleSiteStatus(site.id)}
                           disabled={!isAdmin}
@@ -238,11 +252,11 @@ const SitesPage: React.FC = () => {
                           {site.active ? 'OPERATIVA' : 'INACTIVA'}
                         </button>
                       </td>
-                      <td className="px-6 py-4 text-right">
+                      <td className="px-4 py-3.5 text-center whitespace-nowrap">
                         {isAdmin && (
                           <button
                             onClick={() => handleOpenEdit(site)}
-                            className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition"
+                            className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition inline-flex items-center justify-center"
                             title="Modificar Datos"
                           >
                             <Edit2 size={18} />

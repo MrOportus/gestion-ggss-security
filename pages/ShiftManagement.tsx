@@ -22,7 +22,8 @@ import {
     Circle,
     AlertTriangle,
     AlertCircle,
-    StickyNote
+    StickyNote,
+    Clock
 } from 'lucide-react';
 import ManageStaffModal from '../components/ManageStaffModal';
 import { useShiftManagementFacade } from '../lib/phase2/useShiftManagementFacade';
@@ -109,6 +110,9 @@ const ShiftManagement: React.FC = () => {
     }, [sites, currentUser, employees, includeFalabella, onlyFalabella]);
     const [currentDate, setCurrentDate] = useState(new Date());
     const [selectedSiteId, setSelectedSiteId] = useState<string | number>('');
+    const currentSelectedSite = useMemo(() => {
+        return filteredSitesForUser.find(s => String(s.id) === String(selectedSiteId)) || sites.find(s => String(s.id) === String(selectedSiteId));
+    }, [filteredSitesForUser, sites, selectedSiteId]);
     const [siteInputValue, setSiteInputValue] = useState('');
     const [showSiteList, setShowSiteList] = useState(false);
     const siteSearchRef = useRef<HTMLDivElement>(null);
@@ -973,9 +977,22 @@ const ShiftManagement: React.FC = () => {
                             <CalendarIcon className="text-yellow-400" />
                             GESTIÓN DE TURNOS
                         </h1>
-                        <p className="text-slate-500 text-sm font-medium">
-                            {filteredSitesForUser.find(s => String(s.id) === String(selectedSiteId))?.name || 'Cargando sucursal...'}
-                        </p>
+                        <div className="flex items-center gap-3 mt-1 flex-wrap">
+                            <p className="text-slate-500 text-sm font-medium">
+                                {currentSelectedSite?.name || 'Cargando sucursal...'}
+                            </p>
+                            {currentSelectedSite && (
+                                <div 
+                                    className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-200/80 shadow-xs"
+                                    title="Horario de funcionamiento configurable de esta sucursal (referencia para planificación de turnos)"
+                                >
+                                    <Clock size={12} className="text-blue-500 shrink-0" />
+                                    <span>
+                                        Horario: <strong className="font-bold">{currentSelectedSite.horario?.inicio || '07:30'}</strong> a <strong className="font-bold">{currentSelectedSite.horario?.termino || '19:30'}</strong>
+                                    </span>
+                                </div>
+                            )}
+                        </div>
                     </div>
 
                     {/* Conflictos (Área solicitada por usuario) */}

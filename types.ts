@@ -7,6 +7,16 @@ export interface User {
   role: Role;
 }
 
+export interface HorarioFuncionamiento {
+  inicio: string;  // Formato "HH:mm" (ej: "07:30")
+  termino: string; // Formato "HH:mm" (ej: "19:30")
+}
+
+export const DEFAULT_SITE_HORARIO: HorarioFuncionamiento = {
+  inicio: '07:30',
+  termino: '19:30',
+};
+
 export interface Site {
   id: number;
   name: string; // Corresponde a "Obra o Faena"
@@ -16,6 +26,7 @@ export interface Site {
   active: boolean;
   rondasEnabled?: boolean; // Contextual Feature Toggle for Guard Rounds
   cargosFijos?: string[]; // Listado de cargos fijos / equipamiento base de la sucursal (ej: ['Chaleco Anticorte'])
+  horario?: HorarioFuncionamiento; // Horario de funcionamiento de la sucursal (por defecto: 07:30 a 19:30)
 }
 
 export interface Employee {
