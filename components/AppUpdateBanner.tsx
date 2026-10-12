@@ -1,235 +1,196 @@
 import React, { useState, useEffect } from 'react';
-import { doc, getDoc } from 'firebase/firestore';
-import { db } from '../lib/firebase';
 import { useAppStore } from '../store/useAppStore';
-import { Download, X, RefreshCw, Smartphone, Zap } from 'lucide-react';
+import { Download, X, RefreshCw, Smartphone, AlertTriangle } from 'lucide-react';
 import { Capacitor } from '@capacitor/core';
-import { downloadAndInstallUpdate, notifyAppReady } from '../lib/UpdateService';
+import {
+  APP_VERSION,
+  subscribeToUpdateState,
+  performAutoUpdateCheck,
+  downloadAndInstallUpdate,
+  AutoUpdateState,
+} from '../lib/UpdateService';
 
-// ────────────────────────────────────────────────────────────────
-// VERSIÓN ACTUAL DE LA APP (APK NATIVO)
-// Este valor debe actualizarse manualmente (o con el script
-// scripts/publish-version.js) cada vez que generes un nuevo APK.
-// ────────────────────────────────────────────────────────────────
-export const APP_VERSION = '6.0.0';
-
-interface AppVersionConfig {
-  version: string; // Versión del APK
-  apkUrl: string; // URL del APK
-  releaseNotes?: string;
-  mandatory?: boolean; // Si es true, no se puede descartar el banner
-  webVersion?: string; // Versión web (OTA)
-  webUrl?: string; // URL del ZIP de actualización web (OTA)
-}
+export { APP_VERSION };
 
 const AppUpdateBanner: React.FC = () => {
   const showConfirmation = useAppStore(state => state.showConfirmation);
-  const [updateInfo, setUpdateInfo] = useState<AppVersionConfig | null>(null);
+  const [updateState, setUpdateState] = useState<AutoUpdateState>({
+    status: 'idle',
+    activeWebVersion: APP_VERSION,
+    targetWebVersion: null,
+    lastChecked: null,
+    lastError: null,
+    consecutiveFailures: 0,
+    isApkUpdateAvailable: false,
+    apkConfig: null,
+  });
+
   const [isDismissed, setIsDismissed] = useState(false);
-  const [isChecking, setIsChecking] = useState(false);
-  
-  // Estados para actualizaciones OTA
-  const [localWebVersion, setLocalWebVersion] = useState<string>(APP_VERSION);
-  const [isApkUpdate, setIsApkUpdate] = useState<boolean>(false);
-  const [isUpdating, setIsUpdating] = useState<boolean>(false);
-
-  // Comparar versiones semánticas: "1.2.3" → [1, 2, 3]
-  const isNewerVersion = (remote: string, local: string): boolean => {
-    const parse = (v: string) => {
-      const clean = v.replace(/^v/, '').split('-')[0];
-      return clean.split('.').map(Number);
-    };
-    const [rMaj = 0, rMin = 0, rPatch = 0] = parse(remote);
-    const [lMaj = 0, lMin = 0, lPatch = 0] = parse(local);
-    if (rMaj !== lMaj) return rMaj > lMaj;
-    if (rMin !== lMin) return rMin > lMin;
-    return rPatch > lPatch;
-  };
-
-  // Obtiene la versión del bundle web actual
-  const getCleanWebVersion = async (): Promise<string> => {
-    if (!Capacitor.isNativePlatform()) return APP_VERSION;
-    try {
-      const { CapacitorUpdater } = await import('@capgo/capacitor-updater');
-      const current = await CapacitorUpdater.current();
-      if (current?.bundle?.version && current.bundle.version !== 'builtin') {
-        return current.bundle.version;
-      }
-    } catch (error) {
-      console.warn('[UPDATE] Error obteniendo versión activa del bundle:', error);
-    }
-    return APP_VERSION;
-  };
-
-  const checkForUpdate = async () => {
-    setIsChecking(true);
-    try {
-      const activeWebVer = await getCleanWebVersion();
-      setLocalWebVersion(activeWebVer);
-
-      const versionDoc = await getDoc(doc(db, 'app_config', 'version'));
-      if (versionDoc.exists()) {
-        const remoteConfig = versionDoc.data() as AppVersionConfig;
-        
-        // 1. Prioridad: Actualización de APK Nativo (cambios nativos requeridos)
-        if (isNewerVersion(remoteConfig.version, APP_VERSION)) {
-          setUpdateInfo(remoteConfig);
-          setIsApkUpdate(true);
-          setIsDismissed(false); // Mostrar de nuevo si hay actualización crítica de APK
-        }
-        // 2. Si no hay APK más nuevo, verificar si hay actualización web OTA (solo en celular nativo)
-        else if (
-          Capacitor.isNativePlatform() &&
-          remoteConfig.webVersion &&
-          remoteConfig.webUrl &&
-          isNewerVersion(remoteConfig.webVersion, activeWebVer)
-        ) {
-          setUpdateInfo(remoteConfig);
-          setIsApkUpdate(false);
-          setIsDismissed(false);
-        } else {
-          setUpdateInfo(null);
-        }
-      }
-    } catch (error) {
-      console.warn('[UPDATE] Error verificando actualización:', error);
-    } finally {
-      setIsChecking(false);
-    }
-  };
+  const [isManualUpdating, setIsManualUpdating] = useState(false);
 
   useEffect(() => {
-    // Solo verificar si es la plataforma nativa de Android
+    // Solo operar en la plataforma nativa de Android
     if (Capacitor.getPlatform() !== 'android') {
       return;
     }
 
-    // Chequear al montar
-    checkForUpdate();
+    // Suscribirse a los cambios del servicio de actualización automática
+    const unsubscribe = subscribeToUpdateState(state => {
+      setUpdateState(state);
+    });
 
-    // Re-chequear cada 30 minutos si la app sigue abierta
-    const interval = setInterval(checkForUpdate, 30 * 60 * 1000);
-    return () => clearInterval(interval);
+    return () => {
+      unsubscribe();
+    };
   }, []);
 
-  // Si no es Android o no hay actualización disponible, no renderizar
-  if (Capacitor.getPlatform() !== 'android' || !updateInfo || (isDismissed && !updateInfo.mandatory)) {
+  // Si no es Android, no renderizar nada
+  if (Capacitor.getPlatform() !== 'android') {
     return null;
   }
 
-  const handleAction = async () => {
-    if (isApkUpdate) {
-      // Abrir la URL del APK — el navegador/sistema descargará el archivo
-      window.open(updateInfo.apkUrl, '_blank');
-    } else {
-      // Es una actualización OTA de assets web
-      if (updateInfo.webUrl && updateInfo.webVersion) {
-        setIsUpdating(true);
-        try {
-          await downloadAndInstallUpdate(updateInfo.webUrl, updateInfo.webVersion);
-          // Nota: downloadAndInstallUpdate reinicia automáticamente la aplicación
-        } catch (error) {
-          console.error('[UPDATE] Error al aplicar actualización OTA:', error);
-          showConfirmation({
-            title: "Actualización Fallida",
-            message: "No se pudo aplicar la actualización web. Por favor, intenta de nuevo.",
-            type: 'alert',
-            onConfirm: () => {}
-          });
-        } finally {
-          setIsUpdating(false);
-        }
+  const { isApkUpdateAvailable, apkConfig, status, consecutiveFailures, targetWebVersion, lastError } = updateState;
+
+  // CASO 1: Actualización de APK Nativo requerida (cambios nativos, plugins nuevos, etc.)
+  // Este caso SIEMPRE requiere intervención del usuario para descargar el binario APK.
+  if (isApkUpdateAvailable && apkConfig && (!isDismissed || apkConfig.mandatory)) {
+    const handleDownloadApk = () => {
+      if (apkConfig.apkUrl) {
+        window.open(apkConfig.apkUrl, '_blank');
       }
-    }
-  };
+    };
 
-  return (
-    <div
-      className={`fixed bottom-0 left-0 right-0 z-[999] p-4 ${updateInfo.mandatory ? 'pb-6' : ''}`}
-      style={{ animation: 'slideUp 0.4s ease-out' }}
-    >
-      <style>{`
-        @keyframes slideUp {
-          from { transform: translateY(100%); opacity: 0; }
-          to   { transform: translateY(0);    opacity: 1; }
-        }
-      `}</style>
+    return (
+      <div
+        className={`fixed bottom-0 left-0 right-0 z-[999] p-4 ${apkConfig.mandatory ? 'pb-6' : ''}`}
+        style={{ animation: 'slideUp 0.4s ease-out' }}
+      >
+        <style>{`
+          @keyframes slideUp {
+            from { transform: translateY(100%); opacity: 0; }
+            to   { transform: translateY(0);    opacity: 1; }
+          }
+        `}</style>
 
-      <div className="max-w-lg mx-auto bg-gradient-to-br from-blue-900 to-indigo-900 rounded-3xl shadow-2xl border border-blue-700/50 overflow-hidden">
-        {/* Barra de acento superior */}
-        <div className="h-1 bg-gradient-to-r from-blue-400 via-indigo-400 to-purple-400" />
-
-        <div className="p-5">
-          <div className="flex items-start gap-4">
-            {/* Ícono */}
-            <div className="w-12 h-12 bg-blue-500/20 rounded-2xl flex items-center justify-center shrink-0 border border-blue-400/30">
-              {isApkUpdate ? (
+        <div className="max-w-lg mx-auto bg-gradient-to-br from-blue-900 to-indigo-900 rounded-3xl shadow-2xl border border-blue-700/50 overflow-hidden">
+          <div className="h-1 bg-gradient-to-r from-blue-400 via-indigo-400 to-purple-400" />
+          <div className="p-5">
+            <div className="flex items-start gap-4">
+              <div className="w-12 h-12 bg-blue-500/20 rounded-2xl flex items-center justify-center shrink-0 border border-blue-400/30">
                 <Smartphone size={24} className="text-blue-300" />
-              ) : (
-                <Zap size={24} className="text-yellow-300 animate-pulse" />
+              </div>
+
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-[10px] font-black text-blue-400 uppercase tracking-widest">
+                    Nueva Versión Nativa (APK)
+                  </span>
+                  <span className="px-2 py-0.5 bg-blue-500/30 text-blue-200 text-[10px] font-bold rounded-full border border-blue-400/30">
+                    v{apkConfig.version}
+                  </span>
+                </div>
+
+                <p className="text-sm font-bold text-white leading-tight">
+                  {apkConfig.releaseNotes || 'Hay una nueva actualización de la aplicación disponible.'}
+                </p>
+
+                <p className="text-[11px] text-blue-300 mt-1 font-medium">
+                  Versión actual instalada: <span className="text-blue-200">v{APP_VERSION}</span>
+                </p>
+              </div>
+
+              {!apkConfig.mandatory && (
+                <button
+                  onClick={() => setIsDismissed(true)}
+                  className="p-1.5 rounded-xl text-blue-400 hover:text-white hover:bg-white/10 transition-all shrink-0"
+                  title="Descartar"
+                >
+                  <X size={16} />
+                </button>
               )}
             </div>
 
-            {/* Contenido */}
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2 mb-1">
-                <span className="text-[10px] font-black text-blue-400 uppercase tracking-widest">
-                  {isApkUpdate ? 'Nueva Versión Disponible' : 'Actualización de Sistema'}
-                </span>
-                <span className="px-2 py-0.5 bg-blue-500/30 text-blue-200 text-[10px] font-bold rounded-full border border-blue-400/30">
-                  v{isApkUpdate ? updateInfo.version : updateInfo.webVersion}
-                </span>
-              </div>
+            <button
+              onClick={handleDownloadApk}
+              className="mt-4 w-full py-3.5 bg-gradient-to-r from-blue-500 to-indigo-500 hover:from-blue-400 hover:to-indigo-400 text-white rounded-2xl font-black text-sm uppercase tracking-widest shadow-lg shadow-blue-900/50 flex items-center justify-center gap-2 transition-all active:scale-95 border-b-4 border-blue-700"
+            >
+              <Download size={18} />
+              Descargar Actualización
+            </button>
 
-              <p className="text-sm font-bold text-white leading-tight">
-                {updateInfo.releaseNotes || (isApkUpdate ? 'Hay mejoras y correcciones disponibles para ASPRO APP.' : 'Nueva actualización de características en vivo.')}
+            {apkConfig.mandatory && (
+              <p className="text-center text-[10px] text-blue-400 mt-2 font-bold uppercase tracking-wide">
+                Esta actualización es requerida para continuar
               </p>
-
-              <p className="text-[11px] text-blue-300 mt-1 font-medium">
-                Versión actual: <span className="text-blue-200">v{isApkUpdate ? APP_VERSION : localWebVersion}</span>
-              </p>
-            </div>
-
-            {/* Botón cerrar (solo si no es obligatorio y no está actualizando) */}
-            {!updateInfo.mandatory && !isUpdating && (
-              <button
-                onClick={() => setIsDismissed(true)}
-                className="p-1.5 rounded-xl text-blue-400 hover:text-white hover:bg-white/10 transition-all shrink-0"
-                title="Descartar"
-              >
-                <X size={16} />
-              </button>
             )}
           </div>
-
-          {/* Botón de actualización */}
-          <button
-            onClick={handleAction}
-            disabled={isUpdating}
-            className="mt-4 w-full py-3.5 bg-gradient-to-r from-blue-500 to-indigo-500 hover:from-blue-400 hover:to-indigo-400 text-white rounded-2xl font-black text-sm uppercase tracking-widest shadow-lg shadow-blue-900/50 flex items-center justify-center gap-2 transition-all active:scale-95 border-b-4 border-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {isUpdating ? (
-              <>
-                <RefreshCw size={18} className="animate-spin" />
-                Instalando actualización...
-              </>
-            ) : (
-              <>
-                {isApkUpdate ? <Download size={18} /> : <RefreshCw size={18} />}
-                {isApkUpdate ? 'Descargar Actualización' : 'Aplicar Actualización'}
-              </>
-            )}
-          </button>
-
-          {updateInfo.mandatory && (
-            <p className="text-center text-[10px] text-blue-400 mt-2 font-bold uppercase tracking-wide">
-              Esta actualización es requerida para continuar
-            </p>
-          )}
         </div>
       </div>
-    </div>
-  );
+    );
+  }
+
+  // CASO 2: Error Crítico y Persistente en Actualización OTA (Fallback de rescate / diagnóstico)
+  // Solo se muestra si han ocurrido múltiples fallas consecutivas para dar al usuario una opción de recuperación manual.
+  if (status === 'error' && consecutiveFailures >= 5 && targetWebVersion && !isDismissed) {
+    const handleRetryManual = async () => {
+      setIsManualUpdating(true);
+      try {
+        await performAutoUpdateCheck({ force: true });
+      } catch (err) {
+        showConfirmation({
+          title: "Error al actualizar",
+          message: "No se pudo completar la actualización automática. Se reintentará en segundo plano.",
+          type: 'alert',
+          onConfirm: () => {}
+        });
+      } finally {
+        setIsManualUpdating(false);
+      }
+    };
+
+    return (
+      <div className="fixed bottom-0 left-0 right-0 z-[999] p-4" style={{ animation: 'slideUp 0.4s ease-out' }}>
+        <div className="max-w-lg mx-auto bg-gradient-to-br from-amber-900 to-rose-950 rounded-3xl shadow-2xl border border-amber-600/40 p-5 text-white">
+          <div className="flex items-start gap-4">
+            <div className="w-10 h-10 bg-amber-500/20 rounded-2xl flex items-center justify-center shrink-0 border border-amber-500/30">
+              <AlertTriangle size={20} className="text-amber-400" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <span className="text-[10px] font-black text-amber-300 uppercase tracking-widest block">
+                Reintento de Actualización OTA
+              </span>
+              <p className="text-xs text-slate-200 mt-1">
+                La actualización v{targetWebVersion} tuvo inconvenientes de red. El sistema continuará intentando automáticamente.
+              </p>
+              {lastError && (
+                <p className="text-[10px] text-amber-200/70 mt-1 truncate">
+                  Detalle: {lastError}
+                </p>
+              )}
+            </div>
+            <button
+              onClick={() => setIsDismissed(true)}
+              className="p-1 text-slate-400 hover:text-white"
+            >
+              <X size={16} />
+            </button>
+          </div>
+          <button
+            onClick={handleRetryManual}
+            disabled={isManualUpdating}
+            className="mt-3 w-full py-2.5 bg-amber-600 hover:bg-amber-500 text-white rounded-xl text-xs font-black uppercase tracking-wider flex items-center justify-center gap-2 active:scale-95 disabled:opacity-50"
+          >
+            {isManualUpdating ? <RefreshCw size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+            {isManualUpdating ? 'Reintentando...' : 'Reintentar Ahora'}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // En cualquier otro caso (OTA descargando silenciosamente, OTA lista como 'next', o app al día):
+  // CERO INTERRUPCIÓN: No se muestra banner invasivo ni se exige pulsar botones.
+  return null;
 };
 
 export default AppUpdateBanner;

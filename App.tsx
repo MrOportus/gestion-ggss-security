@@ -61,7 +61,7 @@ import SignatureModal from './components/SignatureModal';
 // solo en contexto web para evitar interferencia con el plugin nativo de Capacitor
 import PanelAdminSolicitudes from './components/PanelAdminSolicitudes';
 import AppUpdateBanner from './components/AppUpdateBanner';
-import { notifyAppReady } from './lib/UpdateService';
+import { notifyAppReady, initAutoUpdateListener } from './lib/UpdateService';
 import MandanteView from './pages/MandanteView';
 import MandanteManagement from './pages/MandanteManagement';
 import { Capacitor } from '@capacitor/core';
@@ -90,9 +90,13 @@ const App: React.FC = () => {
   
   const { connected } = useNetworkStatus();
 
-  // Notificar a CapacitorUpdater que el bundle cargó bien
+  // Notificar a CapacitorUpdater que el bundle cargó bien e iniciar auto-update en segundo plano
   useEffect(() => {
     notifyAppReady();
+    const cleanup = initAutoUpdateListener();
+    return () => {
+      cleanup();
+    };
   }, []);
 
   // Trigger sync queue when network is restored
