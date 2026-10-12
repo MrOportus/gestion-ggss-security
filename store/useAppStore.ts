@@ -543,7 +543,11 @@ export const useAppStore = create<AppState>()(
           const siteSnapshot = await getDocs(collection(db, "Sucursales"));
           const loadedSites: Site[] = [];
           siteSnapshot.forEach((doc) => {
-            loadedSites.push(doc.data() as Site);
+            const data = doc.data() as Site;
+            if (!data.cargosFijos || data.cargosFijos.length === 0) {
+              data.cargosFijos = ['Chaleco Anticorte'];
+            }
+            loadedSites.push(data);
           });
 
           // 3. Cargar Tareas de Supervisores (Solo Admin/Supervisor)
@@ -1209,7 +1213,11 @@ export const useAppStore = create<AppState>()(
       // --- SITE ACTIONS (Igual que antes pero con v9) ---
       addSite: async (site) => {
         const tempId = Date.now();
-        const newSite: Site = { id: tempId, ...site };
+        const newSite: Site = {
+          id: tempId,
+          cargosFijos: site.cargosFijos && site.cargosFijos.length > 0 ? site.cargosFijos : ['Chaleco Anticorte'],
+          ...site
+        };
         set(state => ({ sites: [...state.sites, newSite] }));
         try {
           await setDoc(doc(db, 'Sucursales', String(tempId)), newSite);
@@ -1247,7 +1255,11 @@ export const useAppStore = create<AppState>()(
 
         newSites.forEach((s, idx) => {
           const tempId = Date.now() + idx;
-          const site = { id: tempId, ...s };
+          const site = {
+            id: tempId,
+            cargosFijos: s.cargosFijos && s.cargosFijos.length > 0 ? s.cargosFijos : ['Chaleco Anticorte'],
+            ...s
+          };
           sitesToAdd.push(site);
           const docRef = doc(db, 'Sucursales', String(tempId));
           batch.set(docRef, site);

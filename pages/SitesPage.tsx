@@ -17,9 +17,11 @@ const SitesPage: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const filteredSites = sites.filter(s => {
+    const cargosStr = (s.cargosFijos || ['Chaleco Anticorte']).join(' ').toLowerCase();
     const matchesSearch = s.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       s.address.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (s.empresa && s.empresa.toLowerCase().includes(searchTerm.toLowerCase()));
+      (s.empresa && s.empresa.toLowerCase().includes(searchTerm.toLowerCase())) ||
+      cargosStr.includes(searchTerm.toLowerCase());
     
     if (currentUser?.role === 'supervisor') {
       return matchesSearch && currentEmp?.assignedSites?.includes(s.id);
@@ -88,6 +90,7 @@ const SitesPage: React.FC = () => {
             rutEmpresa: rutEmpresa,
             name: name,
             address: address,
+            cargosFijos: ['Chaleco Anticorte'],
             active: true
           };
         }).filter(item => item !== null);
@@ -150,7 +153,7 @@ const SitesPage: React.FC = () => {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
           <input
             type="text"
-            placeholder="Buscar por Nombre, Dirección o Empresa..."
+            placeholder="Buscar por Nombre, Dirección, Empresa o Cargo Fijo..."
             className="w-full pl-9 pr-4 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none bg-white text-slate-900"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
@@ -168,6 +171,7 @@ const SitesPage: React.FC = () => {
                 <th className="px-6 py-4">RUT E°</th>
                 <th className="px-6 py-4">Obra / Faena</th>
                 <th className="px-6 py-4">Dirección</th>
+                <th className="px-6 py-4">Cargos Fijos</th>
                 <th className="px-6 py-4 text-center">Estado</th>
                 <th className="px-6 py-4 text-right">Acciones</th>
               </tr>
@@ -175,54 +179,79 @@ const SitesPage: React.FC = () => {
             <tbody className="divide-y divide-slate-100">
               {filteredSites.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-6 py-12 flex flex-col items-center justify-center text-center">
+                  <td colSpan={7} className="px-6 py-12 flex flex-col items-center justify-center text-center">
                     <Building2 size={48} className="text-slate-200 mb-4" />
                     <p className="text-slate-400 font-medium">No se encontraron sucursales registradas.</p>
                   </td>
                 </tr>
               ) : (
-                filteredSites.map(site => (
-                  <tr key={site.id} className={`hover:bg-slate-50 transition-colors ${!site.active ? 'bg-red-50/20' : ''}`}>
-                    <td className="px-6 py-4">
-                      <div className="font-bold text-slate-800">{site.empresa || '-'}</div>
-                    </td>
-                    <td className="px-6 py-4 font-mono text-slate-500">{site.rutEmpresa || '-'}</td>
-                    <td className="px-6 py-4">
-                      <div className="flex items-center gap-2">
-                        <div className="p-1.5 bg-blue-50 text-blue-600 rounded">
-                          <Building2 size={14} />
+                filteredSites.map(site => {
+                  const cargos = (site.cargosFijos && site.cargosFijos.length > 0)
+                    ? site.cargosFijos
+                    : ['Chaleco Anticorte'];
+
+                  return (
+                    <tr key={site.id} className={`hover:bg-slate-50 transition-colors ${!site.active ? 'bg-red-50/20' : ''}`}>
+                      <td className="px-6 py-4">
+                        <div className="font-bold text-slate-800">{site.empresa || '-'}</div>
+                      </td>
+                      <td className="px-6 py-4 font-mono text-slate-500">{site.rutEmpresa || '-'}</td>
+                      <td className="px-6 py-4">
+                        <div className="flex items-center gap-2">
+                          <div className="p-1.5 bg-blue-50 text-blue-600 rounded">
+                            <Building2 size={14} />
+                          </div>
+                          <span className="font-medium text-slate-900">{site.name}</span>
                         </div>
-                        <span className="font-medium text-slate-900">{site.name}</span>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4">
-                      <div className="flex items-center gap-2 text-slate-500">
-                        <MapPin size={14} className="shrink-0 text-slate-400" />
-                        <span className="truncate max-w-[200px]">{site.address}</span>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 text-center">
-                      <button
-                        onClick={() => isAdmin && toggleSiteStatus(site.id)}
-                        disabled={!isAdmin}
-                        className={`text-xs font-bold px-3 py-1 rounded-full border transition-all ${site.active ? 'bg-green-50 text-green-700 border-green-200 hover:bg-green-100' : 'bg-red-50 text-red-700 border-red-200 hover:bg-red-100'} ${!isAdmin ? 'cursor-default' : ''}`}
-                      >
-                        {site.active ? 'OPERATIVA' : 'INACTIVA'}
-                      </button>
-                    </td>
-                    <td className="px-6 py-4 text-right">
-                      {isAdmin && (
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="flex items-center gap-2 text-slate-500">
+                          <MapPin size={14} className="shrink-0 text-slate-400" />
+                          <span className="truncate max-w-[200px]">{site.address}</span>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="flex flex-wrap gap-1 max-w-[260px]">
+                          {cargos.map((cargo, i) => {
+                            const isChaleco = cargo.toLowerCase().includes('chaleco');
+                            return (
+                              <span
+                                key={i}
+                                className={`text-[10px] font-bold px-2 py-0.5 rounded-md border ${
+                                  isChaleco
+                                    ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                                    : 'bg-slate-50 text-slate-700 border-slate-200'
+                                }`}
+                              >
+                                {cargo}
+                              </span>
+                            );
+                          })}
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 text-center">
                         <button
-                          onClick={() => handleOpenEdit(site)}
-                          className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition"
-                          title="Modificar Datos"
+                          onClick={() => isAdmin && toggleSiteStatus(site.id)}
+                          disabled={!isAdmin}
+                          className={`text-xs font-bold px-3 py-1 rounded-full border transition-all ${site.active ? 'bg-green-50 text-green-700 border-green-200 hover:bg-green-100' : 'bg-red-50 text-red-700 border-red-200 hover:bg-red-100'} ${!isAdmin ? 'cursor-default' : ''}`}
                         >
-                          <Edit2 size={18} />
+                          {site.active ? 'OPERATIVA' : 'INACTIVA'}
                         </button>
-                      )}
-                    </td>
-                  </tr>
-                ))
+                      </td>
+                      <td className="px-6 py-4 text-right">
+                        {isAdmin && (
+                          <button
+                            onClick={() => handleOpenEdit(site)}
+                            className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition"
+                            title="Modificar Datos"
+                          >
+                            <Edit2 size={18} />
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>

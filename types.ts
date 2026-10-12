@@ -15,6 +15,7 @@ export interface Site {
   rutEmpresa?: string; // Corresponde a "Rut E°"
   active: boolean;
   rondasEnabled?: boolean; // Contextual Feature Toggle for Guard Rounds
+  cargosFijos?: string[]; // Listado de cargos fijos / equipamiento base de la sucursal (ej: ['Chaleco Anticorte'])
 }
 
 export interface Employee {
