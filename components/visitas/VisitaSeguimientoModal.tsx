@@ -273,16 +273,24 @@ const VisitaSeguimientoModal: React.FC<VisitaSeguimientoModalProps> = ({ visita,
                       : 'bg-white border border-slate-100'
                 }`}>
                   <div className={`flex items-center gap-2 mb-1 ${esMio && !esResolucion ? 'flex-row-reverse' : ''}`}>
-                    <p className={`text-[10px] font-black uppercase tracking-widest ${
-                      esResolucion ? 'text-emerald-700' : esMio ? 'text-blue-200' : 'text-slate-500'
-                    }`}>
-                      {esMio ? 'Tú' : seg.autorNombre}
-                    </p>
-                    <span className={`px-1.5 py-0.5 rounded text-[8px] font-black uppercase ${
-                      esResolucion ? 'bg-emerald-200 text-emerald-800' : esMio ? 'bg-blue-500 text-blue-100' : 'bg-slate-100 text-slate-500'
-                    }`}>
-                      {ROL_LABEL[seg.autorRol] ?? seg.autorRol}
-                    </span>
+                    {esMsgDeAdmin && !esAdmin ? (
+                      <span className="px-1.5 py-0.5 rounded text-[8px] font-black uppercase bg-slate-100 text-slate-500">
+                        Admin
+                      </span>
+                    ) : (
+                      <>
+                        <p className={`text-[10px] font-black uppercase tracking-widest ${
+                          esResolucion ? 'text-emerald-700' : esMio ? 'text-blue-200' : 'text-slate-500'
+                        }`}>
+                          {esMio ? 'Tú' : seg.autorNombre}
+                        </p>
+                        <span className={`px-1.5 py-0.5 rounded text-[8px] font-black uppercase ${
+                          esResolucion ? 'bg-emerald-200 text-emerald-800' : esMio ? 'bg-blue-500 text-blue-100' : 'bg-slate-100 text-slate-500'
+                        }`}>
+                          {ROL_LABEL[seg.autorRol] ?? seg.autorRol}
+                        </span>
+                      </>
+                    )}
                     {esResolucion && (
                       <span className="flex items-center gap-1 text-[9px] font-black text-emerald-700">
                         <CheckCircle size={10} /> RESUELTO

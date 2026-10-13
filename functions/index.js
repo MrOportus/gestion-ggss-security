@@ -442,11 +442,11 @@ exports.notificarSeguimientoVisita = onDocumentCreated(
 
                 notificationTitle = `Seguimiento de Visita · ${sucursalNombre}`;
                 if (esResolucion) {
-                    notificationBody = `${autorNombre} marcó la visita como resuelta.`;
+                    notificationBody = `Admin marcó la visita como resuelta.`;
                 } else {
                     const snippet = (seguimiento.mensaje || '').trim();
                     const text = snippet || (seguimiento.fotoUrl ? '📷 Envió una fotografía' : 'Nuevo mensaje');
-                    notificationBody = `${autorNombre}: ${text}`;
+                    notificationBody = `Admin: ${text}`;
                 }
             } 
             // Caso B: El autor ES el supervisor de la visita (está respondiendo o comentando)

@@ -9,6 +9,8 @@ node_modules/
 
 # Build output
 dist/
+dist.zip
+.firebase/
 .tmp/
 
 # Environment variables & Secrets

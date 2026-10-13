@@ -76,7 +76,7 @@ export async function addSeguimiento(params: SeguimientoBaseParams): Promise<Seg
     requiereSeguimiento: true,
     ultimoSeguimientoEn: serverTimestamp(),
     ultimoSeguimientoMsg: fotoUrl && !mensaje.trim() ? '📷 [Fotografía adjunta]' : snippet,
-    ultimoSeguimientoAutor: usuarioNombre,
+    ultimoSeguimientoAutor: isAdminOrSuper ? 'Admin' : usuarioNombre,
   };
 
   if (isAdminOrSuper) {
@@ -117,7 +117,7 @@ export async function resolverVisita(visitaId: string, autorUid: string, autorNo
     requiereSeguimiento: false,
     ultimoSeguimientoEn: serverTimestamp(),
     ultimoSeguimientoMsg: 'Visita marcada como resuelta.',
-    ultimoSeguimientoAutor: autorNombre,
+    ultimoSeguimientoAutor: isAdminOrSuper ? 'Admin' : autorNombre,
   });
 
   await batch.commit();
