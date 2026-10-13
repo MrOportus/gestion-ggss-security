@@ -388,6 +388,161 @@ exports.notificarSeguimientoNovedad = onDocumentCreated(
     }
 );
 
+// Función para notificar seguimiento de visitas de supervisor
+exports.notificarSeguimientoVisita = onDocumentCreated(
+    { 
+        document: 'visitasSupervisor/{visitaId}/seguimientos/{seguimientoId}',
+        region: 'us-central1'
+    },
+    async (event) => {
+        const snapshot = event.data;
+        if (!snapshot) return;
+
+        const seguimiento = snapshot.data();
+        const visitaId = event.params.visitaId;
+        const seguimientoId = event.params.seguimientoId;
+
+        try {
+            // 1. Obtener la visita de supervisor padre
+            const visitaDoc = await admin.firestore().collection('visitasSupervisor').doc(visitaId).get();
+            if (!visitaDoc.exists) {
+                console.log(`[FCM-VISITAS] Visita ${visitaId} no encontrada.`);
+                return;
+            }
+            const visita = visitaDoc.data();
+            const supervisorUid = visita.supervisorUid;
+            const sucursalNombre = visita.sucursalNombre || 'Sucursal';
+            const autorUid = seguimiento.autorUid;
+            const autorRol = seguimiento.autorRol || '';
+            const autorNombre = seguimiento.autorNombre || 'Administración';
+            const esResolucion = seguimiento.tipo === 'resolucion';
+
+            console.log(`[FCM-VISITAS] Nuevo seguimiento en visita ${visitaId} por ${autorNombre} (${autorRol}). Supervisor asignado: ${supervisorUid}`);
+
+            let targetTokens = [];
+            let notificationTitle = '';
+            let notificationBody = '';
+
+            // Caso A: El autor NO es el supervisor asignado (es decir, es Admin, Jefe de Operaciones, RRHH, etc.)
+            // -> Destinatario principal: EL SUPERVISOR de la visita
+            if (autorUid !== supervisorUid) {
+                if (!supervisorUid) {
+                    console.log(`[FCM-VISITAS] La visita no tiene supervisorUid asignado.`);
+                    return;
+                }
+
+                const supervisorDoc = await admin.firestore().collection('Colaboradores').doc(supervisorUid).get();
+                if (!supervisorDoc.exists) {
+                    console.log(`[FCM-VISITAS] Colaborador supervisor ${supervisorUid} no encontrado.`);
+                    return;
+                }
+
+                const supData = supervisorDoc.data();
+                targetTokens = supData.fcmTokens || [];
+
+                notificationTitle = `Seguimiento de Visita · ${sucursalNombre}`;
+                if (esResolucion) {
+                    notificationBody = `${autorNombre} marcó la visita como resuelta.`;
+                } else {
+                    const snippet = (seguimiento.mensaje || '').trim();
+                    const text = snippet || (seguimiento.fotoUrl ? '📷 Envió una fotografía' : 'Nuevo mensaje');
+                    notificationBody = `${autorNombre}: ${text}`;
+                }
+            } 
+            // Caso B: El autor ES el supervisor de la visita (está respondiendo o comentando)
+            // -> Destinatarios: Los administradores y jefes de operaciones
+            else {
+                notificationTitle = `Respuesta de Supervisor · ${sucursalNombre}`;
+                if (esResolucion) {
+                    notificationBody = `${autorNombre} resolvió la visita.`;
+                } else {
+                    const snippet = (seguimiento.mensaje || '').trim();
+                    const text = snippet || (seguimiento.fotoUrl ? '📷 Envió una fotografía' : 'Nuevo mensaje');
+                    notificationBody = `${autorNombre}: ${text}`;
+                }
+
+                // Buscar admins y jefes de operaciones
+                const adminsSnap = await admin.firestore().collection('Colaboradores')
+                    .where('role', 'in', ['admin', 'jefe_operaciones'])
+                    .get();
+
+                adminsSnap.forEach(docSnap => {
+                    if (docSnap.id !== autorUid) {
+                        const data = docSnap.data();
+                        const tokens = data.fcmTokens || [];
+                        targetTokens = targetTokens.concat(tokens);
+                    }
+                });
+            }
+
+            // Deduplicar tokens
+            targetTokens = [...new Set(targetTokens)].filter(Boolean);
+
+            if (targetTokens.length === 0) {
+                console.log(`[FCM-VISITAS] No hay tokens FCM destinatarios para esta notificación.`);
+                return;
+            }
+
+            console.log(`[FCM-VISITAS] Enviando notificación a ${targetTokens.length} tokens.`);
+
+            const message = {
+                notification: {
+                    title: notificationTitle,
+                    body: notificationBody
+                },
+                android: {
+                    notification: {
+                        channelId: 'ggss_notifications',
+                        sound: 'notificacion_ggss.mp3'
+                    }
+                },
+                apns: {
+                    payload: {
+                        aps: {
+                            sound: 'notificacion_ggss.mp3'
+                        }
+                    }
+                },
+                data: {
+                    type: 'visita_seguimiento',
+                    visitaId: visitaId,
+                    seguimientoId: seguimientoId,
+                    sucursalNombre: sucursalNombre
+                },
+                tokens: targetTokens,
+            };
+
+            const response = await admin.messaging().sendEachForMulticast(message);
+            console.log(`[FCM-VISITAS] Resultado: ${response.successCount} éxito, ${response.failureCount} fallos.`);
+
+            // Limpieza de tokens inválidos
+            if (response.failureCount > 0) {
+                const invalidTokens = [];
+                response.responses.forEach((resp, idx) => {
+                    if (!resp.success) {
+                        const err = resp.error;
+                        if (err && (err.code === 'messaging/registration-token-not-registered' || err.code === 'messaging/invalid-argument')) {
+                            invalidTokens.push(targetTokens[idx]);
+                        }
+                    }
+                });
+
+                if (invalidTokens.length > 0) {
+                    console.log(`[FCM-VISITAS] Limpiando ${invalidTokens.length} tokens inválidos.`);
+                    if (autorUid !== supervisorUid && supervisorUid) {
+                        await admin.firestore().collection('Colaboradores').doc(supervisorUid).update({
+                            fcmTokens: admin.firestore.FieldValue.arrayRemove(...invalidTokens)
+                        });
+                    }
+                }
+            }
+
+        } catch (error) {
+            console.error('[FCM-VISITAS] Error en notificarSeguimientoVisita:', error);
+        }
+    }
+);
+
 // Función para notificar nueva oferta de turno
 exports.notificarNuevaOfertaTurno = onDocumentCreated(
     { 

@@ -49,22 +49,30 @@ self.addEventListener('notificationclick', (event) => {
 
   if (event.action === 'dismiss') return;
 
+  const type       = event.notification.data?.type;
   const docId      = event.notification.data?.docId;
+  const visitaId   = event.notification.data?.visitaId;
   const urlToOpen  = '/';
 
   event.waitUntil(
     clients
       .matchAll({ type: 'window', includeUncontrolled: true })
       .then((windowClients) => {
-        // Intentar enfocar una ventana existente y navegar a documentos
+        // Intentar enfocar una ventana existente y navegar a la sección adecuada
         for (const client of windowClients) {
           if ('focus' in client) {
             client.focus();
-            // Notificar al cliente para que navegue a la sección de documentos
-            client.postMessage({
-              type:  'NAVIGATE_TO_DOCUMENTS',
-              docId,
-            });
+            if (type === 'visita_seguimiento') {
+              client.postMessage({
+                type: 'NAVIGATE_TO_VISITAS',
+                visitaId,
+              });
+            } else {
+              client.postMessage({
+                type:  'NAVIGATE_TO_DOCUMENTS',
+                docId,
+              });
+            }
             return;
           }
         }

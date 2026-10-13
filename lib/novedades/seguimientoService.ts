@@ -28,6 +28,7 @@ import {
   serverTimestamp,
   increment,
   Timestamp,
+  onSnapshot,
 } from 'firebase/firestore';
 import type { SeguimientoNovedad, SeguimientoTipo } from '../../types';
 
@@ -73,24 +74,6 @@ function toSnippet(mensaje: string): string {
 
 // ─── addSeguimiento ───────────────────────────────────────────────────────────
 
-/**
- * Agrega un mensaje al hilo de seguimiento de una novedad.
- *
- * `tipo` determina el rol del mensaje:
- *   - 'inicio'      → abre el hilo (admin/supervisor crea el primer mensaje)
- *   - 'seguimiento' → actualización intermedia del hilo
- *   - 'resolucion'  → cierre explícito (marca la novedad como 'resuelta')
- *
- * La resolución es una acción deliberada del llamador:
- * NO se marca 'resuelta' simplemente por agregar un mensaje.
- *
- * Usa WriteBatch atómico:
- *   1. set  → crea el documento en novedades/{id}/seguimientos/{segId}
- *   2. update → actualiza metadatos en novedades/{id}
- *
- * El campo `cantidadSeguimientos` usa increment(1) para
- * consistencia sin depender de conteos locales.
- */
 export async function addSeguimiento(
   params: SeguimientoBaseParams,
   tipo: SeguimientoTipo,
@@ -108,6 +91,8 @@ export async function addSeguimiento(
     seguimientoId,
   );
 
+  const isAdmin = ['admin', 'supervisor', 'jefe_operaciones', 'rrhh'].includes(rol);
+
   // ── Documento del seguimiento ─────────────────────────────────────────────
   const seguimientoDoc: Record<string, unknown> = {
     id: seguimientoId,
@@ -119,13 +104,22 @@ export async function addSeguimiento(
     tipo,
     fecha: serverTimestamp(),   // Timestamp Firestore — fuente de verdad
     fechaStr: ahoraISO,         // ISO auxiliar para auditoría offline
+    // Si lo envía admin/supervisor/jefe, nace no visto por el guardia
+    ...(isAdmin ? {
+      leidoPorGuardia: false,
+      leidoEn: null,
+    } : {
+      // Si lo envía el guardia, nace conocido por el guardia
+      leidoPorGuardia: true,
+      leidoEn: serverTimestamp(),
+      leidoPorNombre: usuarioNombre,
+      leidoPorUid: usuarioId,
+    }),
   };
   if (fotoUrl) seguimientoDoc.fotoUrl = fotoUrl;
   if (fotoPath) seguimientoDoc.fotoPath = fotoPath;
 
   // ── Metadatos base (siempre se actualizan en el doc padre) ────────────────
-  const isAdmin = ['admin', 'supervisor', 'jefe_operaciones'].includes(rol);
-  
   const metadatosBase: Record<string, unknown> = {
     ultimoSeguimientoEn: serverTimestamp(),
     ultimoSeguimientoMsg: snippet,
@@ -152,7 +146,6 @@ export async function addSeguimiento(
   let metadatosEstado: Record<string, unknown>;
 
   if (tipo === 'resolucion') {
-    // Cierre explícito — acción deliberada del llamador
     metadatosEstado = {
       estado: 'resuelta',
       requiereSeguimiento: false,
@@ -161,7 +154,6 @@ export async function addSeguimiento(
       notaResolucion: snippet,
     };
   } else {
-    // 'inicio' o 'seguimiento' → hilo activo sin cierre
     metadatosEstado = {
       estado: 'en_revision',
       requiereSeguimiento: true,
@@ -177,14 +169,32 @@ export async function addSeguimiento(
   return { seguimientoId, novedadId };
 }
 
+// ─── Helpers de parseo ────────────────────────────────────────────────────────
+
+function parseSeguimientoDoc(d: any, novedadIdFallback: string): SeguimientoNovedad {
+  const data = d.data();
+  const seg: SeguimientoNovedad = {
+    id: d.id,
+    novedadId: data.novedadId ?? novedadIdFallback,
+    usuarioId: data.usuarioId,
+    usuarioNombre: data.usuarioNombre,
+    rol: data.rol,
+    mensaje: data.mensaje,
+    tipo: data.tipo as SeguimientoTipo,
+    fecha: data.fecha,
+    fechaStr: data.fechaStr ?? '',
+    fotoUrl: data.fotoUrl,
+    fotoPath: data.fotoPath,
+    leidoPorGuardia: Boolean(data.leidoPorGuardia),
+    leidoEn: data.leidoEn?.toDate ? data.leidoEn.toDate().toISOString() : data.leidoEn || null,
+    leidoPorNombre: data.leidoPorNombre,
+    leidoPorUid: data.leidoPorUid,
+  };
+  return seg;
+}
+
 // ─── getSeguimientos ──────────────────────────────────────────────────────────
 
-/**
- * Obtiene todos los seguimientos de una novedad en orden cronológico.
- *
- * El historial es append-only y de solo lectura desde este servicio.
- * Devuelve [] si la novedad todavía no tiene seguimientos.
- */
 export async function getSeguimientos(novedadId: string): Promise<SeguimientoNovedad[]> {
   const q = query(
     collection(db, NOVEDADES_COL, novedadId, SEGUIMIENTOS_SUBCOL),
@@ -192,32 +202,83 @@ export async function getSeguimientos(novedadId: string): Promise<SeguimientoNov
   );
 
   const snap = await getDocs(q);
+  return snap.docs.map((d) => parseSeguimientoDoc(d, novedadId));
+}
 
-  return snap.docs.map((d) => {
-    const data = d.data();
-    const seg: SeguimientoNovedad = {
-      id: d.id,
-      novedadId: data.novedadId ?? novedadId,
-      usuarioId: data.usuarioId,
-      usuarioNombre: data.usuarioNombre,
-      rol: data.rol,
-      mensaje: data.mensaje,
-      tipo: data.tipo as SeguimientoTipo,
-      fecha: data.fecha,
-      fechaStr: data.fechaStr ?? '',
-    };
-    if (data.fotoUrl) seg.fotoUrl = data.fotoUrl;
-    if (data.fotoPath) seg.fotoPath = data.fotoPath;
-    return seg;
-  });
+// ─── subscribeSeguimientos (Tiempo real) ──────────────────────────────────────
+
+export function subscribeSeguimientos(
+  novedadId: string,
+  onUpdate: (seguimientos: SeguimientoNovedad[]) => void,
+  onError?: (err: Error) => void
+): () => void {
+  const q = query(
+    collection(db, NOVEDADES_COL, novedadId, SEGUIMIENTOS_SUBCOL),
+    orderBy('fecha', 'asc'),
+  );
+
+  return onSnapshot(
+    q,
+    (snap) => {
+      const msgs = snap.docs.map((d) => parseSeguimientoDoc(d, novedadId));
+      onUpdate(msgs);
+    },
+    (err) => {
+      console.error('[NovedadesSeguimiento] Error en suscripción a seguimientos:', err);
+      if (onError) onError(err);
+    }
+  );
+}
+
+// ─── marcarSeguimientosLeidosPorGuardia ───────────────────────────────────────
+
+/**
+ * Marca como leídos por el guardia los mensajes que fueron enviados por administración/supervisión
+ */
+export async function marcarSeguimientosLeidosPorGuardia(
+  novedadId: string,
+  guardiaUid: string,
+  guardiaNombre: string
+): Promise<void> {
+  try {
+    const seguimientosRef = collection(db, NOVEDADES_COL, novedadId, SEGUIMIENTOS_SUBCOL);
+    const snap = await getDocs(seguimientosRef);
+
+    const batch = writeBatch(db);
+    let cambios = 0;
+
+    snap.forEach((docSnap) => {
+      const data = docSnap.data();
+      // Si el autor NO es este guardia y aún no figura como leído por el guardia
+      if (data.usuarioId !== guardiaUid && !data.leidoPorGuardia) {
+        batch.update(docSnap.ref, {
+          leidoPorGuardia: true,
+          leidoEn: serverTimestamp(),
+          leidoPorNombre: guardiaNombre,
+          leidoPorUid: guardiaUid,
+        });
+        cambios++;
+      }
+    });
+
+    const novedadRef = doc(db, NOVEDADES_COL, novedadId);
+    batch.update(novedadRef, {
+      unreadWorkerCount: 0,
+      readByWorkerEn: serverTimestamp(),
+      readByWorkerPor: guardiaNombre,
+    });
+
+    await batch.commit();
+    if (cambios > 0) {
+      console.log(`[NovedadesSeguimiento] ${cambios} mensaje(s) marcados como leídos por guardia ${guardiaNombre}`);
+    }
+  } catch (err) {
+    console.error('[NovedadesSeguimiento] Error marcando mensajes como leídos por guardia:', err);
+  }
 }
 
 // ─── Helpers de formato (reutilizables en componentes) ───────────────────────
 
-/**
- * Formatea un Timestamp de Firestore o un ISO string a hora local (es-CL).
- * Devuelve '--' si el valor es nulo o inválido.
- */
 export function formatSeguimientoFecha(
   fecha: Timestamp | string | null | undefined,
 ): string {
@@ -236,41 +297,45 @@ export function formatSeguimientoFecha(
   }
 }
 
-/**
- * Devuelve true si un documento de novedad pertenece al esquema nuevo
- * (tiene campo `tipoRegistro`).
- *
- * Guard de seguridad para que el servicio NO opere accidentalmente
- * sobre documentos del esquema legacy.
- */
 export function esEsquemaNuevo(novedad: Record<string, unknown>): boolean {
   return typeof novedad.tipoRegistro === 'string';
 }
 
 // ─── markSeguimientoAsRead ───────────────────────────────────────────────────
+
 export async function markSeguimientoAsRead(
   novedadId: string,
   rol: string,
-  usuarioNombre: string
+  usuarioNombre: string,
+  usuarioUid?: string
 ): Promise<void> {
   const novedadRef = doc(db, NOVEDADES_COL, novedadId);
-  const isAdmin = ['admin', 'supervisor', 'jefe_operaciones'].includes(rol);
+  const isAdmin = ['admin', 'supervisor', 'jefe_operaciones', 'rrhh'].includes(rol);
 
-  const updates: Record<string, unknown> = {};
-
-  if (isAdmin) {
-    updates.unreadAdminCount = 0;
-    updates.readByAdminEn = serverTimestamp();
-    updates.readByAdminPor = usuarioNombre;
-  } else {
-    updates.unreadWorkerCount = 0;
-    updates.readByWorkerEn = serverTimestamp();
-    updates.readByWorkerPor = usuarioNombre;
+  try {
+    if (isAdmin) {
+      const batch = writeBatch(db);
+      batch.update(novedadRef, {
+        unreadAdminCount: 0,
+        readByAdminEn: serverTimestamp(),
+        readByAdminPor: usuarioNombre,
+      });
+      await batch.commit();
+    } else {
+      if (usuarioUid) {
+        await marcarSeguimientosLeidosPorGuardia(novedadId, usuarioUid, usuarioNombre);
+      } else {
+        const batch = writeBatch(db);
+        batch.update(novedadRef, {
+          unreadWorkerCount: 0,
+          readByWorkerEn: serverTimestamp(),
+          readByWorkerPor: usuarioNombre,
+        });
+        await batch.commit();
+      }
+    }
+  } catch (err) {
+    console.error('[NovedadesSeguimiento] Error marcando como leído:', err);
   }
-
-  // updateDoc requires import from firebase/firestore which might not be imported above
-  // we'll use writeBatch to be safe if updateDoc isn't imported, but writeBatch is already imported
-  const batch = writeBatch(db);
-  batch.update(novedadRef, updates);
-  await batch.commit();
 }
+

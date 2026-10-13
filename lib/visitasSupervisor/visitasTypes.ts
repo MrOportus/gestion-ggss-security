@@ -176,3 +176,24 @@ export interface ResumenCargos {
   faltante: number;
   sinResponder: number;
 }
+
+export type SeguimientoVisitaTipo = 'comentario' | 'resolucion';
+
+export interface SeguimientoVisita {
+  id: string;
+  autorUid: string;
+  autorNombre: string;
+  autorRol: string;
+  mensaje: string;
+  fechaHora: any; // ISO string o Firestore Timestamp
+  tipo: SeguimientoVisitaTipo;
+  fotoUrl?: string;
+  fotoPath?: string;
+
+  // Estado de lectura por parte del supervisor (solo visible para admin/jefe)
+  leidoPorSupervisor?: boolean;
+  leidoEn?: any; // Firestore Timestamp o ISO string
+  leidoPorNombre?: string;
+  leidoPorUid?: string;
+}
+

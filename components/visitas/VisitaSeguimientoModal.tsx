@@ -9,17 +9,19 @@ import {
   Image as ImageIcon,
   AlertCircle,
   Send,
+  CheckCheck,
+  Check,
 } from 'lucide-react';
 import {
   addSeguimiento,
-  getSeguimientos,
   markSeguimientoAsRead,
+  marcarSeguimientosLeidosPorSupervisor,
+  subscribeSeguimientos,
   resolverVisita,
   SeguimientoBaseParams,
 } from '../../lib/visitasSupervisor/seguimientoVisitasService';
 import { useAppStore } from '../../store/useAppStore';
-import type { VisitaSupervisorDoc } from '../../lib/visitasSupervisor/visitasTypes';
-import type { SeguimientoNovedad } from '../../types';
+import type { VisitaSupervisorDoc, SeguimientoVisita } from '../../lib/visitasSupervisor/visitasTypes';
 
 const ROL_LABEL: Record<string, string> = {
   worker:           'Guardia',
@@ -35,12 +37,40 @@ interface VisitaSeguimientoModalProps {
   onClose: (resolto?: boolean) => void;
 }
 
+const formatearHoraMensaje = (fecha: any): string => {
+  if (!fecha) return '';
+  const d = typeof fecha === 'string' ? new Date(fecha) : fecha.toDate ? fecha.toDate() : new Date(fecha);
+  if (isNaN(d.getTime())) return '';
+  return d.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit', hour12: false });
+};
+
+const formatearHoraVisto = (fecha: any): string => {
+  if (!fecha) return '';
+  const d = typeof fecha === 'string' ? new Date(fecha) : fecha.toDate ? fecha.toDate() : new Date(fecha);
+  if (isNaN(d.getTime())) return '';
+  
+  const ahora = new Date();
+  const esMismoDia = d.getDate() === ahora.getDate() &&
+                     d.getMonth() === ahora.getMonth() &&
+                     d.getFullYear() === ahora.getFullYear();
+  
+  const horaStr = d.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit', hour12: false });
+  if (esMismoDia) {
+    return `a las ${horaStr}`;
+  }
+  const diaMesStr = d.toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit' });
+  return `el ${diaMesStr} a las ${horaStr}`;
+};
+
 const VisitaSeguimientoModal: React.FC<VisitaSeguimientoModalProps> = ({ visita, usuario, onClose }) => {
   const uploadBase64 = useAppStore(state => state.uploadBase64);
   const showNotification = useAppStore(state => state.showNotification);
 
-  const [seguimientos, setSeguimientos] = useState<SeguimientoNovedad[]>([]);
+  const [seguimientos, setSeguimientos] = useState<SeguimientoVisita[]>([]);
   const [loadingHilo, setLoadingHilo] = useState(true);
+
+  const esAdmin = ['admin', 'jefe_operaciones', 'rrhh'].includes(usuario.rol);
+  const esSupervisor = usuario.rol === 'supervisor' || usuario.uid === visita.supervisorUid;
 
   // Modo: 'ver' | 'resolver'
   const [modo, setModo] = useState<'ver' | 'resolver'>('ver');
@@ -50,33 +80,50 @@ const VisitaSeguimientoModal: React.FC<VisitaSeguimientoModalProps> = ({ visita,
   const [enviando, setEnviando] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const [confirmResolucion, setConfirmResolucion] = useState(false);
   const [fullScreenImage, setFullScreenImage] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    let mounted = true;
-    const cargar = async () => {
-      setLoadingHilo(true);
-      try {
-        const result = await getSeguimientos(visita.id);
-        if (mounted) setSeguimientos(result);
-      } catch (e) {
-        console.error('[SeguimientoVisitaModal] Error cargando hilo:', e);
-      } finally {
-        if (mounted) setLoadingHilo(false);
-      }
-    };
-    cargar();
+    setLoadingHilo(true);
 
-    if (visita.id && usuario.rol) {
+    // Subscripción en tiempo real a los seguimientos
+    const unsubscribe = subscribeSeguimientos(
+      visita.id,
+      (mensajes) => {
+        setSeguimientos(mensajes);
+        setLoadingHilo(false);
+
+        // Si quien abre el hilo es el supervisor, marcar mensajes de admin como leídos
+        if (esSupervisor) {
+          const hayNoLeidos = mensajes.some(m => m.autorUid !== usuario.uid && !m.leidoPorSupervisor);
+          if (hayNoLeidos) {
+            marcarSeguimientosLeidosPorSupervisor(visita.id, usuario.uid, usuario.nombre).catch(err => {
+              console.error('[SeguimientoVisitaModal] Error marcando leídos en tiempo real:', err);
+            });
+          }
+        }
+      },
+      (err) => {
+        console.error('[SeguimientoVisitaModal] Error en suscripción:', err);
+        setLoadingHilo(false);
+      }
+    );
+
+    // Al montar: marcar como leído según corresponda
+    if (esAdmin) {
       markSeguimientoAsRead(visita.id, usuario.rol).catch(e => {
-        console.error('[SeguimientoVisitaModal] Error al marcar como leido:', e);
+        console.error('[SeguimientoVisitaModal] Error al marcar como leído admin:', e);
+      });
+    } else if (esSupervisor) {
+      marcarSeguimientosLeidosPorSupervisor(visita.id, usuario.uid, usuario.nombre).catch(e => {
+        console.error('[SeguimientoVisitaModal] Error al marcar como leído supervisor:', e);
       });
     }
 
-    return () => { mounted = false; };
-  }, [visita.id, usuario.rol]);
+    return () => {
+      unsubscribe();
+    };
+  }, [visita.id, usuario.uid, usuario.nombre, usuario.rol, esAdmin, esSupervisor]);
 
   useEffect(() => {
     if (!loadingHilo) {
@@ -119,17 +166,6 @@ const VisitaSeguimientoModal: React.FC<VisitaSeguimientoModalProps> = ({ visita,
     try {
       if (tipo === 'resolucion') {
         await resolverVisita(visita.id, usuario.uid, usuario.nombre, usuario.rol);
-        
-        const nuevoMensaje: SeguimientoNovedad = {
-          id: `local_${Date.now()}`,
-          autorUid: usuario.uid,
-          autorNombre: usuario.nombre,
-          autorRol: usuario.rol,
-          mensaje: 'Visita resuelta',
-          tipo: 'resolucion',
-          fechaHora: new Date().toISOString() as any,
-        };
-        setSeguimientos(prev => [...prev, nuevoMensaje]);
         showNotification('Seguimiento marcado como resuelto.', 'success');
         onClose(true);
       } else {
@@ -153,18 +189,6 @@ const VisitaSeguimientoModal: React.FC<VisitaSeguimientoModalProps> = ({ visita,
         };
 
         await addSeguimiento(params);
-
-        const nuevoMensaje: SeguimientoNovedad = {
-          id: `local_${Date.now()}`,
-          autorUid: usuario.uid,
-          autorNombre: usuario.nombre,
-          autorRol: usuario.rol,
-          mensaje: textoFinal,
-          tipo: 'comentario',
-          fechaHora: new Date().toISOString() as any,
-          ...(fotoUrl ? { fotoUrl } : {}),
-        };
-        setSeguimientos(prev => [...prev, nuevoMensaje]);
         showNotification('Seguimiento agregado.', 'success');
       }
 
@@ -172,7 +196,6 @@ const VisitaSeguimientoModal: React.FC<VisitaSeguimientoModalProps> = ({ visita,
       setFoto(null);
       setFotoBlob(null);
       setModo('ver');
-      setConfirmResolucion(false);
 
     } catch (err: any) {
       console.error('[SeguimientoVisitaModal] Error enviando:', err);
@@ -237,6 +260,8 @@ const VisitaSeguimientoModal: React.FC<VisitaSeguimientoModalProps> = ({ visita,
           {!loadingHilo && seguimientos.map((seg) => {
             const esMio = seg.autorUid === usuario.uid;
             const esResolucion = seg.tipo === 'resolucion';
+            const esMsgDeAdmin = ['admin', 'jefe_operaciones', 'rrhh'].includes(seg.autorRol);
+            const horaEnvio = formatearHoraMensaje(seg.fechaHora);
             
             return (
               <div key={seg.id} className={`flex flex-col ${esMio ? 'items-end' : 'items-start'}`}>
@@ -276,6 +301,45 @@ const VisitaSeguimientoModal: React.FC<VisitaSeguimientoModalProps> = ({ visita,
                       <img src={seg.fotoUrl} alt="Adjunto" className="w-full max-h-48 object-cover bg-black/10" />
                     </div>
                   )}
+
+                  {/* Footer del mensaje: hora de envío y confirmación de lectura SOLO para el Admin */}
+                  <div className={`mt-2 pt-1 border-t flex flex-wrap items-center gap-1.5 text-[10px] font-semibold ${
+                    esResolucion
+                      ? 'border-emerald-200/60 text-emerald-700 justify-start'
+                      : esMio
+                        ? 'border-blue-500/40 text-blue-200 justify-end'
+                        : 'border-slate-100 text-slate-400 justify-start'
+                  }`}>
+                    {horaEnvio && <span>{horaEnvio}</span>}
+
+                    {/* VISTO / NO VISTO: Estrictamente visible solo para el Admin sobre mensajes enviados por la administración */}
+                    {esAdmin && esMsgDeAdmin && (
+                      <>
+                        <span className="opacity-50">·</span>
+                        {seg.leidoPorSupervisor ? (
+                          <span
+                            className={`inline-flex items-center gap-1 font-bold ${
+                              esMio ? 'text-sky-200' : 'text-blue-600'
+                            }`}
+                            title={seg.leidoPorNombre ? `Visto por ${seg.leidoPorNombre}` : 'Visto por el supervisor'}
+                          >
+                            <CheckCheck size={13} className={esMio ? 'text-sky-300' : 'text-blue-600'} />
+                            <span>Visto {formatearHoraVisto(seg.leidoEn)}</span>
+                          </span>
+                        ) : (
+                          <span
+                            className={`inline-flex items-center gap-1 font-medium ${
+                              esMio ? 'text-blue-200/80' : 'text-slate-400'
+                            }`}
+                            title="El supervisor aún no ha abierto este mensaje"
+                          >
+                            <Check size={12} className={esMio ? 'opacity-80' : 'text-slate-400'} />
+                            <span>No visto aún</span>
+                          </span>
+                        )}
+                      </>
+                    )}
+                  </div>
                 </div>
               </div>
             );

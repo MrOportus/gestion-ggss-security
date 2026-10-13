@@ -491,6 +491,12 @@ export interface SeguimientoNovedad {
   // Evidencia opcional (foto adicional para el seguimiento)
   fotoUrl?: string;        // URL pública en Firebase Storage
   fotoPath?: string;       // Path en Storage (para posible borrado futuro)
+
+  // Estado de lectura por parte del guardia (solo visible para administración)
+  leidoPorGuardia?: boolean;
+  leidoEn?: any;           // Firestore Timestamp o ISO string
+  leidoPorNombre?: string;
+  leidoPorUid?: string;
 }
 
 export interface RegistroNovedadGPS {

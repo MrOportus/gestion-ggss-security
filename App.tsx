@@ -279,6 +279,10 @@ const App: React.FC = () => {
             window.dispatchEvent(new CustomEvent('app-navigate', {
               detail: { type: 'novedad_seguimiento', novedadId: data.novedadId }
             }));
+          } else if (data && data.type === 'visita_seguimiento') {
+            window.dispatchEvent(new CustomEvent('app-navigate', {
+              detail: { type: 'visita_seguimiento', visitaId: data.visitaId }
+            }));
           }
         });
         nativeListeners.push(actionListener);
@@ -363,8 +367,13 @@ const App: React.FC = () => {
               const data = payload.data || {};
               const tipo = data.type;
 
-              // Manejar novedad_seguimiento: solo mostrar toast (no navegar para no interrumpir)
-              if (tipo === 'novedad_seguimiento') {
+              // Manejar novedad_seguimiento y visita_seguimiento: solo mostrar toast (no navegar para no interrumpir)
+              if (tipo === 'visita_seguimiento') {
+                showNotification(
+                  `💬 ${payload.notification?.title || 'Seguimiento de Visita'}: ${payload.notification?.body || 'Tienes un nuevo mensaje en una visita.'}`,
+                  'info'
+                );
+              } else if (tipo === 'novedad_seguimiento') {
                 showNotification(
                   `💬 ${payload.notification?.title || 'Nuevo mensaje'}: ${payload.notification?.body || 'Tienes un mensaje en una novedad con seguimiento.'}`,
                   'info'
@@ -419,6 +428,8 @@ const App: React.FC = () => {
         setCurrentView('documents');
       } else if (type === 'market_turno') {
         setCurrentView('solicitudes_turnos_extra');
+      } else if (type === 'visita_seguimiento') {
+        setCurrentView('visitas_supervisor');
       }
     };
 
@@ -426,6 +437,9 @@ const App: React.FC = () => {
       if (event.data?.type === 'NAVIGATE_TO_DOCUMENTS') {
         console.log('[FCM] SW solicitó navegar a documentos. docId:', event.data.docId);
         window.dispatchEvent(new CustomEvent('app-navigate', { detail: { type: 'new_doc' } }));
+      } else if (event.data?.type === 'NAVIGATE_TO_VISITAS') {
+        console.log('[FCM] SW solicitó navegar a visitas de supervisor. visitaId:', event.data.visitaId);
+        window.dispatchEvent(new CustomEvent('app-navigate', { detail: { type: 'visita_seguimiento', visitaId: event.data.visitaId } }));
       }
     };
 

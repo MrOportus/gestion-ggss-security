@@ -211,7 +211,7 @@ const SupervisorVisitas: React.FC = () => {
       ? permitidas.filter(s => `${s.name} ${s.address ?? ''}`.toLowerCase().includes(q))
       : permitidas;
     const porNombre = [...filtradas].sort((a, b) => a.name.localeCompare(b.name, 'es'));
-    return { mias: porNombre, otras: [] };
+    return { mias: porNombre, otras: [] as (typeof sites) };
   }, [sites, busqueda, assignedSites, currentUser?.role]);
 
   // ═════════════ RENDER ═════════════
@@ -373,7 +373,7 @@ const SupervisorVisitas: React.FC = () => {
                     {formatearFecha(p.data.inicioEn)} · {formatearHora(p.data.inicioEn)} · {reintentandoId === p.visitId ? 'Reintentando enviar...' : 'Se enviará al tener conexión'}
                   </p>
                 </div>
-                {reintentandoId !== p.visitId && <ResultadoBadge resultado={p.data.resultado} prioridadNovedad={p.data.novedad?.prioridad} />}
+                {reintentandoId !== p.visitId && <ResultadoBadge resultado={p.data.resultado} prioridadNovedad={p.data.novedadRelevante?.prioridad} />}
               </button>
             ))}
           </section>

@@ -20,13 +20,16 @@ import {
   AlertCircle,
   Send,
   ShieldCheck,
+  CheckCheck,
+  Check,
 } from 'lucide-react';
 import {
   addSeguimiento,
-  getSeguimientos,
   formatSeguimientoFecha,
   SeguimientoBaseParams,
   markSeguimientoAsRead,
+  marcarSeguimientosLeidosPorGuardia,
+  subscribeSeguimientos,
 } from '../../lib/novedades/seguimientoService';
 import { useAppStore } from '../../store/useAppStore';
 import type { RegistroNovedad, SeguimientoNovedad, SeguimientoTipo } from '../../types';
@@ -46,6 +49,31 @@ const ROL_LABEL: Record<string, string> = {
   supervisor:       'Supervisor',
   jefe_operaciones: 'Jefe Ops.',
   rrhh:             'RRHH',
+};
+
+const formatearHoraMensaje = (fecha: any): string => {
+  if (!fecha) return '';
+  const d = typeof fecha === 'string' ? new Date(fecha) : fecha.toDate ? fecha.toDate() : new Date(fecha);
+  if (isNaN(d.getTime())) return '';
+  return d.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit', hour12: false });
+};
+
+const formatearHoraVisto = (fecha: any): string => {
+  if (!fecha) return '';
+  const d = typeof fecha === 'string' ? new Date(fecha) : fecha.toDate ? fecha.toDate() : new Date(fecha);
+  if (isNaN(d.getTime())) return '';
+  
+  const ahora = new Date();
+  const esMismoDia = d.getDate() === ahora.getDate() &&
+                     d.getMonth() === ahora.getMonth() &&
+                     d.getFullYear() === ahora.getFullYear();
+  
+  const horaStr = d.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit', hour12: false });
+  if (esMismoDia) {
+    return `a las ${horaStr}`;
+  }
+  const diaMesStr = d.toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit' });
+  return `el ${diaMesStr} a las ${horaStr}`;
 };
 
 // ─── Props ────────────────────────────────────────────────────────────────────
@@ -69,6 +97,9 @@ const NovedadSeguimientoModal: React.FC<NovedadSeguimientoModalProps> = ({
   const [seguimientos, setSeguimientos] = useState<SeguimientoNovedad[]>([]);
   const [loadingHilo, setLoadingHilo] = useState(true);
 
+  const isCurrentUserAdmin = ['admin', 'supervisor', 'jefe_operaciones', 'rrhh'].includes(usuario.rol);
+  const isWorker = usuario.rol === 'worker';
+
   // Modo: 'ver' | 'resolver'
   const [modo, setModo] = useState<'ver' | 'resolver'>('ver');
   const [mensaje, setMensaje] = useState('');
@@ -85,31 +116,47 @@ const NovedadSeguimientoModal: React.FC<NovedadSeguimientoModalProps> = ({
 
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  // ── Cargar historial de seguimiento al abrir ──────────────────────────────
+  // ── Subscripción en tiempo real al historial de seguimiento ───────────────
   useEffect(() => {
-    let mounted = true;
-    const cargar = async () => {
-      setLoadingHilo(true);
-      try {
-        const result = await getSeguimientos(novedad.id);
-        if (mounted) setSeguimientos(result);
-      } catch (e) {
-        console.error('[SeguimientoModal] Error cargando hilo:', e);
-      } finally {
-        if (mounted) setLoadingHilo(false);
-      }
-    };
-    cargar();
+    setLoadingHilo(true);
 
-    // Marcar como leído al abrir
-    if (novedad.id && usuario.rol) {
+    const unsubscribe = subscribeSeguimientos(
+      novedad.id,
+      (mensajes) => {
+        setSeguimientos(mensajes);
+        setLoadingHilo(false);
+
+        // Si quien abre el hilo es el guardia (worker), marcar mensajes de admin como leídos
+        if (isWorker) {
+          const hayNoLeidos = mensajes.some(m => m.usuarioId !== usuario.uid && !m.leidoPorGuardia);
+          if (hayNoLeidos) {
+            marcarSeguimientosLeidosPorGuardia(novedad.id, usuario.uid, usuario.nombre).catch(err => {
+              console.error('[SeguimientoModal] Error marcando leídos en tiempo real:', err);
+            });
+          }
+        }
+      },
+      (err) => {
+        console.error('[SeguimientoModal] Error en suscripción a seguimientos:', err);
+        setLoadingHilo(false);
+      }
+    );
+
+    // Al montar: marcar como leído según corresponda
+    if (isCurrentUserAdmin) {
       markSeguimientoAsRead(novedad.id, usuario.rol, usuario.nombre).catch(e => {
-        console.error('[SeguimientoModal] Error al marcar como leido:', e);
+        console.error('[SeguimientoModal] Error al marcar como leído admin:', e);
+      });
+    } else if (isWorker) {
+      marcarSeguimientosLeidosPorGuardia(novedad.id, usuario.uid, usuario.nombre).catch(e => {
+        console.error('[SeguimientoModal] Error al marcar como leído guardia:', e);
       });
     }
 
-    return () => { mounted = false; };
-  }, [novedad.id, usuario.rol, usuario.nombre]);
+    return () => {
+      unsubscribe();
+    };
+  }, [novedad.id, usuario.uid, usuario.nombre, usuario.rol, isCurrentUserAdmin, isWorker]);
 
   // Scroll al final cuando llegan nuevos mensajes
   useEffect(() => {
@@ -263,13 +310,14 @@ const NovedadSeguimientoModal: React.FC<NovedadSeguimientoModalProps> = ({
           {!loadingHilo && seguimientos.map((seg) => {
             const esMio = seg.usuarioId === usuario.uid;
             const esResolucion = seg.tipo === 'resolucion';
-            const isAdminMsg = ['admin', 'supervisor', 'jefe_operaciones'].includes(seg.rol);
-            const isCurrentUserAdmin = ['admin', 'supervisor', 'jefe_operaciones'].includes(usuario.rol);
+            const isAdminMsg = ['admin', 'supervisor', 'jefe_operaciones', 'rrhh'].includes(seg.rol);
             
             // Si el mensaje es de un admin y el que lee NO es admin, ocultamos su nombre.
             const displayNombre = (isAdminMsg && !isCurrentUserAdmin) 
               ? 'Admin-Aspro' 
               : (esMio ? 'Tú' : seg.usuarioNombre);
+
+            const horaEnvio = formatearHoraMensaje(seg.fecha ?? seg.fechaStr);
 
             return (
               <div
@@ -304,7 +352,7 @@ const NovedadSeguimientoModal: React.FC<NovedadSeguimientoModalProps> = ({
                   </div>
 
                   {/* Mensaje */}
-                  <p className={`text-sm font-medium leading-relaxed ${
+                  <p className={`text-sm font-medium leading-relaxed whitespace-pre-wrap ${
                     esResolucion ? 'text-emerald-900' : esMio ? 'text-white' : 'text-slate-700'
                   }`}>
                     {seg.mensaje}
@@ -320,26 +368,48 @@ const NovedadSeguimientoModal: React.FC<NovedadSeguimientoModalProps> = ({
                     />
                   )}
 
-                  {/* Fecha */}
-                  <p className={`text-[9px] mt-1.5 font-bold ${
-                    esResolucion ? 'text-emerald-600' : esMio ? 'text-blue-200' : 'text-slate-400'
+                  {/* Footer del mensaje: hora de envío y confirmación de lectura SOLO para Administración */}
+                  <div className={`mt-2 pt-1 border-t flex flex-wrap items-center gap-1.5 text-[10px] font-semibold ${
+                    esResolucion
+                      ? 'border-emerald-200/60 text-emerald-700 justify-start'
+                      : esMio
+                        ? 'border-blue-500/40 text-blue-200 justify-end'
+                        : 'border-slate-100 text-slate-400 justify-start'
                   }`}>
-                    {formatSeguimientoFecha(seg.fecha ?? seg.fechaStr)}
-                  </p>
+                    {horaEnvio && <span>{horaEnvio}</span>}
+
+                    {/* VISTO / NO VISTO: Estrictamente visible solo para la Administración sobre mensajes enviados por administración */}
+                    {isCurrentUserAdmin && isAdminMsg && (
+                      <>
+                        <span className="opacity-50">·</span>
+                        {seg.leidoPorGuardia ? (
+                          <span
+                            className={`inline-flex items-center gap-1 font-bold ${
+                              esMio ? 'text-sky-200' : 'text-blue-600'
+                            }`}
+                            title={seg.leidoPorNombre ? `Visto por ${seg.leidoPorNombre}` : 'Visto por el guardia'}
+                          >
+                            <CheckCheck size={13} className={esMio ? 'text-sky-300' : 'text-blue-600'} />
+                            <span>Visto {formatearHoraVisto(seg.leidoEn)}</span>
+                          </span>
+                        ) : (
+                          <span
+                            className={`inline-flex items-center gap-1 font-medium ${
+                              esMio ? 'text-blue-200/80' : 'text-slate-400'
+                            }`}
+                            title="El guardia aún no ha abierto este mensaje"
+                          >
+                            <Check size={12} className={esMio ? 'opacity-80' : 'text-slate-400'} />
+                            <span>No visto aún</span>
+                          </span>
+                        )}
+                      </>
+                    )}
+                  </div>
                 </div>
               </div>
             );
           })}
-          
-          {/* Indicador de lectura (solo admin lo ve, indicando si el guardia lo leyó) */}
-          {['admin', 'supervisor', 'jefe_operaciones'].includes(usuario.rol) && novedad.readByWorkerEn && seguimientos.length > 0 && (
-            <div className="flex justify-end pr-1 mt-1">
-              <p className="text-[10px] font-bold text-slate-400 flex items-center gap-1">
-                <CheckCircle size={10} className="text-blue-500" />
-                Visto por {novedad.readByWorkerPor || 'Guardia'} a las {formatSeguimientoFecha(novedad.readByWorkerEn)}
-              </p>
-            </div>
-          )}
 
           <div ref={bottomRef} />
 
