@@ -250,6 +250,7 @@ export interface FiltrosVisitas {
   sucursalId: string; // '' = todas
   supervisorUid: string; // '' = todos
   resultado: '' | ResultadoVisita;
+  busqueda?: string; // texto libre para búsqueda rápida
 }
 
 export const FILTROS_VACIOS: FiltrosVisitas = {
@@ -258,33 +259,113 @@ export const FILTROS_VACIOS: FiltrosVisitas = {
   sucursalId: '',
   supervisorUid: '',
   resultado: '',
+  busqueda: '',
 };
+
+/** Filtros por defecto: últimos 15 días */
+export function filtrosInicialesVisitas(hoy: Date = new Date()): FiltrosVisitas {
+  const hace15 = new Date(hoy);
+  hace15.setDate(hace15.getDate() - 15);
+  return {
+    desde: fechaLocalISO(hace15),
+    hasta: fechaLocalISO(hoy),
+    sucursalId: '',
+    supervisorUid: '',
+    resultado: '',
+    busqueda: '',
+  };
+}
 
 /** Los filtros se combinan (AND). */
 export function filtrarVisitas(visitas: VisitaSupervisorDoc[], f: FiltrosVisitas): VisitaSupervisorDoc[] {
+  const busqueda = (f.busqueda || '').trim().toLowerCase();
+
   return visitas.filter(v => {
     if (f.desde && v.fechaOperacional < f.desde) return false;
     if (f.hasta && v.fechaOperacional > f.hasta) return false;
-    if (f.sucursalId && String(v.sucursalId) !== f.sucursalId) return false;
-    if (f.supervisorUid && v.supervisorUid !== f.supervisorUid) return false;
+    if (f.sucursalId && String(v.sucursalId) !== String(f.sucursalId) && v.sucursalNombre !== f.sucursalId) return false;
+    if (f.supervisorUid && v.supervisorUid !== f.supervisorUid && v.supervisorNombre !== f.supervisorUid) return false;
     if (f.resultado && v.resultado !== f.resultado) return false;
+
+    if (busqueda) {
+      const matchSucursal = v.sucursalNombre?.toLowerCase().includes(busqueda);
+      const matchSupervisor = v.supervisorNombre?.toLowerCase().includes(busqueda);
+      const matchGuardias = v.guardiasDeTurno?.toLowerCase().includes(busqueda);
+      const matchMotivo = v.motivo?.toLowerCase().includes(busqueda);
+      const matchNovedad = v.novedadRelevante?.descripcion?.toLowerCase().includes(busqueda);
+      const matchObservacion = v.observaciones?.texto?.toLowerCase().includes(busqueda);
+      if (!matchSucursal && !matchSupervisor && !matchGuardias && !matchMotivo && !matchNovedad && !matchObservacion) {
+        return false;
+      }
+    }
+
     return true;
   });
 }
 
+export interface SupervisorConteo {
+  uid: string;
+  nombre: string;
+  total: number;
+  conNovedad: number;
+  conObservacion: number;
+  sinNovedad: number;
+  porcentaje: number;
+}
+
 export interface EstadisticasVisitas {
+  total: number;
   visitasMes: number;
   supervisoresConVisitas: number;
   visitasConNovedad: number;
+  visitasConObservacion: number;
+  visitasSinNovedad: number;
+  porSupervisor: SupervisorConteo[];
 }
 
 export function calcularEstadisticas(visitas: VisitaSupervisorDoc[], hoy: Date = new Date()): EstadisticasVisitas {
   const mes = fechaLocalISO(hoy).substring(0, 7); // YYYY-MM
-  const delMes = visitas.filter(v => v.fechaOperacional.startsWith(mes));
+  const delMes = visitas.filter(v => v.fechaOperacional && v.fechaOperacional.startsWith(mes));
+  
+  const supMap = new Map<string, { uid: string; nombre: string; total: number; conNovedad: number; conObservacion: number; sinNovedad: number }>();
+
+  visitas.forEach(v => {
+    const key = v.supervisorUid || v.supervisorNombre || 'desconocido';
+    const curr = supMap.get(key) || {
+      uid: v.supervisorUid || key,
+      nombre: v.supervisorNombre || 'Supervisor',
+      total: 0,
+      conNovedad: 0,
+      conObservacion: 0,
+      sinNovedad: 0,
+    };
+    curr.total++;
+    if (v.novedadRelevante?.hay === true) {
+      curr.conNovedad++;
+    } else if (v.resultado === 'con_observaciones') {
+      curr.conObservacion++;
+    } else {
+      curr.sinNovedad++;
+    }
+    supMap.set(key, curr);
+  });
+
+  const total = visitas.length;
+  const porSupervisor: SupervisorConteo[] = [...supMap.values()]
+    .map(s => ({
+      ...s,
+      porcentaje: total > 0 ? Math.round((s.total / total) * 100) : 0,
+    }))
+    .sort((a, b) => b.total - a.total);
+
   return {
+    total,
     visitasMes: delMes.length,
-    supervisoresConVisitas: new Set(visitas.map(v => v.supervisorUid)).size,
+    supervisoresConVisitas: supMap.size,
     visitasConNovedad: visitas.filter(v => v.novedadRelevante?.hay === true).length,
+    visitasConObservacion: visitas.filter(v => v.resultado === 'con_observaciones').length,
+    visitasSinNovedad: visitas.filter(v => v.resultado === 'sin_novedades').length,
+    porSupervisor,
   };
 }
 
