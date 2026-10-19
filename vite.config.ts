@@ -1,6 +1,13 @@
 
 import { defineConfig, Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
+import fs from 'fs';
+import path from 'path';
+
+const versionFilePath = path.resolve(__dirname, 'VERSION');
+const currentAppVersion = fs.existsSync(versionFilePath)
+  ? fs.readFileSync(versionFilePath, 'utf8').trim()
+  : '6.0.9';
 
 /**
  * Plugin que genera firebase-messaging-sw.js dinámicamente
@@ -68,6 +75,9 @@ messaging.onBackgroundMessage(function(payload) {
 
 export default defineConfig({
   plugins: [react(), generateFirebaseMessagingSW()],
+  define: {
+    __APP_VERSION__: JSON.stringify(currentAppVersion),
+  },
   server: {
     host: '0.0.0.0',
     port: 3000,

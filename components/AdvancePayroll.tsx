@@ -402,7 +402,7 @@ const AdvancePayroll: React.FC<AdvancePayrollProps> = ({ onBack }) => {
                             {/* Table Toolbar */}
                             <div className="p-4 border-b border-slate-100 bg-slate-50 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                                 <div>
-                                    <h3 className="font-bold text-slate-700 text-sm uppercase tracking-wider">Carga Masiva Contextual</h3>
+                                    <h3 className="font-bold text-slate-700 text-sm uppercase tracking-wider"> ContextualCarga Masiva</h3>
                                     <p className="text-[10px] text-slate-400 font-medium">Listado basado en programacion de turnos vigente</p>
                                 </div>
 

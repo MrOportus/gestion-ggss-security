@@ -485,6 +485,17 @@ export const useAppStore = create<AppState>()(
 
       logout: async () => {
         try {
+          // Desvincular el token FCM de este dispositivo ANTES de cerrar sesión
+          try {
+            const fcmToken = localStorage.getItem('ggss_fcm_token');
+            if (fcmToken && auth.currentUser) {
+              await httpsCallable(functions, 'registerFcmToken')({ token: fcmToken, remove: true });
+              localStorage.removeItem('ggss_fcm_token');
+            }
+          } catch (e) {
+            console.warn('No se pudo desvincular el token FCM al cerrar sesión:', e);
+          }
+
           // Detener sincronización antes de cerrar sesión
           // Las operaciones pendientes del usuario se PRESERVAN en la cola
           const { SyncManager } = await import('../lib/SyncManager');
@@ -1815,6 +1826,16 @@ export const useAppStore = create<AppState>()(
 
       registerFCMToken: async (employeeId, token) => {
         try {
+          // Asignación exclusiva (server-side): quita el token de cualquier otro colaborador
+          try {
+            await httpsCallable(functions, 'registerFcmToken')({ token });
+            localStorage.setItem('ggss_fcm_token', token);
+            return;
+          } catch (callableError) {
+            console.warn('registerFcmToken callable falló, usando registro directo:', callableError);
+            localStorage.setItem('ggss_fcm_token', token);
+          }
+
           const docRef = doc(db, "Colaboradores", employeeId);
           const docSnap = await getDoc(docRef);
           

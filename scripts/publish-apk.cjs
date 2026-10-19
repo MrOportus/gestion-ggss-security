@@ -32,7 +32,9 @@ if (!/^\d+\.\d+\.\d+$/.test(newVersion)) {
 }
 
 const rootDir = path.join(__dirname, '..');
-const bannerPath = path.join(rootDir, 'components', 'AppUpdateBanner.tsx');
+const versionFilePath = path.join(rootDir, 'VERSION');
+const packageJsonPath = path.join(rootDir, 'package.json');
+const updateServicePath = path.join(rootDir, 'lib', 'UpdateService.ts');
 const serviceAccountPath = path.join(rootDir, 'serviceAccountKey.json');
 
 // Verificar archivo de credenciales de Firebase
@@ -44,21 +46,24 @@ if (!fs.existsSync(serviceAccountPath)) {
 console.log(`\n🚀 Iniciando automatización para publicar la versión v${newVersion}...\n`);
 
 try {
-  // ── 2. Actualizar APP_VERSION en AppUpdateBanner.tsx ────────────────────────
-  console.log('📝 1. Actualizando APP_VERSION en AppUpdateBanner.tsx...');
-  if (!fs.existsSync(bannerPath)) {
-    throw new Error(`No se encontró el archivo de banner en: ${bannerPath}`);
+  // ── 2. Actualizar versión en VERSION, package.json y UpdateService.ts ───────
+  console.log('📝 1. Actualizando versión en archivos del proyecto...');
+  fs.writeFileSync(versionFilePath, newVersion, 'utf8');
+
+  if (fs.existsSync(packageJsonPath)) {
+    const pkg = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
+    pkg.version = newVersion;
+    fs.writeFileSync(packageJsonPath, JSON.stringify(pkg, null, 2) + '\n', 'utf8');
   }
-  let bannerContent = fs.readFileSync(bannerPath, 'utf8');
-  
-  // Expresión regular para buscar: export const APP_VERSION = '...';
-  const versionRegex = /(export\s+const\s+APP_VERSION\s*=\s*['"])([^'"]+)(['"])/;
-  if (!versionRegex.test(bannerContent)) {
-    throw new Error('No se pudo encontrar la declaración de export const APP_VERSION en AppUpdateBanner.tsx');
+
+  if (fs.existsSync(updateServicePath)) {
+    let updateServiceContent = fs.readFileSync(updateServicePath, 'utf8');
+    const baseApkRegex = /(export\s+const\s+BASE_NATIVE_APK_VERSION\s*=\s*['"])([^'"]+)(['"])/;
+    if (baseApkRegex.test(updateServiceContent)) {
+      updateServiceContent = updateServiceContent.replace(baseApkRegex, `$1${newVersion}$3`);
+      fs.writeFileSync(updateServicePath, updateServiceContent, 'utf8');
+    }
   }
-  
-  bannerContent = bannerContent.replace(versionRegex, `$1${newVersion}$3`);
-  fs.writeFileSync(bannerPath, bannerContent, 'utf8');
   console.log(`   ✅ Versión actualizada localmente a v${newVersion}`);
 
   // ── 3. Compilar bundle Web ──────────────────────────────────────────────────

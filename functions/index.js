@@ -141,6 +141,38 @@ exports.generarContrato = onRequest(
     }
 );
 
+// Registra/elimina un token FCM de forma EXCLUSIVA: un token (dispositivo o navegador)
+// solo puede pertenecer a un colaborador. Evita que, tras cambiar de sesión en un mismo
+// dispositivo, las notificaciones lleguen al usuario anterior.
+exports.registerFcmToken = onCall({ region: 'us-central1' }, async (request) => {
+    if (!request.auth) {
+        throw new HttpsError('unauthenticated', 'Debes iniciar sesión.');
+    }
+    const uid = request.auth.uid;
+    const token = request.data && request.data.token;
+    const remove = !!(request.data && request.data.remove);
+    if (!token || typeof token !== 'string') {
+        throw new HttpsError('invalid-argument', 'Token inválido.');
+    }
+
+    const db = admin.firestore();
+    const holders = await db.collection('Colaboradores')
+        .where('fcmTokens', 'array-contains', token)
+        .get();
+
+    const batch = db.batch();
+    holders.forEach(d => {
+        if (remove || d.id !== uid) {
+            batch.update(d.ref, { fcmTokens: FieldValue.arrayRemove(token) });
+        }
+    });
+    if (!remove) {
+        batch.update(db.collection('Colaboradores').doc(uid), { fcmTokens: FieldValue.arrayUnion(token) });
+    }
+    await batch.commit();
+    return { success: true };
+});
+
 // Función para notificar nuevo documento asignado
 exports.notificarNuevoDocumento = onDocumentCreated(
     { 

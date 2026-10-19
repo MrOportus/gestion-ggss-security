@@ -61,6 +61,7 @@ import SignatureModal from './components/SignatureModal';
 // solo en contexto web para evitar interferencia con el plugin nativo de Capacitor
 import PanelAdminSolicitudes from './components/PanelAdminSolicitudes';
 import AppUpdateBanner from './components/AppUpdateBanner';
+import { useAppVersion } from './hooks/useAppVersion';
 import { notifyAppReady, initAutoUpdateListener } from './lib/UpdateService';
 import MandanteView from './pages/MandanteView';
 import MandanteManagement from './pages/MandanteManagement';
@@ -84,6 +85,7 @@ const App: React.FC = () => {
   const [currentView, setCurrentView] = useState<'dashboard' | 'employees' | 'tasks' | 'sites' | 'payments' | 'supervisor_mgmt' | 'mandante_mgmt' | 'notes' | 'attendance' | 'rounds' | 'shift_management' | 'loans' | 'documents' | 'solicitudes_turnos_extra' | 'hr_contracts' | 'attendance_shadow_qa' | 'libro_novedades' | 'visitas_supervisor'>('dashboard');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [showSupervisorSigModal, setShowSupervisorSigModal] = useState(false);
+  const appVersion = useAppVersion();
 
   const supervisorEmp = employees.find(e => e.id === currentUser?.uid);
   const pendingDocsCount = digitalDocuments.filter(d => d.assignedTo === currentUser?.uid && d.status === 'pending').length;
@@ -726,6 +728,9 @@ const App: React.FC = () => {
           >
             <LogOut size={16} /> Cerrar Sesión
           </button>
+          <p className="text-center text-[9px] font-black text-slate-400 mt-2 uppercase tracking-widest">
+            ASPRO APP v{appVersion}
+          </p>
         </div>
       </aside>
 
@@ -930,6 +935,9 @@ const App: React.FC = () => {
                   <span className="text-xs font-bold text-slate-700">Salir</span>
                 </button>
               </div>
+              <p className="text-center text-[9px] font-black text-slate-400 py-3 uppercase tracking-widest">
+                ASPRO APP v{appVersion}
+              </p>
             </nav>
           </div>
         )}

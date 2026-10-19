@@ -52,6 +52,7 @@ import { evaluateNocturnalClosure } from '../lib/phase5/nocturnalClosure';
 import MyExtraShifts from '../components/MyExtraShifts';
 import MyFixedShifts from '../components/MyFixedShifts';
 import AppUpdateBanner, { APP_VERSION } from '../components/AppUpdateBanner';
+import { useAppVersion } from '../hooks/useAppVersion';
 import { Capacitor } from '@capacitor/core';
 import { Geolocation } from '@capacitor/geolocation';
 import { toAbsoluteMinutes } from '../lib/phase5/shadowResolver';
@@ -84,6 +85,7 @@ const WorkerAttendance: React.FC = () => {
   const employee = useAppStore(state =>
     state.currentUser ? state.employees.find(e => e.id === state.currentUser?.uid) : undefined
   );
+  const appVersion = useAppVersion();
 
   const pendingDocsCount = React.useMemo(() => {
     return digitalDocuments.filter(d => d.assignedTo === currentUser?.uid && d.status === 'pending').length;
@@ -1778,7 +1780,7 @@ const WorkerAttendance: React.FC = () => {
       </div>
 
       <div className={`p-6 text-center text-[10px] font-black text-slate-300 uppercase tracking-widest transition-all duration-500 ${step === 'documents' || step === 'company_docs' || step === 'market' || step === 'my_extra_shifts' || step === 'my_fixed_shifts' ? 'opacity-0 h-0 p-0 overflow-hidden' : 'opacity-50'}`}>
-        ASPRO APP · Aspro SPA · v{APP_VERSION}
+        ASPRO APP · Aspro SPA · v{appVersion}
       </div>
 
       {/* ══ MODAL DE CONFIRMACIÓN — INICIAR TURNO ══════════════════════ */}
@@ -2040,7 +2042,7 @@ const WorkerAttendance: React.FC = () => {
               <LogOut size={20} />
               Cerrar Sesión
             </button>
-            <p className="text-center text-[8px] font-black text-slate-300 mt-4 uppercase tracking-[0.2em]">ASPRO APP v{APP_VERSION}</p>
+            <p className="text-center text-[8px] font-black text-slate-300 mt-4 uppercase tracking-[0.2em]">ASPRO APP v{appVersion}</p>
           </div>
         </div>
       </div>

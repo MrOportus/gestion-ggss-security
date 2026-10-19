@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { useAppStore } from '../../store/useAppStore';
 import { useNetworkStatus } from '../../hooks/useNetworkStatus';
+import { useAppVersion } from '../../hooks/useAppVersion';
 import { VisitaDraft, VisitaSupervisorDoc } from '../../lib/visitasSupervisor/visitasTypes';
 import { crearBorrador } from '../../lib/visitasSupervisor/visitasLogic';
 import {
@@ -42,6 +43,7 @@ const SupervisorVisitas: React.FC = () => {
   const isSyncing = useAppStore(s => s.isSyncing);
   const showConfirmation = useAppStore(s => s.showConfirmation);
   const { connected } = useNetworkStatus();
+  const appVersion = useAppVersion();
 
   const uid = currentUser?.uid ?? '';
   const [modo, setModo] = useState<Modo>('inicio');
@@ -315,7 +317,10 @@ const SupervisorVisitas: React.FC = () => {
       <div className="max-w-2xl mx-auto space-y-5">
         <div>
           <h1 className="text-3xl font-black text-slate-900 leading-tight">Visitas de Supervisor</h1>
-          <p className="text-base font-semibold text-slate-600">Hola, {supervisorNombre}</p>
+          <div className="flex items-center justify-between">
+            <p className="text-base font-semibold text-slate-600">Hola, {supervisorNombre}</p>
+            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">v{appVersion}</span>
+          </div>
           {!connected && (
             <p className="mt-2 inline-flex items-center gap-2 text-sm font-black text-amber-900 bg-amber-100 border-2 border-amber-300 rounded-full px-3 py-1">
               <WifiOff size={16} aria-hidden /> Sin conexión: puede trabajar igual, se enviará después.
@@ -439,6 +444,10 @@ const SupervisorVisitas: React.FC = () => {
             </div>
           ))}
         </section>
+
+        <div className="pt-6 pb-2 text-center text-[9px] font-black text-slate-400 uppercase tracking-widest">
+          ASPRO APP v{appVersion}
+        </div>
       </div>
 
       {detalle && <VisitaDetalleModal visita={detalle.visita} openSeguimientoOnInit={detalle.openSeguimiento} onClose={() => setDetalle(null)} />}

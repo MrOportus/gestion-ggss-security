@@ -4,8 +4,14 @@ import { db } from './firebase';
 import { SyncQueueService } from './SyncQueueService';
 import { SyncManager } from './SyncManager';
 
-// Versión base del APK nativo instalado
-export const APP_VERSION = '6.0.0';
+// Leído en tiempo de compilación desde VERSION / package.json mediante Vite define
+declare const __APP_VERSION__: string;
+
+// Versión del binario APK nativo instalado en los dispositivos (para evaluar nuevas versiones de binario APK)
+export const BASE_NATIVE_APK_VERSION = '6.0.0';
+
+// Versión de la aplicación web / bundle compilada
+export const APP_VERSION = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '6.0.9';
 
 export interface AppVersionConfig {
   version: string;        // Versión del APK nativo (ej. "6.0.0")
@@ -182,8 +188,8 @@ export async function performAutoUpdateCheck(options: { silent?: boolean; force?
     _updateState.lastChecked = new Date();
 
     // 1. Prioridad: Actualización de APK Nativo (cambios que requieren nuevo binario Android)
-    if (remoteConfig.version && isNewerVersion(remoteConfig.version, APP_VERSION)) {
-      console.log(`[UpdateService] Nueva versión nativa de APK detectada: v${remoteConfig.version} (actual: v${APP_VERSION})`);
+    if (remoteConfig.version && isNewerVersion(remoteConfig.version, BASE_NATIVE_APK_VERSION)) {
+      console.log(`[UpdateService] Nueva versión nativa de APK detectada: v${remoteConfig.version} (actual: v${BASE_NATIVE_APK_VERSION})`);
       _updateState.isApkUpdateAvailable = true;
       _updateState.apkConfig = remoteConfig;
       _updateState.status = 'idle';
