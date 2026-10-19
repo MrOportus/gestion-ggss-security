@@ -82,7 +82,9 @@ const App: React.FC = () => {
   }
 
   const { currentUser, logout, fetchInitialData, isLoading, initializeAuthListener, registerFCMToken, showNotification, processSyncQueue, authInitialized, showConfirmation, employees, updateEmployee, digitalDocuments } = useAppStore();
-  const [currentView, setCurrentView] = useState<'dashboard' | 'employees' | 'tasks' | 'sites' | 'payments' | 'supervisor_mgmt' | 'mandante_mgmt' | 'notes' | 'attendance' | 'rounds' | 'shift_management' | 'loans' | 'documents' | 'solicitudes_turnos_extra' | 'hr_contracts' | 'attendance_shadow_qa' | 'libro_novedades' | 'visitas_supervisor'>('dashboard');
+  const [currentView, setCurrentView] = useState<'dashboard' | 'employees' | 'tasks' | 'sites' | 'payments' | 'supervisor_mgmt' | 'mandante_mgmt' | 'notes' | 'attendance' | 'rounds' | 'shift_management' | 'loans' | 'documents' | 'solicitudes_turnos_extra' | 'hr_contracts' | 'attendance_shadow_qa' | 'libro_novedades' | 'visitas_supervisor'>(() => {
+    return currentUser?.role === 'supervisor' ? 'visitas_supervisor' : 'dashboard';
+  });
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [showSupervisorSigModal, setShowSupervisorSigModal] = useState(false);
   const appVersion = useAppVersion();
@@ -454,8 +456,8 @@ const App: React.FC = () => {
     };
   }, [setCurrentView]);
 
-  // Pantalla de carga inicial mientras Firebase verifica la sesión
-  if (!authInitialized) {
+  // Pantalla de carga inicial mientras Firebase verifica la sesión o carga datos iniciales
+  if (!authInitialized || (currentUser && isLoading && employees.length === 0)) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50">
         <div className="flex flex-col items-center gap-6">
@@ -945,8 +947,8 @@ const App: React.FC = () => {
         {/* CONTENIDO SCROLLABLE */}
         <div className="flex-1 overflow-y-auto">
           <div className="animate-fade-in pb-24 md:pb-0">
-            {currentView === 'dashboard' && <AdminDashboard />}
-            {currentView === 'visitas_supervisor' && (currentUser.role === 'admin' || currentUser.role === 'supervisor') && <VisitasSupervisorPage />}
+            {currentView === 'dashboard' && currentUser.role !== 'supervisor' && <AdminDashboard />}
+            {(currentView === 'visitas_supervisor' || (currentView === 'dashboard' && currentUser.role === 'supervisor')) && (currentUser.role === 'admin' || currentUser.role === 'supervisor') && <VisitasSupervisorPage />}
             {currentView === 'employees' && currentUser.role === 'admin' && <EmployeesPage />}
             {currentView === 'tasks' && currentUser.role !== 'supervisor' && <TasksPage />}
             {currentView === 'sites' && currentUser.role !== 'supervisor' && <SitesPage />}

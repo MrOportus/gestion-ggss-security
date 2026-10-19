@@ -999,7 +999,9 @@ const WorkerAttendance: React.FC = () => {
   const resolvedSiteId = activeLog?.siteId ?? assignedSiteId ?? employee?.currentSiteId;
   // Comparación robusta: convertir a string porque siteId puede ser number o string según el origen
   const currentSite = sites.find(s => String(s.id) === String(resolvedSiteId));
-  const displayShortName = employee ? `${employee.firstName} ${employee.lastNamePaterno.charAt(0).toUpperCase()}.` : '';
+  const displayShortName = employee
+    ? `${employee.firstName || ''} ${(employee.lastNamePaterno || '').charAt(0).toUpperCase()}.`.trim()
+    : '';
 
   // Horario del turno activo (calculado dinámicamente según la sucursal asignada)
   const activeShiftSchedule = React.useMemo(() => {

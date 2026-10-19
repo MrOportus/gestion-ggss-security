@@ -4,7 +4,7 @@ import { STORAGE_CACHE_METADATA } from '../lib/imageUtils';
 import { Network } from '@capacitor/network';
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
-import { User, Employee, Site, AttendanceLog, Document, DigitalDocument, ComparisonRecord, DailyPayment, AppNotification, AppConfirmation, ContractRecord, Advance, SupervisorTask, ChecklistTemplate, ResignationRequest, RecurringSupervisorTask, SupervisorSubTask, BoardNote, GuardRound, Loan, Vacation, Novedad, RegistroNovedad, SignatureTemplate, DocumentTemplate } from '../types';
+import { User, Role, Employee, Site, AttendanceLog, Document, DigitalDocument, ComparisonRecord, DailyPayment, AppNotification, AppConfirmation, ContractRecord, Advance, SupervisorTask, ChecklistTemplate, ResignationRequest, RecurringSupervisorTask, SupervisorSubTask, BoardNote, GuardRound, Loan, Vacation, Novedad, RegistroNovedad, SignatureTemplate, DocumentTemplate } from '../types';
 import { Contrato } from '../types/phase1';
 import { db, auth, secondaryAuth, storage, functions } from '../lib/firebase';
 import { httpsCallable } from 'firebase/functions';
@@ -394,13 +394,26 @@ export const useAppStore = create<AppState>()(
       initializeAuthListener: () => {
         onAuthStateChanged(auth, async (firebaseUser) => {
           if (firebaseUser) {
-            // Usuario logueado, intentamos obtener su rol desde la colección Colaboradores
+            // Si el usuario ya fue autenticado e inicializado por login() recientemente (<30s),
+            // evitar re-ejecutar el ciclo completo y mantener authInitialized en true
+            const current = get().currentUser;
+            const lastFetch = get().lastFetchTimestamp;
+            if (current && current.uid === firebaseUser.uid && lastFetch && (Date.now() - lastFetch < 30000)) {
+              set({ authInitialized: true });
+              return;
+            }
+
+            // Inicio de sesión o recarga de página:
+            // Aseguramos que authInitialized esté en false mientras cargamos datos críticos
+            set({ authInitialized: false, isLoading: true });
             try {
               const docRef = doc(db, "Colaboradores", firebaseUser.uid);
               const docSnap = await getDoc(docRef);
+              let userRole: Role = 'worker';
+              let empData: Employee | null = null;
 
               if (docSnap.exists()) {
-                const empData = docSnap.data() as Employee;
+                empData = { ...docSnap.data(), id: firebaseUser.uid } as Employee;
                 
                 // IMPORTANTE: Limpiar forceLogout ANTES de setear currentUser
                 // para evitar que el listener de WorkerAttendance dispare logout() inmediatamente
@@ -412,28 +425,29 @@ export const useAppStore = create<AppState>()(
                     console.error("[AUTH] Error limpiando forceLogout:", e);
                   }
                 }
-                
-                set({
-                  currentUser: {
-                    uid: firebaseUser.uid,
-                    email: firebaseUser.email,
-                    role: empData.role || 'worker'
-                  }
-                });
-              } else {
-                // Ocurre la primera vez. Asumimos rol admin si no existe ficha pero entró.
-                // (Idealmente se crea la ficha manualmente en la consola de Firebase)
-                set({ currentUser: { uid: firebaseUser.uid, email: firebaseUser.email, role: 'worker' } });
+                userRole = (empData.role as Role) || 'worker';
               }
+
+              const currentUserObj = {
+                uid: firebaseUser.uid,
+                email: firebaseUser.email,
+                role: userRole
+              };
+
+              set({
+                currentUser: currentUserObj,
+                employees: empData ? [empData] : get().employees
+              });
+
               // Cargar datos iniciales para cualquier rol
-              await get().fetchInitialData();
+              await get().fetchInitialData(true);
             } catch (e) {
               console.error("Error fetching user profile", e);
             } finally {
-              set({ authInitialized: true });
+              set({ authInitialized: true, isLoading: false });
             }
           } else {
-            set({ currentUser: null, employees: [], authInitialized: true });
+            set({ currentUser: null, employees: [], authInitialized: true, isLoading: false });
           }
         });
       },
@@ -442,11 +456,13 @@ export const useAppStore = create<AppState>()(
         set({ isLoading: true });
         try {
           let uid = "";
+          let userEmail: string | null = null;
           
           if (identifier.includes('@')) {
             // Login normal con correo
             const userCredential = await signInWithEmailAndPassword(auth, identifier, pass);
             uid = userCredential.user.uid;
+            userEmail = userCredential.user.email;
           } else {
             // Login con RUT
             const loginWithRutFn = httpsCallable(functions, 'loginWithRut');
@@ -461,25 +477,47 @@ export const useAppStore = create<AppState>()(
             const data = result.data as { token: string };
             const userCredential = await signInWithCustomToken(auth, data.token);
             uid = userCredential.user.uid;
+            userEmail = userCredential.user.email;
           }
           
-          // Limpiar flag de forceLogout si existe al iniciar sesión
+          // Cargar ficha y rol inmediatamente
+          let userRole: Role = 'worker';
+          let empData: Employee | null = null;
           try {
             const docRef = doc(db, "Colaboradores", uid);
             const docSnap = await getDoc(docRef);
-            if (docSnap.exists() && docSnap.data().forceLogout) {
-              await updateDoc(docRef, { forceLogout: false });
+            if (docSnap.exists()) {
+              empData = { ...docSnap.data(), id: uid } as Employee;
+              if (empData.forceLogout) {
+                await updateDoc(docRef, { forceLogout: false }).catch(console.error);
+              }
+              userRole = (empData.role as Role) || 'worker';
             }
           } catch (e) {
-            console.error("Error clearing forceLogout flag:", e);
+            console.error("Error clearing forceLogout flag / loading profile in login:", e);
           }
+
+          const resolvedEmail = userEmail || (empData?.email || (identifier.includes('@') ? identifier : `${identifier}@ggss.cl`));
+          const currentUserObj = {
+            uid,
+            email: resolvedEmail,
+            role: userRole
+          };
+
+          // Pre-sembrar currentUser y employees para que el perfil esté disponible de inmediato
+          set({
+            currentUser: currentUserObj,
+            employees: empData ? [empData] : get().employees
+          });
+
+          // Cargar datos iniciales de inmediato antes de soltar el spinner del login
+          await get().fetchInitialData(true);
           
-          // El listener onAuthStateChanged manejará el resto del estado
         } catch (error: any) {
           console.error("Login error:", error);
           throw error;
         } finally {
-          set({ isLoading: false });
+          set({ isLoading: false, authInitialized: true });
         }
       },
 

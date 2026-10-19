@@ -474,8 +474,8 @@ const AdminDashboard: React.FC = () => {
       else if (diffDays < 0) dayStr = `Pasó hace ${Math.abs(diffDays)} días`;
       else dayStr = `En ${diffDays} días`;
 
-      const parts = emp.fechaNacimiento!.split('T')[0].split('-');
-      const formattedBday = `${parts[2]}/${parts[1]}`;
+      const parts = (emp.fechaNacimiento || '').split('T')[0]?.split('-');
+      const formattedBday = parts && parts.length === 3 ? `${parts[2]}/${parts[1]}` : 'N/A';
 
       return (
         <div className="text-center">
@@ -745,7 +745,7 @@ const AdminDashboard: React.FC = () => {
                                       <div className="flex items-center gap-4">
                                         <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-black text-xs shadow-sm transition-transform group-hover:scale-110 ${emp.isLive ? "bg-emerald-600 text-white" : "bg-slate-100 text-slate-400"
                                           }`}>
-                                          {emp.firstName[0]}{emp.lastNamePaterno[0]}
+                                          {(emp.firstName?.[0] || 'U')}{(emp.lastNamePaterno?.[0] || '')}
                                         </div>
                                         <div className="min-w-0">
                                           <p className={`text-sm font-bold flex items-center gap-2 ${emp.isLive ? "text-slate-900" : "text-slate-500"}`}>

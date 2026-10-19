@@ -759,46 +759,6 @@ const DocumentsPage: React.FC = () => {
                 </div>
             )}
 
-            {/* ESTADO DE FIRMA DIGITAL (TRABAJADOR / SUPERVISOR) */}
-            {currentUser?.role !== 'admin' && (
-                <div className="bg-white rounded-3xl p-5 border border-slate-100 shadow-sm flex flex-col sm:flex-row items-center justify-between gap-4">
-                    <div className="flex items-center gap-4">
-                        <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 ${myEmployee?.signatureUrl ? 'bg-emerald-50 text-emerald-600' : 'bg-blue-50 text-blue-600'}`}>
-                            <PenTool size={22} />
-                        </div>
-                        <div>
-                            <div className="flex items-center gap-2">
-                                <h3 className="font-black text-slate-800 text-sm">Mi Firma Digital</h3>
-                                {myEmployee?.signatureUrl ? (
-                                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase bg-emerald-100 text-emerald-700 flex items-center gap-1">
-                                        <CheckCircle size={10} /> Registrada
-                                    </span>
-                                ) : (
-                                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase bg-amber-100 text-amber-700 animate-pulse">
-                                        Sin registrar
-                                    </span>
-                                )}
-                            </div>
-                            <p className="text-xs text-slate-500 font-medium mt-1">
-                                {myEmployee?.signatureUrl
-                                    ? 'Tu firma digital está activa para firmar contratos, anexos y documentos.'
-                                    : 'Registra tu trazo una sola vez para poder firmar digitalmente tus documentos.'}
-                            </p>
-                        </div>
-                    </div>
-                    <button
-                        onClick={() => setShowSignatureModal(true)}
-                        className={`w-full sm:w-auto px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center justify-center gap-2 ${myEmployee?.signatureUrl
-                                ? 'bg-slate-100 hover:bg-slate-200 text-slate-700'
-                                : 'bg-blue-600 hover:bg-blue-700 text-white shadow-lg shadow-blue-200 active:scale-95'
-                            }`}
-                    >
-                        <PenTool size={14} />
-                        {myEmployee?.signatureUrl ? 'Cambiar Firma' : 'Registrar Mi Firma'}
-                    </button>
-                </div>
-            )}
-
             {/* AVISO PENDIENTES DE TRABAJADOR */}
             {currentUser?.role !== 'admin' && activeTab === 'pending' && (
                 <div className="bg-amber-50 border border-amber-200 p-5 rounded-3xl flex flex-col sm:flex-row items-center justify-between gap-4 animate-in fade-in slide-in-from-top-4 duration-300">
