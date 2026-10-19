@@ -564,10 +564,15 @@ exports.notificarSeguimientoVisita = onDocumentCreated(
 
                 if (invalidTokens.length > 0) {
                     console.log(`[FCM-VISITAS] Limpiando ${invalidTokens.length} tokens inválidos.`);
-                    if (autorUid !== supervisorUid && supervisorUid) {
-                        await admin.firestore().collection('Colaboradores').doc(supervisorUid).update({
-                            fcmTokens: admin.firestore.FieldValue.arrayRemove(...invalidTokens)
-                        });
+                    for (const badToken of invalidTokens) {
+                        const holders = await admin.firestore().collection('Colaboradores')
+                            .where('fcmTokens', 'array-contains', badToken)
+                            .get();
+                        for (const holder of holders.docs) {
+                            await holder.ref.update({
+                                fcmTokens: admin.firestore.FieldValue.arrayRemove(badToken)
+                            });
+                        }
                     }
                 }
             }

@@ -300,6 +300,27 @@ export async function fetchVisitasSupervisor(uid: string, maxDocs = 60): Promise
   return visitas.sort((a, b) => b.inicioEn.localeCompare(a.inicioEn)).slice(0, maxDocs);
 }
 
+/** Supervisor: suscripción en tiempo real a sus visitas (contadores de mensajes no leídos instantáneos). */
+export function subscribeVisitasSupervisor(
+  uid: string,
+  onUpdate: (visitas: VisitaSupervisorDoc[]) => void,
+  maxDocs = 60,
+  onError?: (err: Error) => void
+): () => void {
+  const q = query(collection(db, VISITAS_COLLECTION), where('supervisorUid', '==', uid), limit(300));
+  return onSnapshot(
+    q,
+    (snap) => {
+      const visitas = mapDocs(snap);
+      onUpdate(visitas.sort((a, b) => b.inicioEn.localeCompare(a.inicioEn)).slice(0, maxDocs));
+    },
+    (err) => {
+      console.error('[Visitas] Error en suscripción del supervisor:', err);
+      if (onError) onError(err);
+    }
+  );
+}
+
 /** Total histórico de reportes (consulta de conteo, no descarga documentos). */
 export async function contarReportesTotales(): Promise<number | null> {
   try {

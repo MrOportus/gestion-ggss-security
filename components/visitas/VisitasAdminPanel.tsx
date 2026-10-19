@@ -328,7 +328,10 @@ const VisitasAdminPanel: React.FC = () => {
         })}
       </section>
 
-      {detalle && <VisitaDetalleModal visita={detalle.visita} openSeguimientoOnInit={detalle.openSeguimiento} onClose={() => setDetalle(null)} />}
+      {detalle && (() => {
+        const viva = visitas.find(x => x.id === detalle.visita.id) ?? detalle.visita;
+        return <VisitaDetalleModal visita={viva} openSeguimientoOnInit={detalle.openSeguimiento} onClose={() => setDetalle(null)} />;
+      })()}
     </div>
   );
 };

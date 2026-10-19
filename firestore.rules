@@ -441,8 +441,15 @@ service cloud.firestore {
         && request.resource.data.mensaje is string
         && request.resource.data.mensaje.size() > 0;
 
-      // Historial Inmutable: No se puede editar ni borrar
-      allow update, delete: if false;
+      // Historial Inmutable: el contenido no se puede editar. Única excepción:
+      // acuse de lectura del guardia (solo campos de lectura, hecho por un tercero
+      // distinto al autor del mensaje).
+      allow update: if canAccessSeguimiento()
+        && resource.data.usuarioId != request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['leidoPorGuardia', 'leidoEn', 'leidoPorNombre', 'leidoPorUid'])
+        && request.resource.data.leidoPorUid == request.auth.uid;
+      allow delete: if false;
     }
 
 
@@ -460,7 +467,14 @@ service cloud.firestore {
       match /seguimientos/{seguimientoId} {
         allow read: if request.auth != null && (isAdmin() || isSupervisor() || isJefeOperaciones());
         allow create: if request.auth != null && (isAdmin() || isSupervisor() || isJefeOperaciones());
-        allow update, delete: if false;
+        // Inmutable salvo el acuse de lectura del supervisor (solo campos de lectura,
+        // por alguien distinto al autor del mensaje).
+        allow update: if request.auth != null && (isAdmin() || isSupervisor() || isJefeOperaciones())
+          && resource.data.autorUid != request.auth.uid
+          && request.resource.data.diff(resource.data).affectedKeys()
+               .hasOnly(['leidoPorSupervisor', 'leidoEn', 'leidoPorNombre', 'leidoPorUid'])
+          && request.resource.data.leidoPorUid == request.auth.uid;
+        allow delete: if false;
       }
     }
 

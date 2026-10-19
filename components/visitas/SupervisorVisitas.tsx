@@ -25,6 +25,7 @@ import {
   encolarVisita,
   esperarSincronizacionVisita,
   fetchVisitasSupervisor,
+  subscribeVisitasSupervisor,
   listarVisitasPendientesLocales,
 } from '../../lib/visitasSupervisor/visitasService';
 import { SyncQueueService } from '../../lib/SyncQueueService';
@@ -94,33 +95,36 @@ const SupervisorVisitas: React.FC = () => {
     }
   };
 
+  const ordenarRecientes = useCallback((data: VisitaSupervisorDoc[]) => {
+    return [...data].sort((a, b) => {
+      // 1. Pinned first (si el admin la fijó, también se ve arriba para el supervisor)
+      if (a.fijadaPorAdmin && !b.fijadaPorAdmin) return -1;
+      if (!a.fijadaPorAdmin && b.fijadaPorAdmin) return 1;
+
+      // 2. Unread messages for supervisor
+      if (a.noLeidosSupervisor && !b.noLeidosSupervisor) return -1;
+      if (!a.noLeidosSupervisor && b.noLeidosSupervisor) return 1;
+
+      // 3. Last activity
+      const tsA = a.ultimoSeguimientoEn?.toMillis?.() ?? (a.ultimoSeguimientoEn ? new Date(a.ultimoSeguimientoEn).getTime() : new Date(a.inicioEn).getTime());
+      const tsB = b.ultimoSeguimientoEn?.toMillis?.() ?? (b.ultimoSeguimientoEn ? new Date(b.ultimoSeguimientoEn).getTime() : new Date(b.inicioEn).getTime());
+
+      return tsB - tsA;
+    });
+  }, []);
+
   const refrescarRecientes = useCallback(async () => {
     if (!uid || !connected) return;
     setCargandoRecientes(true);
     try {
       const data = await fetchVisitasSupervisor(uid, 15);
-      const ordenadas = data.sort((a, b) => {
-        // 1. Pinned first (si el admin la fijó, también se ve arriba para el supervisor)
-        if (a.fijadaPorAdmin && !b.fijadaPorAdmin) return -1;
-        if (!a.fijadaPorAdmin && b.fijadaPorAdmin) return 1;
-
-        // 2. Unread messages for supervisor
-        if (a.noLeidosSupervisor && !b.noLeidosSupervisor) return -1;
-        if (!a.noLeidosSupervisor && b.noLeidosSupervisor) return 1;
-
-        // 3. Last activity
-        const tsA = a.ultimoSeguimientoEn?.toMillis?.() ?? (a.ultimoSeguimientoEn ? new Date(a.ultimoSeguimientoEn).getTime() : new Date(a.inicioEn).getTime());
-        const tsB = b.ultimoSeguimientoEn?.toMillis?.() ?? (b.ultimoSeguimientoEn ? new Date(b.ultimoSeguimientoEn).getTime() : new Date(b.inicioEn).getTime());
-        
-        return tsB - tsA;
-      });
-      setRecientes(ordenadas);
+      setRecientes(ordenarRecientes(data));
     } catch (e) {
       console.warn('[Visitas] No se pudieron cargar visitas recientes:', e);
     } finally {
       setCargandoRecientes(false);
     }
-  }, [uid, connected]);
+  }, [uid, connected, ordenarRecientes]);
 
   // Al montar: recuperar borrador (cierre/reapertura de la app durante una visita)
   useEffect(() => {
@@ -134,6 +138,22 @@ const SupervisorVisitas: React.FC = () => {
       refrescarRecientes();
     }
   }, [modo, isSyncing, refrescarPendientes, refrescarRecientes]);
+
+  // Tiempo real: mensajes de seguimiento nuevos y lecturas se reflejan al instante (sin F5)
+  useEffect(() => {
+    if (!uid || modo !== 'inicio') return;
+    const unsubscribe = subscribeVisitasSupervisor(uid, (data) => {
+      setRecientes(ordenarRecientes(data.slice(0, 15)));
+    });
+    return () => unsubscribe();
+  }, [uid, modo, ordenarRecientes]);
+
+  // Visita viva para el modal de detalle (evita copia congelada con contadores obsoletos)
+  const detalleVivo = useMemo(() => {
+    if (!detalle) return null;
+    const viva = recientes.find(r => r.id === detalle.visita.id);
+    return { ...detalle, visita: viva ?? detalle.visita };
+  }, [detalle, recientes]);
 
   // ── Borrador: autoguardado local (debounce) ─────────────────────────────
   const updateDraft = useCallback((fn: (d: VisitaDraft) => VisitaDraft) => {
@@ -450,7 +470,7 @@ const SupervisorVisitas: React.FC = () => {
         </div>
       </div>
 
-      {detalle && <VisitaDetalleModal visita={detalle.visita} openSeguimientoOnInit={detalle.openSeguimiento} onClose={() => setDetalle(null)} />}
+      {detalleVivo && <VisitaDetalleModal visita={detalleVivo.visita} openSeguimientoOnInit={detalleVivo.openSeguimiento} onClose={() => setDetalle(null)} />}
     </div>
   );
 };

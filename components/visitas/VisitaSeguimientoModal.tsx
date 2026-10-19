@@ -82,6 +82,7 @@ const VisitaSeguimientoModal: React.FC<VisitaSeguimientoModalProps> = ({ visita,
 
   const [fullScreenImage, setFullScreenImage] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const ultimoAjenoMarcadoRef = useRef<string | null>(null);
 
   useEffect(() => {
     setLoadingHilo(true);
@@ -99,6 +100,18 @@ const VisitaSeguimientoModal: React.FC<VisitaSeguimientoModalProps> = ({ visita,
           if (hayNoLeidos) {
             marcarSeguimientosLeidosPorSupervisor(visita.id, usuario.uid, usuario.nombre).catch(err => {
               console.error('[SeguimientoVisitaModal] Error marcando leídos en tiempo real:', err);
+            });
+          }
+        }
+
+        // Si quien tiene abierto el hilo es el admin, limpiar el contador cuando llegue un mensaje ajeno
+        if (esAdmin) {
+          const ajenos = mensajes.filter(m => m.autorUid !== usuario.uid);
+          const ultimoAjeno = ajenos.length > 0 ? ajenos[ajenos.length - 1].id : null;
+          if (ultimoAjeno && ultimoAjeno !== ultimoAjenoMarcadoRef.current) {
+            ultimoAjenoMarcadoRef.current = ultimoAjeno;
+            markSeguimientoAsRead(visita.id, usuario.rol).catch(err => {
+              console.error('[SeguimientoVisitaModal] Error marcando leído admin en tiempo real:', err);
             });
           }
         }
@@ -332,7 +345,7 @@ const VisitaSeguimientoModal: React.FC<VisitaSeguimientoModalProps> = ({ visita,
                             title={seg.leidoPorNombre ? `Visto por ${seg.leidoPorNombre}` : 'Visto por el supervisor'}
                           >
                             <CheckCheck size={13} className={esMio ? 'text-sky-300' : 'text-blue-600'} />
-                            <span>Visto {formatearHoraVisto(seg.leidoEn)}</span>
+                            <span>Visto {seg.leidoPorNombre ? `por ${seg.leidoPorNombre} ` : ''}{formatearHoraVisto(seg.leidoEn)}</span>
                           </span>
                         ) : (
                           <span

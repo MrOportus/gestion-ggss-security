@@ -398,7 +398,7 @@ const NovedadSeguimientoModal: React.FC<NovedadSeguimientoModalProps> = ({
                             title={seg.leidoPorNombre ? `Visto por ${seg.leidoPorNombre}` : 'Visto por el guardia'}
                           >
                             <CheckCheck size={13} className={esMio ? 'text-sky-300' : 'text-blue-600'} />
-                            <span>Visto {formatearHoraVisto(seg.leidoEn)}</span>
+                            <span>Visto {seg.leidoPorNombre ? `por ${seg.leidoPorNombre} ` : ''}{formatearHoraVisto(seg.leidoEn)}</span>
                           </span>
                         ) : (
                           <span
