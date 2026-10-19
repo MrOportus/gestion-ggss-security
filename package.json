@@ -20,7 +20,8 @@
     "test:contract-engine": "vitest run lib/phase3/__tests__",
     "test:contract-callables": "vitest run functions/src/phase3/__tests__",
     "test:contract-rules": "vitest run tests/rules/contractEligibility.rules.test.ts",
-    "test:contract-c2": "vitest run lib/phase3/__tests__ functions/src/phase3/__tests__ tests/rules/contractEligibility.rules.test.ts"
+    "test:contract-c2": "vitest run lib/phase3/__tests__ functions/src/phase3/__tests__ tests/rules/contractEligibility.rules.test.ts",
+    "test:attendance-consolidation": "vitest run tests/attendanceConsolidation"
   },
   "dependencies": {
     "@capacitor-community/background-geolocation": "^1.2.26",

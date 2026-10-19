@@ -29,6 +29,9 @@ exports.getAttendanceShadowValidated = getAttendanceShadowValidated;
 exports.regularizeContractValidated = regularizeContractValidated;
 exports.logContractShadowDiagnostic = logContractShadowDiagnostic;
 
+const { getConsolidatedAttendance } = require('./src/attendanceConsolidation/getConsolidatedAttendance');
+exports.getConsolidatedAttendance = getConsolidatedAttendance;
+
 const { loginWithRut } = require('./src/auth/loginWithRut');
 exports.loginWithRut = loginWithRut;
 

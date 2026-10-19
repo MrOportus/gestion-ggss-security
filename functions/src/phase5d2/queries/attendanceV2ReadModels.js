@@ -126,13 +126,26 @@ function mapV2ToSessionReadModel(doc, includeInvalidated = false) {
     attendanceStatus: data.attendanceStatus || 'presente',
 
     checkInAt: data.checkInAt || null,
+    checkInGps: data.checkInGps || null,
     checkOutAt: data.checkOutAt || null,
+    checkOutAtSource: data.checkOutAtSource || null,
+    checkOutGps: data.checkOutGps || null,
+    checkOutGpsUnreliable: data.checkOutGpsUnreliable || null,
     scheduledStartAt: data.scheduledStartAt || null,
     scheduledEndAt: data.scheduledEndAt || null,
     workedMinutes,
+    workedMinutesBasis: data.workedMinutesBasis || null,
 
     closureType: data.closureType || 'none',
     closureOrigin: data.closureOrigin || 'none',
+    closureActor: data.closureActor || null,
+    closureReason: data.closureReason || null,
+
+    pairing: data.pairing || null,
+    reviewState: data.reviewState || 'ok',
+    reviewReasons: data.reviewReasons || [],
+    sourceRefs: data.sourceRefs || null,
+    auditRefs: data.auditRefs || [],
 
     source: 'v2',
     generationStatus: genStatus,

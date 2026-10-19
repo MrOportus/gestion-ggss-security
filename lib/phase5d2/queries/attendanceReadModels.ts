@@ -23,13 +23,26 @@ export interface AttendanceSessionReadModel {
   attendanceStatus: 'presente' | 'ausente' | 'licencia' | 'vacaciones'; // Add others as needed
 
   checkInAt: string; // ISO String
+  checkInGps?: { lat: number; lng: number; accuracy?: number | null } | null;
   checkOutAt: string | null;
+  checkOutAtSource?: string | null;
+  checkOutGps?: { lat: number; lng: number; accuracy?: number | null } | null;
+  checkOutGpsUnreliable?: { lat: number; lng: number; reason: string } | null;
   scheduledStartAt: string | null;
   scheduledEndAt: string | null;
   workedMinutes: number | null;
+  workedMinutesBasis?: string | null;
 
-  closureType: 'manual' | 'auto' | 'force' | 'none';
-  closureOrigin: 'worker' | 'admin' | 'scheduler' | 'none';
+  closureType: string;
+  closureOrigin: string;
+  closureActor?: string | null;
+  closureReason?: string | null;
+
+  pairing?: { method: string; confidence: string; evidence: string[] } | null;
+  reviewState?: 'ok' | 'pending_review' | 'orphan' | 'ambiguous';
+  reviewReasons?: string[];
+  sourceRefs?: { checkInPath: string; checkOutPath: string | null; extraCheckOutPaths?: string[] } | null;
+  auditRefs?: string[];
 
   source: AttendanceSource;
   generationStatus: 'active' | 'invalidated' | 'disabled';

@@ -36,19 +36,33 @@ export interface ManualAttendanceV2 {
   attendanceStatus: 'presente' | 'ausente' | 'incompleto' | 'sin_clasificar';
 
   // Marcaciones
-  checkInAt: FirebaseTimestamp;
-  checkOutAt: FirebaseTimestamp | null;
+  checkInAt: FirebaseTimestamp | string;
+  checkInGps?: { lat: number; lng: number; accuracy?: number | null } | null;
+  checkOutAt: FirebaseTimestamp | string | null;
+  checkOutAtSource?: string | null;
+  checkOutGps?: { lat: number; lng: number; accuracy?: number | null } | null;
+  checkOutGpsUnreliable?: { lat: number; lng: number; reason: string } | null;
   scheduledStartAt: FirebaseTimestamp | null;
   scheduledEndAt: FirebaseTimestamp | null;
 
   // Cierre
   closureType: 'normal' | 'force_close' | 'auto_close' | 'auto_close_new_entry' | 'manual_correction' | null;
   closureOrigin: 'mobile' | 'admin' | 'scheduler' | 'rrhh_correction' | 'migration' | null;
+  closureActor?: 'worker' | 'admin' | 'scheduler' | 'new_entry' | 'unknown' | null;
+  closureReason?: string | null;
 
   // Duración
   workedMinutes: number | null;
+  workedMinutesBasis?: string | null;
 
-  // Trazabilidad
+  // Consolidación & Trazabilidad
+  pairing?: { method: string; confidence: string; evidence: string[] } | null;
+  reviewState?: 'ok' | 'pending_review' | 'orphan' | 'ambiguous';
+  reviewReasons?: string[];
+  sourceRefs?: { checkInPath: string; checkOutPath: string | null; extraCheckOutPaths?: string[] } | null;
+  auditRefs?: string[];
+  migration?: { version: string; sourceHash: string };
+
   source: 'canonical' | 'legacy_reconstructed' | 'migration';
   createdAt: FirebaseTimestamp;
   updatedAt: FirebaseTimestamp;

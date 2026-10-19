@@ -1,6 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useAppStore } from '../store/useAppStore';
 import { normalizeText } from '../lib/textUtils';
+import { ConsolidatedAttendanceTable } from '../components/attendance/ConsolidatedAttendanceTable';
+import { ConsolidatedAttendanceService } from '../services/consolidatedAttendanceService';
+import { AttendanceSessionReadModel } from '../lib/phase5d2/queries/attendanceReadModels';
 
 import {
     Map as MapIcon,
@@ -12,14 +15,19 @@ import {
     Calendar,
     FileSpreadsheet,
     ChevronDown,
-    Filter
+    Filter,
+    Layers,
+    List
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
 const AttendancePage: React.FC = () => {
     const { attendanceLogs, sites } = useAppStore();
+    const [viewMode, setViewMode] = useState<'consolidated' | 'raw'>('consolidated');
     const [searchTerm, setSearchTerm] = useState('');
     const [selectedSiteId, setSelectedSiteId] = useState<string | number | 'all'>('all');
+    const [consolidatedSessions, setConsolidatedSessions] = useState<AttendanceSessionReadModel[]>([]);
+    const [isLoadingConsolidated, setIsLoadingConsolidated] = useState(false);
 
     const getTodayStr = () => {
         const d = new Date();
@@ -60,13 +68,38 @@ const AttendancePage: React.FC = () => {
         }
     };
 
-    // Helper to calculate duration for Check Out events
+    // Cargar asistencias consolidadas (backend o local fallback)
+    useEffect(() => {
+        let isCancelled = false;
+        const loadConsolidated = async () => {
+            setIsLoadingConsolidated(true);
+            try {
+                const res = await ConsolidatedAttendanceService.fetchAttendance({
+                    sucursalId: selectedSiteId === 'all' ? undefined : selectedSiteId,
+                    fromDate: filterType === 'range' ? startDate : (filterType === 'day' ? startDate : undefined),
+                    toDate: filterType === 'range' ? endDate : (filterType === 'day' ? startDate : undefined),
+                }, attendanceLogs);
+                if (!isCancelled) {
+                    setConsolidatedSessions(res.items);
+                }
+            } catch (err) {
+                console.warn('[AttendancePage] Usando consolidación local fallback:', err);
+                if (!isCancelled) {
+                    setConsolidatedSessions(ConsolidatedAttendanceService.consolidateLogsLocally(attendanceLogs));
+                }
+            } finally {
+                if (!isCancelled) setIsLoadingConsolidated(false);
+            }
+        };
+
+        loadConsolidated();
+        return () => { isCancelled = true; };
+    }, [selectedSiteId, filterType, startDate, endDate, attendanceLogs]);
+
+    // Helper to calculate duration for Check Out events in raw mode
     const getShiftDuration = (currentLog: any) => {
         if (currentLog.type !== 'check_out') return null;
 
-        // Find logs for same employee, BEFORE current log
-        // attendanceLogs is from store, assuming it contains history
-        // We sort descending to find the closest previous check_in
         const relevantLogs = attendanceLogs
             .filter(l =>
                 l.employeeId === currentLog.employeeId &&
@@ -76,7 +109,6 @@ const AttendancePage: React.FC = () => {
             .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
 
         const lastCheckIn = relevantLogs[0];
-
         if (!lastCheckIn) return null;
 
         const diff = new Date(currentLog.timestamp).getTime() - new Date(lastCheckIn.timestamp).getTime();
@@ -86,7 +118,7 @@ const AttendancePage: React.FC = () => {
         return `${hours}h ${minutes}m`;
     };
 
-    // Filtered logs logic
+    // Filtered logs for raw mode
     const filteredLogs = attendanceLogs.filter(log => {
         const searchLower = normalizeText(searchTerm);
         const matchesSearch =
@@ -116,6 +148,35 @@ const AttendancePage: React.FC = () => {
         return matchesSearch && matchesSite && matchesDate;
     });
 
+    // Filtered items for consolidated mode
+    const filteredConsolidated = useMemo(() => {
+        return consolidatedSessions.filter(item => {
+            const searchLower = normalizeText(searchTerm);
+            const matchesSearch =
+                normalizeText(item.employeeName || '').includes(searchLower) ||
+                normalizeText(item.employeeRut || '').includes(searchLower);
+
+            const matchesSite = selectedSiteId === 'all' || item.sucursalId?.toString() === selectedSiteId.toString();
+
+            let matchesDate = true;
+            if (filterType === 'day') {
+                matchesDate = item.jornadaDate === startDate;
+            } else if (filterType === 'week') {
+                const filterDate = new Date(startDate + 'T00:00:00');
+                const itemDate = new Date(item.jornadaDate + 'T00:00:00');
+                matchesDate = isInSameWeek(itemDate, filterDate);
+            } else if (filterType === 'month') {
+                const [y, m] = startDate.split('-').map(Number);
+                const [itemY, itemM] = item.jornadaDate.split('-').map(Number);
+                matchesDate = itemY === y && itemM === m;
+            } else if (filterType === 'range') {
+                matchesDate = item.jornadaDate >= startDate && item.jornadaDate <= endDate;
+            }
+
+            return matchesSearch && matchesSite && matchesDate;
+        });
+    }, [consolidatedSessions, searchTerm, selectedSiteId, filterType, startDate, endDate]);
+
     const logsBySite = filteredLogs.reduce((acc, log) => {
         const siteKey = log.siteId?.toString() || 'unknown';
         if (!acc[siteKey]) {
@@ -126,24 +187,49 @@ const AttendancePage: React.FC = () => {
     }, {} as Record<string, { name: string, logs: any[] }>);
 
     const exportToExcel = () => {
-        const dataToExport = filteredLogs.map(log => {
-            const duration = getShiftDuration(log);
-            return {
-                'Fecha': new Date(log.timestamp).toLocaleDateString(),
-                'Hora': new Date(log.timestamp).toLocaleTimeString(),
-                'Trabajador': log.employeeName,
-                'RUT': log.rut,
-                'Sucursal': log.siteName,
-                'Tipo Evento': log.type === 'check_in' ? 'Entrada' : 'Salida',
-                'Tipo Cierre': log.tipoCierre || '-',
-                'Duración Turno': duration || '-',
-                'Coordenadas': log.locationLat ? `${log.locationLat}, ${log.locationLng}` : 'N/A'
-            };
-        });
-        const ws = XLSX.utils.json_to_sheet(dataToExport);
-        const wb = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(wb, ws, "Asistencia");
-        XLSX.writeFile(wb, `asistencia_${filterType}.xlsx`);
+        if (viewMode === 'consolidated') {
+            const dataToExport = filteredConsolidated.map(session => ({
+                'Fecha': session.jornadaDate,
+                'Trabajador': session.employeeName || session.employeeId,
+                'RUT': session.employeeRut || '-',
+                'Sucursal': session.sucursalNombre || '-',
+                'Hora Ingreso': session.checkInAt ? new Date(session.checkInAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '-',
+                'GPS Ingreso': session.checkInGps ? `${session.checkInGps.lat}, ${session.checkInGps.lng}` : 'N/D',
+                'Hora Salida': session.checkOutAt ? new Date(session.checkOutAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '-',
+                'GPS Salida': session.checkOutGps ? `${session.checkOutGps.lat}, ${session.checkOutGps.lng}` : (session.checkOutGpsUnreliable ? 'Heredado / N/D' : 'N/D'),
+                'Estado': session.status === 'closed' ? 'Cerrado' : 'Abierto',
+                'Tipo Cierre': session.closureType,
+                'Actor Cierre': session.closureActor || '-',
+                'Duración (Horas)': session.workedMinutes !== null ? (session.workedMinutes / 60).toFixed(1) : '-',
+                'Duración (Texto)': session.workedMinutes !== null ? `${Math.floor(session.workedMinutes / 60)}h ${session.workedMinutes % 60}m` : '-',
+                'Base Cálculo': session.workedMinutesBasis || '-',
+                'Método Pareo': session.pairing?.method || '-',
+                'ID Sesión': session.id
+            }));
+            const ws = XLSX.utils.json_to_sheet(dataToExport);
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, "AsistenciaConsolidada");
+            XLSX.writeFile(wb, `asistencia_consolidada_${filterType}.xlsx`);
+        } else {
+            const dataToExport = filteredLogs.map(log => {
+                const duration = getShiftDuration(log);
+                return {
+                    'Fecha': new Date(log.timestamp).toLocaleDateString(),
+                    'Hora': new Date(log.timestamp).toLocaleTimeString(),
+                    'Trabajador': log.employeeName,
+                    'RUT': log.rut,
+                    'Sucursal': log.siteName,
+                    'Tipo Evento': log.type === 'check_in' ? 'Entrada' : 'Salida',
+                    'Tipo Cierre': log.tipoCierre || '-',
+                    'Duración Turno': duration || '-',
+                    'Coordenadas': log.locationLat ? `${log.locationLat}, ${log.locationLng}` : 'N/A'
+                };
+            });
+            const ws = XLSX.utils.json_to_sheet(dataToExport);
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, "Asistencia");
+            XLSX.writeFile(wb, `asistencia_${filterType}.xlsx`);
+        }
     };
 
     return (
@@ -153,13 +239,45 @@ const AttendancePage: React.FC = () => {
                     <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
                         <div>
                             <h2 className="text-3xl font-black text-slate-800 tracking-tighter">Control de Asistencia</h2>
-                            <p className="text-sm text-slate-500 font-bold uppercase tracking-widest mt-1 opacity-70">Monitoreo con filtros avanzados</p>
+                            <p className="text-sm text-slate-500 font-bold uppercase tracking-widest mt-1 opacity-70">
+                                {viewMode === 'consolidated' ? 'Vista Consolidada por Turno (1 fila por asistencia)' : 'Historial de Marcaciones Crudas'}
+                            </p>
                         </div>
-                        <button onClick={exportToExcel} disabled={filteredLogs.length === 0}
-                            className="flex items-center gap-2 px-6 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl text-sm font-black uppercase shadow-xl shadow-emerald-200 disabled:opacity-50 transition-all active:scale-95"
-                        >
-                            <FileSpreadsheet size={18} /> Exportar Excel
-                        </button>
+                        <div className="flex items-center gap-3">
+                            {/* Toggle de Modo: Consolidado vs Crudo */}
+                            <div className="flex items-center gap-1 bg-slate-100 p-1.5 rounded-2xl border border-slate-200">
+                                <button
+                                    onClick={() => setViewMode('consolidated')}
+                                    className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all ${
+                                        viewMode === 'consolidated'
+                                            ? 'bg-blue-600 text-white shadow-md shadow-blue-200'
+                                            : 'text-slate-500 hover:text-slate-800'
+                                    }`}
+                                >
+                                    <Layers size={15} />
+                                    Consolidado
+                                </button>
+                                <button
+                                    onClick={() => setViewMode('raw')}
+                                    className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all ${
+                                        viewMode === 'raw'
+                                            ? 'bg-blue-600 text-white shadow-md shadow-blue-200'
+                                            : 'text-slate-500 hover:text-slate-800'
+                                    }`}
+                                >
+                                    <List size={15} />
+                                    Crudo
+                                </button>
+                            </div>
+
+                            <button
+                                onClick={exportToExcel}
+                                disabled={viewMode === 'consolidated' ? filteredConsolidated.length === 0 : filteredLogs.length === 0}
+                                className="flex items-center gap-2 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl text-xs font-black uppercase shadow-lg shadow-emerald-200 disabled:opacity-50 transition-all active:scale-95"
+                            >
+                                <FileSpreadsheet size={16} /> Exportar Excel
+                            </button>
+                        </div>
                     </div>
 
                     <div className="flex flex-col lg:flex-row items-stretch lg:items-center gap-4 bg-slate-50 p-3 md:p-4 rounded-3xl border border-slate-100">
@@ -212,7 +330,12 @@ const AttendancePage: React.FC = () => {
             </header>
 
             <main className="flex-1 p-4 md:p-6 max-w-7xl mx-auto w-full">
-                {Object.keys(logsBySite).length === 0 ? (
+                {viewMode === 'consolidated' ? (
+                    <ConsolidatedAttendanceTable
+                        items={filteredConsolidated}
+                        isLoading={isLoadingConsolidated}
+                    />
+                ) : Object.keys(logsBySite).length === 0 ? (
                     <div className="bg-white rounded-[2.5rem] p-16 text-center shadow-sm border border-slate-100 mt-10">
                         <Clock size={40} className="text-slate-300 mx-auto mb-6" />
                         <h3 className="text-2xl font-black text-slate-800 tracking-tight">No hay registros</h3>
@@ -223,6 +346,7 @@ const AttendancePage: React.FC = () => {
                         {Object.keys(logsBySite).map(siteId => (
                             <section key={siteId} className="space-y-4">
                                 <div className="flex items-center gap-4 px-2">
+
                                     <div className="w-12 h-12 bg-blue-600 rounded-2xl flex items-center justify-center text-white shadow-lg shadow-blue-200">
                                         <MapIcon size={24} />
                                     </div>
