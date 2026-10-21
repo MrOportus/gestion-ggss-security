@@ -1,16 +1,43 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useAppStore } from '../store/useAppStore';
 import { 
-  ClipboardList, Users, UserPlus, ShieldAlert, CalendarClock, Palmtree, 
-  Search, Eye, XCircle, CheckCircle, Clock, ChevronRight, ChevronDown, FilePlus, AlertCircle, CheckCircle2, FileText
+  ClipboardList, Users, ShieldAlert, CalendarClock, Palmtree, 
+  Search, Eye, XCircle, CheckCircle, Clock, ChevronRight, ChevronDown, 
+  FilePlus, AlertCircle, CheckCircle2, FileText, Plus, RefreshCw, 
+  ExternalLink, Building, Filter, Calendar, ShieldCheck, FileCheck, Edit2,
+  Briefcase, UserX, AlertTriangle, Shield
 } from 'lucide-react';
 import VacationFormModal from '../components/VacationFormModal';
-import { RegularizeContractModal } from '../components/RegularizeContractModal';
-import { Contrato } from '../types/phase1';
-import { normalizeText } from '../lib/textUtils';
-import { collection, query, where, getDocs } from 'firebase/firestore';
-import { db, functions } from '../lib/firebase';
-import { httpsCallable } from 'firebase/functions';
+import { ContractManagementModal } from '../components/ContractManagementModal';
+import EmployeeModal from '../components/EmployeeModal';
+import { Contrato, EstadoContrato, EstadoDocumental } from '../types/phase1';
+import { Employee, EstadoOperativoColaborador } from '../types';
+import { normalizeText, matchesEmployeeSearch, formatDateDDMMYYYY } from '../lib/textUtils';
+import { resolveEmployeeOperationalStatus } from '../lib/phase3/contratosService';
+
+interface EnrichedDirectoryWorker {
+  id: string;
+  employee: Employee;
+  workerName: string;
+  workerRut: string;
+  cargo: string;
+  operationalStatus: EstadoOperativoColaborador;
+  resolvedSiteId: string;
+  resolvedSiteName: string;
+  isFalabella: boolean;
+  
+  // Información contractual
+  activeContract: Contrato | null;
+  historyCount: number;
+  contractType: string;
+  contractDates: string;
+  computedContractStatus: 'vigente' | 'por_vencer' | 'termino_cumplido' | 'pendiente_firma' | 'sin_contrato' | 'renovado' | 'borrador';
+  diffDays: number | null;
+  docStatus: string;
+  docUrl?: string;
+  dropboxUrl?: string;
+  isLegacy: boolean;
+}
 
 const HRContractsDashboard: React.FC = () => {
   const { 
@@ -19,189 +46,343 @@ const HRContractsDashboard: React.FC = () => {
     vacations, 
     sites, 
     updateVacationStatus, 
-    setPreselectedEmployeeForDoc,
     currentUser,
     fetchContratos,
     showConfirmation,
     showNotification
   } = useAppStore();
 
-  // ----- ESTADOS EXISTENTES -----
-  const [expandedEmpId, setExpandedEmpId] = useState<string | null>(null);
-  const [filters, setFilters] = useState({ estado: '', limit: 50 });
-  const [resolveModal, setResolveModal] = useState<{
+  // ----- PESTAÑA PRINCIPAL DEL MÓDULO -----
+  const [mainTab, setMainTab] = useState<'directorio' | 'vacaciones'>('directorio');
+
+  // ----- VISTAS DEL DIRECTORIO (ESTADO OPERATIVO) -----
+  const [operationalTab, setOperationalTab] = useState<'todos' | 'en_servicio' | 'reserva' | 'inactivo' | 'por_revisar'>('todos');
+
+  // ----- ESTADOS DE MODALES -----
+  const [contractModalState, setContractModalState] = useState<{
     isOpen: boolean;
-    contrato: Contrato | null;
-    empId: string;
-    fechaInicio: string;
-    fechaTermino: string;
-    motivo: string;
-    isProcessing: boolean;
+    mode: 'create' | 'renew' | 'edit' | 'link_doc';
+    preselectedEmployee?: Employee | null;
+    contratoAnterior?: Contrato | null;
+    contratoToEdit?: Contrato | null;
   }>({
     isOpen: false,
-    contrato: null,
-    empId: '',
-    fechaInicio: new Date().toISOString().split('T')[0],
-    fechaTermino: new Date().toISOString().split('T')[0],
-    motivo: '',
-    isProcessing: false,
+    mode: 'create',
+    preselectedEmployee: null,
+    contratoAnterior: null,
+    contratoToEdit: null
   });
 
-  // ----- ESTADOS NUEVOS -----
   const [showVacationModal, setShowVacationModal] = useState(false);
-  const [regularizeModalEmp, setRegularizeModalEmp] = useState<any>(null);
-  const [activeTab, setActiveTab] = useState<'todos' | 'pending' | 'approved' | 'en_curso' | 'completed' | 'cancelled'>('todos');
+  const [viewingEmployee, setViewingEmployee] = useState<Employee | null>(null);
+
+  // ----- FILTROS DEL DIRECTORIO -----
+  const [searchTerm, setSearchTerm] = useState('');
+  const [filterBranch, setFilterBranch] = useState('');
+  const [filterType, setFilterType] = useState('');
+  const [filterContractStatus, setFilterContractStatus] = useState('');
+  const [excludeFalabella, setExcludeFalabella] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 20;
+
+  // ----- ESTADOS DE VACACIONES -----
+  const [activeVacationTab, setActiveVacationTab] = useState<'todos' | 'pending' | 'approved' | 'en_curso' | 'completed' | 'cancelled'>('todos');
   const [vacationSearch, setVacationSearch] = useState('');
 
-  // ----- NUEVO ESTADO PARA BUSQUEDA Y PAGINACION DE CONTRATOS -----
-  const [searchContractTerm, setSearchContractTerm] = useState('');
-  const [currentPageContracts, setCurrentPageContracts] = useState(1);
-  const contractsPerPage = 20;
-
-  // ----- EFECTOS -----
+  // Cargar todos los contratos al montar sin límite artificial
   useEffect(() => {
-    fetchContratos({ estado: filters.estado || undefined, limit: filters.limit });
-  }, [fetchContratos, filters.limit, filters.estado]);
+    fetchContratos();
+  }, [fetchContratos]);
 
-  // ----- LOGICA EXISTENTE DE CONTRATOS -----
-  const employeesWithContracts = useMemo(() => {
-    return employees.map(emp => {
-      const empContracts = contratos.filter(c => c.colaboradorId === emp.id);
-      const activeContracts = empContracts.filter(c => c.estado === 'vigente' || c.estado === 'pendiente_firma');
-      
-      let issueCount = 0;
-      if (activeContracts.length > 1) issueCount++; // Múltiples contratos activos
-      if (activeContracts.length === 0) issueCount++; // Sin contrato activo
-      
-      return {
-        ...emp,
-        contracts: empContracts,
-        activeContracts,
-        issueCount,
-      };
-    }).filter(emp => emp.contracts.length > 0 || !filters.estado) // Si hay filtro, mostramos los afectados
-      .sort((a, b) => b.issueCount - a.issueCount);
-  }, [employees, contratos, filters.estado]);
+  const todayStr = useMemo(() => new Date().toISOString().split('T')[0], []);
 
-  // Filtrado de employeesWithContracts (por término de búsqueda)
-  const filteredEmployeesWithContracts = useMemo(() => {
-    let list = employeesWithContracts;
-    
-    if (searchContractTerm) {
-      const term = normalizeText(searchContractTerm);
-      list = list.filter(emp => {
-        const fullName = normalizeText(`${emp.firstName} ${emp.lastNamePaterno} ${emp.lastNameMaterno || ''}`);
-        return fullName.includes(term);
-      });
-    }
-    
-    return list;
-  }, [employeesWithContracts, searchContractTerm]);
+  // Mapa de sucursales para búsqueda rápida O(1)
+  const siteMap = useMemo(() => {
+    const map = new Map<string, string>();
+    sites.forEach(s => map.set(String(s.id), s.name));
+    return map;
+  }, [sites]);
 
-  // Paginación
-  const paginatedEmployeesWithContracts = useMemo(() => {
-    const start = (currentPageContracts - 1) * contractsPerPage;
-    const end = start + contractsPerPage;
-    return filteredEmployeesWithContracts.slice(start, end);
-  }, [filteredEmployeesWithContracts, currentPageContracts]);
+  // Identificador de sucursales asociadas a Falabella
+  const isFalabellaSite = useMemo(() => {
+    return (s: any) => {
+      if (!s) return false;
+      const name = normalizeText(s.name || '');
+      const empresa = normalizeText(s.empresa || '');
+      return name.includes('falabella') || empresa.includes('falabella');
+    };
+  }, []);
 
-  const totalContractPages = Math.ceil(filteredEmployeesWithContracts.length / contractsPerPage);
+  const falabellaSiteIds = useMemo(() => {
+    return new Set(sites.filter(isFalabellaSite).map(s => String(s.id)));
+  }, [sites, isFalabellaSite]);
 
-  // Reset page to 1 when search term changes
+  // Si se activa excluir Falabella y había una sucursal Falabella seleccionada, se resetea el filtro de sucursal
   useEffect(() => {
-    setCurrentPageContracts(1);
-  }, [searchContractTerm, filters.estado]);
-
-  const openResolveModal = (contrato: Contrato, empId: string) => {
-    setResolveModal({
-      isOpen: true,
-      contrato,
-      empId,
-      fechaInicio: contrato.fechaInicio || new Date().toISOString().split('T')[0],
-      fechaTermino: contrato.fechaTermino || new Date().toISOString().split('T')[0],
-      motivo: '',
-      isProcessing: false,
-    });
-  };
-
-  const handleResolveSubmit = async () => {
-    if (!resolveModal.contrato || !resolveModal.motivo.trim()) {
-      alert("Debes ingresar un motivo.");
-      return;
+    if (excludeFalabella && filterBranch && falabellaSiteIds.has(String(filterBranch))) {
+      setFilterBranch('');
     }
+  }, [excludeFalabella, filterBranch, falabellaSiteIds]);
 
-    setResolveModal(prev => ({ ...prev, isProcessing: true }));
-
-    try {
-      const turnosRef = collection(db, 'TurnosProgramados');
-      const q = query(
-        turnosRef,
-        where('colaboradorId', '==', resolveModal.empId),
-        where('fecha', '>=', resolveModal.fechaInicio),
-        where('fecha', '<=', resolveModal.fechaTermino)
-      );
-      
-      const turnosSnap = await getDocs(q);
-      
-      if (turnosSnap.empty) {
-        alert('No se encontraron turnos programados en el rango de fechas seleccionado.');
-        setResolveModal(prev => ({ ...prev, isProcessing: false }));
-        return;
-      }
-
-      if (!window.confirm(`Se afectarán ${turnosSnap.size} turnos. ¿Deseas continuar?`)) {
-        setResolveModal(prev => ({ ...prev, isProcessing: false }));
-        return;
-      }
-
-      const turnoProgramadoIds = turnosSnap.docs.map(d => d.id);
-      const resolveContractBinding = httpsCallable(functions, 'resolveContractBinding');
-      const result = await resolveContractBinding({
-        turnoProgramadoIds,
-        contratoSeleccionadoId: resolveModal.contrato!.id,
-        motivo: resolveModal.motivo
-      });
-
-      alert(`Resolución aplicada a ${(result.data as any).updates} turnos exitosamente.`);
-      setResolveModal(prev => ({ ...prev, isOpen: false }));
-    } catch (error: any) {
-      console.error("Error al resolver conflictos:", error);
-      alert("Ocurrió un error al resolver el conflicto: " + (error.message || ''));
-    } finally {
-      setResolveModal(prev => ({ ...prev, isProcessing: false }));
-    }
-  };
-
-  // ----- LOGICA NUEVA DE INDICADORES -----
-  const recentHires = useMemo(() => {
-    const tenDaysAgo = new Date();
-    tenDaysAgo.setDate(tenDaysAgo.getDate() - 10);
-    return employees.filter(e => {
-      if (!e.isActive) return false;
-      if (!e.fechaInicioContrato) return false;
-      const d = new Date(e.fechaInicioContrato);
-      return d >= tenDaysAgo;
-    }).sort((a, b) => new Date(b.fechaInicioContrato!).getTime() - new Date(a.fechaInicioContrato!).getTime());
-  }, [employees]);
-
-  const workersWithoutContract = useMemo(() => {
+  // =========================================================================
+  // 1. ENRIQUECIMIENTO CENTRALIZADO DE TODOS LOS TRABAJADORES (DIRECTORIO)
+  // =========================================================================
+  const enrichedWorkers = useMemo<EnrichedDirectoryWorker[]>(() => {
     const today = new Date().toISOString().split('T')[0];
-    return employees.filter(e => {
-      if (!e.isActive) return false;
-      const empContracts = contratos.filter(c => c.colaboradorId === e.id);
-      const hasValid = empContracts.some(c => {
-        if (c.estado !== 'vigente') return false;
-        if (c.fechaInicio > today) return false;
-        if (c.fechaTermino && c.fechaTermino < today) return false;
-        return true;
-      });
-      return !hasValid;
-    });
-  }, [employees, contratos]);
+    const todayObj = new Date(today + 'T00:00:00');
 
-  // ----- LOGICA NUEVA DE VACACIONES -----
-  const todayStr = new Date().toISOString().split('T')[0];
-  
+    // Indexar contratos válidos por colaboradorId
+    const contractsByWorker = new Map<string, Contrato[]>();
+    (contratos || []).forEach(c => {
+      const arr = contractsByWorker.get(c.colaboradorId) || [];
+      arr.push(c);
+      contractsByWorker.set(c.colaboradorId, arr);
+    });
+
+    return employees.map(emp => {
+      const workerName = `${emp.firstName || ''} ${emp.lastNamePaterno || ''} ${emp.lastNameMaterno || ''}`.trim() || 'Sin Nombre';
+      const workerRut = emp.rut || '---';
+      const cargo = emp.cargo || 'Sin cargo asignado';
+      const operationalStatus = resolveEmployeeOperationalStatus(emp);
+
+      // Contratos de este colaborador
+      const userContracts = contractsByWorker.get(emp.id) || [];
+      const validContracts = userContracts.filter(c => c.estado !== 'anulado');
+
+      // Ordenar contratos: Vigente primero > fecha término desc > fecha inicio desc > creado desc
+      const sortedContracts = [...validContracts].sort((a, b) => {
+        const aIsVig = a.estado === 'vigente' && (!a.fechaTermino || a.fechaTermino >= today) ? 1 : 0;
+        const bIsVig = b.estado === 'vigente' && (!b.fechaTermino || b.fechaTermino >= today) ? 1 : 0;
+        if (aIsVig !== bIsVig) return bIsVig - aIsVig;
+        const aTerm = a.fechaTermino || '9999-99-99';
+        const bTerm = b.fechaTermino || '9999-99-99';
+        if (aTerm !== bTerm) return bTerm.localeCompare(aTerm);
+        const aIni = a.fechaInicio || '';
+        const bIni = b.fechaInicio || '';
+        if (aIni !== bIni) return bIni.localeCompare(aIni);
+        return (b.creadoEn || '').localeCompare(a.creadoEn || '');
+      });
+
+      const activeContract = sortedContracts[0] || null;
+      const historyCount = validContracts.length;
+
+      let computedContractStatus: 'vigente' | 'por_vencer' | 'termino_cumplido' | 'pendiente_firma' | 'sin_contrato' | 'renovado' | 'borrador' = 'sin_contrato';
+      let contractType = 'Sin Registro';
+      let contractDates = 'Sin contrato';
+      let diffDays: number | null = null;
+      let docStatus = 'no_adjunto';
+      let docUrl: string | undefined = undefined;
+      let isLegacy = false;
+
+      if (activeContract) {
+        contractType = activeContract.tipo;
+        contractDates = `${formatDateDDMMYYYY(activeContract.fechaInicio)} al ${activeContract.fechaTermino ? formatDateDDMMYYYY(activeContract.fechaTermino) : 'Indefinido'}`;
+        docStatus = activeContract.estadoDocumental || 'no_adjunto';
+        docUrl = activeContract.googleDriveUrl;
+
+        if (activeContract.estado === 'pendiente_firma') {
+          computedContractStatus = 'pendiente_firma';
+        } else if (activeContract.estado === 'borrador') {
+          computedContractStatus = 'borrador';
+        } else if (activeContract.estado === 'renovado') {
+          computedContractStatus = 'renovado';
+        } else if (activeContract.fechaTermino) {
+          const termObj = new Date(activeContract.fechaTermino + 'T00:00:00');
+          diffDays = Math.ceil((termObj.getTime() - todayObj.getTime()) / (1000 * 60 * 60 * 24));
+          if (diffDays < 0) {
+            computedContractStatus = 'termino_cumplido';
+          } else if (diffDays <= 30) {
+            computedContractStatus = 'por_vencer';
+          } else {
+            computedContractStatus = 'vigente';
+          }
+        } else {
+          computedContractStatus = activeContract.estado === 'vigente' ? 'vigente' : 'termino_cumplido';
+        }
+      } else if (emp.fechaInicioContrato) {
+        // Datos contractuales heredados / legacy en la ficha de empleado
+        isLegacy = true;
+        contractType = emp.tipoContrato || 'Plazo Fijo';
+        docStatus = 'no_adjunto';
+        if (emp.fechaTerminoContrato) {
+          contractDates = `${formatDateDDMMYYYY(emp.fechaInicioContrato)} al ${formatDateDDMMYYYY(emp.fechaTerminoContrato)}`;
+          const termObj = new Date(emp.fechaTerminoContrato + 'T00:00:00');
+          diffDays = Math.ceil((termObj.getTime() - todayObj.getTime()) / (1000 * 60 * 60 * 24));
+          if (diffDays < 0) {
+            computedContractStatus = 'termino_cumplido';
+          } else if (diffDays <= 30) {
+            computedContractStatus = 'por_vencer';
+          } else {
+            computedContractStatus = 'vigente';
+          }
+        } else {
+          contractDates = `${formatDateDDMMYYYY(emp.fechaInicioContrato)} al Indefinido`;
+          computedContractStatus = 'vigente';
+        }
+      }
+
+      // Resolución de Sucursal de Referencia / Asignada
+      let resolvedSiteId = '0';
+      if (emp.currentSiteId && Number(emp.currentSiteId) > 0) {
+        resolvedSiteId = String(emp.currentSiteId);
+      } else if (activeContract?.sucursalId && activeContract.sucursalId !== '0') {
+        resolvedSiteId = String(activeContract.sucursalId);
+      }
+
+      const resolvedSiteName = resolvedSiteId === '0' || !resolvedSiteId
+        ? 'Sin Asignar / Multisitio'
+        : (siteMap.get(resolvedSiteId) || `Sucursal ${resolvedSiteId}`);
+
+      // Detección de Falabella para este colaborador
+      const isFalabella = 
+        falabellaSiteIds.has(String(emp.currentSiteId)) ||
+        falabellaSiteIds.has(String(resolvedSiteId)) ||
+        normalizeText(resolvedSiteName).includes('falabella') ||
+        (activeContract?.sucursalId ? falabellaSiteIds.has(String(activeContract.sucursalId)) : false);
+
+      return {
+        id: emp.id,
+        employee: emp,
+        workerName,
+        workerRut,
+        cargo,
+        operationalStatus,
+        resolvedSiteId,
+        resolvedSiteName,
+        isFalabella,
+        activeContract,
+        historyCount: historyCount > 0 ? historyCount : (isLegacy ? 1 : 0),
+        contractType,
+        contractDates,
+        computedContractStatus,
+        diffDays,
+        docStatus,
+        docUrl,
+        dropboxUrl: emp.dropboxUrl,
+        isLegacy
+      };
+    });
+  }, [employees, contratos, siteMap, falabellaSiteIds]);
+
+  // Cantidad total de trabajadores vinculados a Falabella
+  const falabellaWorkersCount = useMemo(() => {
+    return enrichedWorkers.filter(w => w.isFalabella).length;
+  }, [enrichedWorkers]);
+
+  // Conjunto base respetando la exclusión voluntaria de Falabella
+  const baseWorkers = useMemo(() => {
+    if (excludeFalabella) {
+      return enrichedWorkers.filter(w => !w.isFalabella);
+    }
+    return enrichedWorkers;
+  }, [enrichedWorkers, excludeFalabella]);
+
+  // =========================================================================
+  // 2. INDICADORES PRINCIPALES DEL DIRECTORIO (FASE 4)
+  // =========================================================================
+  const directoryMetrics = useMemo(() => {
+    const total = baseWorkers.length;
+    const enServicio = baseWorkers.filter(w => w.operationalStatus === 'en_servicio').length;
+    const reservas = baseWorkers.filter(w => w.operationalStatus === 'reserva').length;
+    const inactivos = baseWorkers.filter(w => w.operationalStatus === 'inactivo').length;
+    const porRevisar = baseWorkers.filter(w => w.operationalStatus === 'por_revisar' || w.computedContractStatus === 'sin_contrato').length;
+    const vencimientos = baseWorkers.filter(w => w.computedContractStatus === 'por_vencer' || w.computedContractStatus === 'termino_cumplido').length;
+
+    return {
+      total,
+      enServicio,
+      reservas,
+      inactivos,
+      porRevisar,
+      vencimientos
+    };
+  }, [baseWorkers]);
+
+  // =========================================================================
+  // 3. FILTRADO REACTIVO DEL DIRECTORIO
+  // =========================================================================
+  const filteredWorkers = useMemo(() => {
+    let list = baseWorkers;
+
+    // 1. Pestaña de Estado Operativo
+    if (operationalTab !== 'todos') {
+      if (operationalTab === 'por_revisar') {
+        list = list.filter(w => w.operationalStatus === 'por_revisar' || w.computedContractStatus === 'sin_contrato');
+      } else {
+        list = list.filter(w => w.operationalStatus === operationalTab);
+      }
+    }
+
+    // 2. Búsqueda por texto (nombre, RUT, código)
+    if (searchTerm.trim()) {
+      list = list.filter(w => matchesEmployeeSearch(searchTerm, w.employee));
+    }
+
+    // 3. Filtro por Sucursal
+    if (filterBranch) {
+      list = list.filter(w => String(w.resolvedSiteId) === String(filterBranch));
+    }
+
+    // 4. Filtro por Tipo de Contrato
+    if (filterType) {
+      list = list.filter(w => w.contractType.toLowerCase() === filterType.toLowerCase());
+    }
+
+    // 5. Filtro por Estado Contractual
+    if (filterContractStatus) {
+      if (filterContractStatus === 'vigente') {
+        list = list.filter(w => w.computedContractStatus === 'vigente' || w.computedContractStatus === 'por_vencer');
+      } else {
+        list = list.filter(w => w.computedContractStatus === filterContractStatus);
+      }
+    }
+
+    // Ordenamiento: En servicio primero, luego reservas, por revisar e inactivos al final
+    return list.sort((a, b) => {
+      const orderMap = { en_servicio: 0, reserva: 1, por_revisar: 2, inactivo: 3 };
+      const aOrder = orderMap[a.operationalStatus] ?? 2;
+      const bOrder = orderMap[b.operationalStatus] ?? 2;
+      if (aOrder !== bOrder) return aOrder - bOrder;
+      return a.workerName.localeCompare(b.workerName);
+    });
+  }, [baseWorkers, operationalTab, searchTerm, filterBranch, filterType, filterContractStatus]);
+
+  // Paginación de colaboradores
+  const paginatedWorkers = useMemo(() => {
+    const start = (currentPage - 1) * itemsPerPage;
+    return filteredWorkers.slice(start, start + itemsPerPage);
+  }, [filteredWorkers, currentPage]);
+
+  const totalPages = Math.ceil(filteredWorkers.length / itemsPerPage) || 1;
+
+  // Reset de página al cambiar filtros
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, filterBranch, filterType, filterContractStatus, operationalTab, excludeFalabella]);
+
+  // Identificador de filtros activos para botón Limpiar
+  const hasActiveFilters = Boolean(
+    searchTerm ||
+    filterBranch ||
+    filterType ||
+    filterContractStatus ||
+    operationalTab !== 'todos' ||
+    excludeFalabella
+  );
+
+  const handleClearFilters = () => {
+    setSearchTerm('');
+    setFilterBranch('');
+    setFilterType('');
+    setFilterContractStatus('');
+    setOperationalTab('todos');
+    setExcludeFalabella(false);
+    setCurrentPage(1);
+  };
+
+  // =========================================================================
+  // 4. LÓGICA DE VACACIONES (PRESERVADA)
+  // =========================================================================
   const currentVacationsCount = useMemo(() => {
     return vacations.filter(v => v.status === 'approved' && v.startDate <= todayStr && v.endDate >= todayStr).length;
   }, [vacations, todayStr]);
@@ -212,11 +393,20 @@ const HRContractsDashboard: React.FC = () => {
 
   const filteredVacations = useMemo(() => {
     let list = vacations;
-    if (activeTab !== 'todos') {
-      if (activeTab === 'en_curso') {
+    if (excludeFalabella) {
+      list = list.filter(v => {
+        const emp = employees.find(e => e.id === v.employeeId);
+        if (emp?.currentSiteId && falabellaSiteIds.has(String(emp.currentSiteId))) return false;
+        const userContracts = (contratos || []).filter(c => c.colaboradorId === v.employeeId && c.estado !== 'anulado');
+        if (userContracts.some(c => falabellaSiteIds.has(String(c.sucursalId)))) return false;
+        return true;
+      });
+    }
+    if (activeVacationTab !== 'todos') {
+      if (activeVacationTab === 'en_curso') {
         list = list.filter(v => v.status === 'approved' && v.startDate <= todayStr && v.endDate >= todayStr);
       } else {
-        list = list.filter(v => v.status === activeTab);
+        list = list.filter(v => v.status === activeVacationTab);
       }
     }
     if (vacationSearch) {
@@ -229,7 +419,7 @@ const HRContractsDashboard: React.FC = () => {
       });
     }
     return list;
-  }, [vacations, activeTab, vacationSearch, employees, todayStr]);
+  }, [vacations, activeVacationTab, vacationSearch, employees, todayStr, excludeFalabella, falabellaSiteIds, contratos]);
 
   const handleVacationAction = (id: string, action: 'approve' | 'reject' | 'cancel' | 'complete', currentStatus: string) => {
     const actionMap = {
@@ -254,487 +444,742 @@ const HRContractsDashboard: React.FC = () => {
     });
   };
 
-  const getSiteName = (id: string | number) => sites.find(s => s.id.toString() === id.toString())?.name || 'Desconocida';
-  const getEmpName = (id: string) => {
+  const getSiteNameById = (id: string | number) => siteMap.get(String(id)) || 'Desconocida';
+  const getEmpNameById = (id: string) => {
     const e = employees.find(emp => emp.id === id);
     return e ? `${e.firstName} ${e.lastNamePaterno}` : 'Desconocido';
   };
 
   return (
-    <div className="p-4 md:p-6 max-w-7xl mx-auto space-y-6 pb-24">
-      {/* HEADER NUEVO */}
+    <div className="p-4 md:p-6 max-w-7xl mx-auto space-y-6 pb-24 animate-in fade-in duration-300">
+      
+      {/* HEADER PRINCIPAL */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-black text-slate-800 tracking-tight uppercase flex items-center gap-3">
             <ClipboardList className="text-blue-600" />
-            Panel RRHH
+            Directorio RR. HH. y Gestión Contractual
           </h1>
-          <p className="text-slate-500 text-sm font-medium">Resumen de trabajadores, contratos y vacaciones</p>
+          <p className="text-slate-500 text-sm font-medium">
+            Control integral del personal, situación operativa, trazabilidad de contratos y coberturas
+          </p>
         </div>
+
+        <div className="flex items-center gap-3 flex-wrap">
+          {(currentUser?.role === 'admin' || currentUser?.role === 'rrhh') && (
+            <button
+              onClick={() => setContractModalState({
+                isOpen: true,
+                mode: 'create',
+                preselectedEmployee: null,
+                contratoAnterior: null
+              })}
+              className="py-2.5 px-5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold uppercase tracking-wider shadow-md shadow-blue-200 transition-all active:scale-95 flex items-center gap-2"
+            >
+              <Plus size={16} /> Emitir Contrato
+            </button>
+          )}
+
+          <button
+            onClick={() => setShowVacationModal(true)}
+            className="py-2.5 px-5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold uppercase tracking-wider shadow-md shadow-emerald-200 transition-all active:scale-95 flex items-center gap-2"
+          >
+            <Palmtree size={16} /> Registrar Vacaciones
+          </button>
+        </div>
+      </div>
+
+      {/* SELECTOR DE PESTAÑA PRINCIPAL */}
+      <div className="flex border-b border-slate-200 gap-4">
         <button
-          onClick={() => setShowVacationModal(true)}
-          className="py-3 px-6 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl text-xs font-black uppercase tracking-widest shadow-xl shadow-blue-200 transition-all active:scale-95 flex items-center justify-center gap-2 self-start md:self-auto"
+          onClick={() => setMainTab('directorio')}
+          className={`pb-3 text-xs font-black uppercase tracking-wider flex items-center gap-2 border-b-2 transition ${
+            mainTab === 'directorio' 
+              ? 'border-blue-600 text-blue-600' 
+              : 'border-transparent text-slate-400 hover:text-slate-600'
+          }`}
         >
-          <Palmtree size={16} /> Registrar Vacaciones
+          <Users size={16} /> Directorio de Colaboradores ({baseWorkers.length})
+        </button>
+        <button
+          onClick={() => setMainTab('vacaciones')}
+          className={`pb-3 text-xs font-black uppercase tracking-wider flex items-center gap-2 border-b-2 transition ${
+            mainTab === 'vacaciones' 
+              ? 'border-blue-600 text-blue-600' 
+              : 'border-transparent text-slate-400 hover:text-slate-600'
+          }`}
+        >
+          <Palmtree size={16} /> Gestión de Vacaciones ({vacations.length})
         </button>
       </div>
 
-      {/* TARJETAS RESUMEN NUEVAS */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm">
-          <div className="flex justify-between items-start mb-2">
-            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Ingresos Recientes</span>
-            <div className="p-2 bg-emerald-50 text-emerald-600 rounded-xl"><UserPlus size={16} /></div>
-          </div>
-          <div className="text-3xl font-black text-slate-800">{recentHires.length}</div>
-          <p className="text-xs font-medium text-slate-500 mt-1">En los últimos 10 días</p>
-        </div>
-        <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm">
-          <div className="flex justify-between items-start mb-2">
-            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Sin Contrato</span>
-            <div className="p-2 bg-rose-50 text-rose-600 rounded-xl"><ShieldAlert size={16} /></div>
-          </div>
-          <div className="text-3xl font-black text-rose-600">{workersWithoutContract.length}</div>
-          <p className="text-xs font-medium text-slate-500 mt-1">Requieren atención</p>
-        </div>
-        <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm">
-          <div className="flex justify-between items-start mb-2">
-            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">De Vacaciones</span>
-            <div className="p-2 bg-blue-50 text-blue-600 rounded-xl"><Palmtree size={16} /></div>
-          </div>
-          <div className="text-3xl font-black text-slate-800">{currentVacationsCount}</div>
-          <p className="text-xs font-medium text-slate-500 mt-1">Actualmente en curso</p>
-        </div>
-        <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm">
-          <div className="flex justify-between items-start mb-2">
-            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Solicitudes Vac.</span>
-            <div className="p-2 bg-amber-50 text-amber-600 rounded-xl"><CalendarClock size={16} /></div>
-          </div>
-          <div className="text-3xl font-black text-amber-500">{pendingVacationsCount}</div>
-          <p className="text-xs font-medium text-slate-500 mt-1">Pendientes de revisión</p>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* ÚLTIMOS INGRESOS */}
-        <div className="bg-white rounded-[2rem] border border-slate-100 shadow-sm p-6 flex flex-col h-96">
-          <h3 className="text-sm font-black text-slate-800 uppercase tracking-wider mb-4 flex items-center gap-2">
-            <UserPlus size={16} className="text-emerald-500" />
-            Últimos Ingresos (10 días)
-          </h3>
-          <div className="flex-1 overflow-y-auto pr-2 space-y-3">
-            {recentHires.length === 0 ? (
-              <p className="text-slate-400 text-sm font-bold text-center py-10">No existen trabajadores ingresados durante los últimos 10 días.</p>
-            ) : (
-              recentHires.map(emp => (
-                <div key={emp.id} className="flex justify-between items-center bg-slate-50 p-3 rounded-2xl border border-slate-100">
-                  <div>
-                    <h4 className="text-xs font-bold text-slate-800">{emp.firstName} {emp.lastNamePaterno}</h4>
-                    <div className="text-[10px] text-slate-500 font-medium flex gap-2 mt-1">
-                      <span>{emp.cargo}</span>
-                      <span>•</span>
-                      <span>Ingreso: {emp.fechaInicioContrato}</span>
-                    </div>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
-
-        {/* SIN CONTRATO VIGENTE */}
-        <div className="bg-white rounded-[2rem] border border-slate-100 shadow-sm p-6 flex flex-col h-96">
-          <h3 className="text-sm font-black text-slate-800 uppercase tracking-wider mb-4 flex items-center gap-2">
-            <ShieldAlert size={16} className="text-rose-500" />
-            Sin Contrato Vigente
-          </h3>
-          <div className="flex-1 overflow-y-auto pr-2 space-y-3">
-            {workersWithoutContract.length === 0 ? (
-              <p className="text-slate-400 text-sm font-bold text-center py-10">Todos los trabajadores activos tienen contrato vigente.</p>
-            ) : (
-              workersWithoutContract.map(emp => {
-                const empContracts = contratos.filter(c => c.colaboradorId === emp.id);
-                const hasAny = empContracts.length > 0;
-                return (
-                  <div key={emp.id} className="flex flex-col sm:flex-row sm:justify-between sm:items-center bg-rose-50/50 p-3 rounded-2xl border border-rose-100 gap-3">
-                    <div>
-                      <h4 className="text-xs font-bold text-slate-800">{emp.firstName} {emp.lastNamePaterno}</h4>
-                      <p className="text-[10px] text-slate-500 font-medium mt-1">
-                        Motivo: {hasAny ? 'Contrato vencido o futuro' : 'Sin contratos registrados'}
-                      </p>
-                    </div>
-                    <div className="flex gap-2 shrink-0">
-                      <button
-                        onClick={() => setPreselectedEmployeeForDoc(emp.id)}
-                        className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-[10px] font-bold uppercase tracking-wider flex items-center gap-1 justify-center transition"
-                        title="Ir a Documentos a generar contrato"
-                      >
-                        <FilePlus size={12} /> Pdf
-                      </button>
-                      <button
-                        onClick={() => setRegularizeModalEmp(emp)}
-                        className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-[10px] font-bold uppercase tracking-wider flex items-center gap-1 justify-center transition"
-                        title="Regularizar manualmente sin PDF"
-                      >
-                        Regularizar
-                      </button>
-                    </div>
-                  </div>
-                );
-              })
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* TABLA DE VACACIONES */}
-      <div className="bg-white rounded-[2rem] border border-slate-100 shadow-sm p-6 space-y-4">
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-slate-100 pb-4">
-          <h3 className="text-sm font-black text-slate-800 uppercase tracking-wider flex items-center gap-2">
-            <Palmtree size={18} className="text-blue-500" />
-            Gestión de Vacaciones
-          </h3>
+      {/* ========================================================================= */}
+      {/* VISTA 1: DIRECTORIO COMPLETO DE COLABORADORES */}
+      {/* ========================================================================= */}
+      {mainTab === 'directorio' && (
+        <div className="space-y-5">
           
-          <div className="relative w-full sm:w-64">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
-            <input
-              type="text"
-              placeholder="Buscar trabajador..."
-              className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium focus:ring-2 focus:ring-blue-500 outline-none"
-              value={vacationSearch}
-              onChange={(e) => setVacationSearch(e.target.value)}
-            />
-          </div>
-        </div>
-
-        <div className="flex gap-2 overflow-x-auto pb-2">
-          {[
-            { id: 'todos', label: 'Todas' },
-            { id: 'pending', label: 'Pendientes' },
-            { id: 'approved', label: 'Aprobadas' },
-            { id: 'en_curso', label: 'En Curso' },
-            { id: 'completed', label: 'Finalizadas' },
-            { id: 'cancelled', label: 'Canceladas' }
-          ].map(tab => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id as any)}
-              className={`px-4 py-2 rounded-xl text-[11px] font-black uppercase tracking-wider whitespace-nowrap transition-all ${
-                activeTab === tab.id ? 'bg-blue-600 text-white shadow-md shadow-blue-200' : 'bg-slate-50 text-slate-500 hover:bg-slate-100'
+          {/* TARJETAS DE INDICADORES PRINCIPALES (FASE 4) */}
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+            
+            {/* Total Colaboradores */}
+            <div 
+              onClick={() => { setOperationalTab('todos'); setFilterContractStatus(''); }}
+              className={`p-4 rounded-2xl border transition cursor-pointer shadow-sm ${
+                operationalTab === 'todos' && !filterContractStatus
+                  ? 'bg-blue-50/50 border-blue-400 ring-2 ring-blue-200' 
+                  : 'bg-white border-slate-200 hover:border-blue-300'
               }`}
             >
-              {tab.label}
-            </button>
-          ))}
-        </div>
-
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="border-b border-slate-100 text-[10px] uppercase tracking-widest text-slate-400 font-black">
-                <th className="p-3">Trabajador</th>
-                <th className="p-3">Sucursal</th>
-                <th className="p-3">Periodo</th>
-                <th className="p-3 text-center">Días</th>
-                <th className="p-3">Estado</th>
-                <th className="p-3 text-right">Acciones</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredVacations.length === 0 ? (
-                <tr>
-                  <td colSpan={6} className="text-center py-10 text-slate-400 font-bold text-sm">
-                    No se encontraron registros de vacaciones.
-                  </td>
-                </tr>
-              ) : (
-                filteredVacations.map(vac => (
-                  <tr key={vac.id} className="border-b border-slate-50 hover:bg-slate-50/50 transition">
-                    <td className="p-3">
-                      <p className="text-xs font-bold text-slate-700">{getEmpName(vac.employeeId)}</p>
-                    </td>
-                    <td className="p-3">
-                      <p className="text-[11px] font-medium text-slate-500">{getSiteName(vac.sucursalId)}</p>
-                    </td>
-                    <td className="p-3">
-                      <p className="text-[11px] font-bold text-slate-700">{vac.startDate}</p>
-                      <p className="text-[10px] text-slate-400">al {vac.endDate}</p>
-                    </td>
-                    <td className="p-3 text-center">
-                      <span className="px-2 py-1 bg-slate-100 text-slate-600 rounded-lg text-[10px] font-black">
-                        {vac.days}
-                      </span>
-                    </td>
-                    <td className="p-3">
-                      {vac.status === 'pending' && <span className="text-[10px] font-black bg-amber-50 text-amber-600 px-2 py-1 rounded-lg uppercase">Pendiente</span>}
-                      {vac.status === 'approved' && <span className="text-[10px] font-black bg-blue-50 text-blue-600 px-2 py-1 rounded-lg uppercase">Aprobada</span>}
-                      {vac.status === 'completed' && <span className="text-[10px] font-black bg-emerald-50 text-emerald-600 px-2 py-1 rounded-lg uppercase">Finalizada</span>}
-                      {vac.status === 'cancelled' && <span className="text-[10px] font-black bg-slate-100 text-slate-500 px-2 py-1 rounded-lg uppercase">Cancelada</span>}
-                      {vac.status === 'rejected' && <span className="text-[10px] font-black bg-rose-50 text-rose-600 px-2 py-1 rounded-lg uppercase">Rechazada</span>}
-                    </td>
-                    <td className="p-3 text-right">
-                      <div className="flex justify-end gap-2">
-                        {vac.status === 'pending' && (
-                          <>
-                            <button onClick={() => handleVacationAction(vac.id, 'approve', vac.status)} className="p-1.5 bg-emerald-50 text-emerald-600 hover:bg-emerald-100 rounded-lg transition" title="Aprobar"><CheckCircle size={14}/></button>
-                            <button onClick={() => handleVacationAction(vac.id, 'reject', vac.status)} className="p-1.5 bg-rose-50 text-rose-600 hover:bg-rose-100 rounded-lg transition" title="Rechazar"><XCircle size={14}/></button>
-                          </>
-                        )}
-                        {vac.status === 'approved' && (
-                          <>
-                            <button onClick={() => handleVacationAction(vac.id, 'complete', vac.status)} className="p-1.5 bg-emerald-50 text-emerald-600 hover:bg-emerald-100 rounded-lg transition" title="Marcar Finalizada"><CheckCircle size={14}/></button>
-                            <button onClick={() => handleVacationAction(vac.id, 'cancel', vac.status)} className="p-1.5 bg-slate-100 text-slate-500 hover:bg-slate-200 rounded-lg transition" title="Cancelar"><XCircle size={14}/></button>
-                          </>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* SECCIÓN ORIGINAL: RESOLUCIÓN DE CONTRATOS */}
-      <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden mt-6">
-        <div className="p-4 bg-slate-50 border-b border-slate-200 font-bold text-slate-700 flex flex-col md:flex-row justify-between items-center gap-4">
-          <div className="flex items-center gap-2 shrink-0">
-            <FileText className="text-slate-400" /> 
-            Estado Contractual por Colaborador
-          </div>
-          <div className="flex flex-col sm:flex-row gap-4 w-full md:w-auto">
-            <div className="relative w-full sm:w-64">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
-              <input
-                type="text"
-                placeholder="Buscar por nombre o apellido..."
-                className="w-full pl-9 pr-3 py-1.5 bg-white border border-slate-300 rounded text-xs font-medium focus:ring-2 focus:ring-blue-500 outline-none"
-                value={searchContractTerm}
-                onChange={(e) => setSearchContractTerm(e.target.value)}
-              />
-            </div>
-            <div className="flex gap-2">
-              <select 
-                value={filters.estado} 
-                onChange={e => setFilters(prev => ({...prev, estado: e.target.value}))}
-                className="p-1.5 border border-slate-300 rounded text-xs bg-white w-full sm:w-auto"
-              >
-                <option value="">Todos los Estados</option>
-                <option value="vigente">Vigente</option>
-                <option value="pendiente_firma">Pendiente de Firma</option>
-                <option value="vencido">Vencido</option>
-              </select>
-              <select 
-                value={filters.limit} 
-                onChange={e => setFilters(prev => ({...prev, limit: Number(e.target.value)}))}
-                className="p-1.5 border border-slate-300 rounded text-xs bg-white w-full sm:w-auto"
-                title="Límite de documentos a descargar"
-              >
-                <option value={25}>Descargar 25</option>
-                <option value={50}>Descargar 50</option>
-                <option value={100}>Descargar 100</option>
-                <option value={500}>Descargar 500</option>
-              </select>
-            </div>
-          </div>
-        </div>
-        <div className="divide-y divide-slate-100">
-          {paginatedEmployeesWithContracts.map(emp => (
-            <div key={emp.id} className="flex flex-col">
-              <div 
-                className="flex items-center justify-between p-4 hover:bg-slate-50 cursor-pointer transition"
-                onClick={() => setExpandedEmpId(expandedEmpId === emp.id ? null : emp.id)}
-              >
-                <div className="flex items-center gap-4">
-                  {expandedEmpId === emp.id ? <ChevronDown size={20} className="text-slate-400" /> : <ChevronRight size={20} className="text-slate-400" />}
-                  <div>
-                    <div className="font-bold text-slate-800">{emp.firstName} {emp.lastNamePaterno}</div>
-                    <div className="text-xs text-slate-500">{emp.rut}</div>
-                  </div>
-                </div>
-                
-                <div className="flex items-center gap-4">
-                  {emp.issueCount > 0 ? (
-                    <div className="flex items-center gap-1 text-red-600 bg-red-50 px-2 py-1 rounded text-xs font-bold">
-                      <AlertCircle size={14} /> Requiere Revisión ({emp.issueCount})
-                    </div>
-                  ) : (
-                    <div className="flex items-center gap-1 text-green-600 bg-green-50 px-2 py-1 rounded text-xs font-bold">
-                      <CheckCircle2 size={14} /> Al Día
-                    </div>
-                  )}
-                  <div className="text-xs font-medium text-slate-500 w-24 text-right">
-                    {emp.activeContracts.length} activos
-                  </div>
-                </div>
+              <div className="flex justify-between items-start mb-1">
+                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Total Personal</span>
+                <div className="p-1.5 bg-blue-50 text-blue-600 rounded-lg"><Users size={14} /></div>
               </div>
-
-              {expandedEmpId === emp.id && (
-                <div className="bg-slate-50 p-4 pl-12 border-t border-slate-100">
-                  {emp.contracts.length === 0 ? (
-                    <div className="text-sm text-slate-500 italic py-2">No se han encontrado contratos para este colaborador.</div>
-                  ) : (
-                    <div className="space-y-3">
-                      <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Historial de Contratos</div>
-                      {emp.contracts.map(c => (
-                        <div key={c.id} className="flex flex-col md:flex-row md:items-center justify-between bg-white p-3 rounded border border-slate-200">
-                          <div className="flex flex-col">
-                            <span className="font-semibold text-slate-800 text-sm">
-                              {c.tipo} - <span className="text-slate-500 font-normal">{c.cargo || 'Sin Cargo'}</span>
-                            </span>
-                            <span className="text-xs text-slate-500 mt-1">
-                              Inicio: {c.fechaInicio} {c.fechaTermino ? `| Término: ${c.fechaTermino}` : '| Indefinido'}
-                            </span>
-                          </div>
-                          
-                          <div className="flex items-center gap-3 mt-3 md:mt-0">
-                            <span className={`px-2 py-1 rounded text-xs font-medium ${c.estado === 'vigente' ? 'bg-green-100 text-green-700' : c.estado === 'pendiente_firma' ? 'bg-yellow-100 text-yellow-700' : 'bg-slate-100 text-slate-600'}`}>
-                              {c.estado.replace('_', ' ').toUpperCase()}
-                            </span>
-                            
-                            {emp.activeContracts.length > 1 && (c.estado === 'vigente' || c.estado === 'pendiente_firma') && (
-                              <button 
-                                onClick={() => openResolveModal(c, emp.id)}
-                                className="px-3 py-1 bg-blue-50 text-blue-600 rounded text-xs font-bold hover:bg-blue-100 transition border border-blue-200"
-                              >
-                                Resolver Turnos a este contrato
-                              </button>
-                            )}
-                            
-                            {c.googleDriveUrl && (
-                              <a href={c.googleDriveUrl} target="_blank" rel="noreferrer" className="text-blue-500 hover:underline text-xs">Ver PDF</a>
-                            )}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  
-                  {emp.activeContracts.length === 0 && (
-                    <div className="mt-4 p-3 bg-red-50 border border-red-100 rounded text-sm text-red-700">
-                      <strong>Alerta:</strong> Este colaborador no tiene ningún contrato activo registrado en el sistema. Los turnos asignados aparecerán como "Sin Contrato".
-                    </div>
-                  )}
-                  
-                  {emp.activeContracts.length > 1 && (
-                    <div className="mt-4 p-3 bg-purple-50 border border-purple-100 rounded text-sm text-purple-700">
-                      <strong>Alerta Múltiples Contratos:</strong> Este colaborador tiene más de un contrato activo simultáneamente. Resuelve ambigüedades vinculando turnos específicos al contrato correcto.
-                    </div>
-                  )}
-                </div>
-              )}
+              <div className="text-2xl font-black text-slate-800">{directoryMetrics.total}</div>
+              <p className="text-[10px] font-medium text-slate-500 mt-0.5">Registrados en BD</p>
             </div>
-          ))}
-          {paginatedEmployeesWithContracts.length === 0 && (
-            <div className="p-8 text-center text-slate-500 font-medium text-sm">
-              No se encontraron colaboradores que coincidan con la búsqueda.
-            </div>
-          )}
-        </div>
 
-        {/* Paginación de Contratos */}
-        {totalContractPages > 1 && (
-          <div className="p-4 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row justify-between items-center gap-3">
-            <span className="text-xs text-slate-500 font-medium">
-              Mostrando {paginatedEmployeesWithContracts.length} de {filteredEmployeesWithContracts.length} registros
-            </span>
-            <div className="flex gap-1">
-              <button
-                disabled={currentPageContracts === 1}
-                onClick={() => setCurrentPageContracts(p => Math.max(1, p - 1))}
-                className="px-3 py-1 bg-white border border-slate-300 rounded text-xs font-bold text-slate-600 disabled:opacity-50 hover:bg-slate-50 transition"
-              >
-                Anterior
-              </button>
-              <div className="px-3 py-1 text-xs font-bold text-slate-600 bg-transparent flex items-center justify-center min-w-[100px]">
-                Página {currentPageContracts} de {totalContractPages}
+            {/* En Servicio */}
+            <div 
+              onClick={() => { setOperationalTab('en_servicio'); setFilterContractStatus(''); }}
+              className={`p-4 rounded-2xl border transition cursor-pointer shadow-sm ${
+                operationalTab === 'en_servicio' 
+                  ? 'bg-emerald-50/50 border-emerald-400 ring-2 ring-emerald-200' 
+                  : 'bg-white border-slate-200 hover:border-emerald-300'
+              }`}
+            >
+              <div className="flex justify-between items-start mb-1">
+                <span className="text-[10px] font-black text-emerald-700 uppercase tracking-widest">En Servicio</span>
+                <div className="p-1.5 bg-emerald-50 text-emerald-600 rounded-lg"><CheckCircle2 size={14} /></div>
               </div>
-              <button
-                disabled={currentPageContracts === totalContractPages}
-                onClick={() => setCurrentPageContracts(p => Math.min(totalContractPages, p + 1))}
-                className="px-3 py-1 bg-white border border-slate-300 rounded text-xs font-bold text-slate-600 disabled:opacity-50 hover:bg-slate-50 transition"
-              >
-                Siguiente
-              </button>
+              <div className="text-2xl font-black text-emerald-600">{directoryMetrics.enServicio}</div>
+              <p className="text-[10px] font-medium text-emerald-600 mt-0.5">Asignados a puestos</p>
             </div>
-          </div>
-        )}
-      </div>
 
-      {/* Modal Resolución Manual */}
-      {resolveModal.isOpen && resolveModal.contrato && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in duration-200">
-            <div className="p-4 bg-blue-600 text-white flex items-center justify-between">
-              <h3 className="font-bold">Resolución Manual de Turnos</h3>
-              <button onClick={() => setResolveModal(prev => ({...prev, isOpen: false}))} className="text-white/80 hover:text-white">
-                <XCircle size={20} />
-              </button>
+            {/* Reservas para Coberturas */}
+            <div 
+              onClick={() => { setOperationalTab('reserva'); setFilterContractStatus(''); }}
+              className={`p-4 rounded-2xl border transition cursor-pointer shadow-sm ${
+                operationalTab === 'reserva' 
+                  ? 'bg-blue-50/50 border-blue-400 ring-2 ring-blue-200' 
+                  : 'bg-white border-slate-200 hover:border-blue-300'
+              }`}
+            >
+              <div className="flex justify-between items-start mb-1">
+                <span className="text-[10px] font-black text-blue-700 uppercase tracking-widest">Reservas</span>
+                <div className="p-1.5 bg-blue-50 text-blue-600 rounded-lg"><CalendarClock size={14} /></div>
+              </div>
+              <div className="text-2xl font-black text-blue-600">{directoryMetrics.reservas}</div>
+              <p className="text-[10px] font-medium text-blue-700 mt-0.5">Disponibles cobertura</p>
             </div>
+
+            {/* Casos por Revisar */}
+            <div 
+              onClick={() => { setOperationalTab('por_revisar'); }}
+              className={`p-4 rounded-2xl border transition cursor-pointer shadow-sm ${
+                operationalTab === 'por_revisar' 
+                  ? 'bg-amber-50/50 border-amber-400 ring-2 ring-amber-200' 
+                  : 'bg-white border-amber-200 bg-amber-50/20 hover:border-amber-400'
+              }`}
+            >
+              <div className="flex justify-between items-start mb-1">
+                <span className="text-[10px] font-black text-amber-700 uppercase tracking-widest">Por Revisar</span>
+                <div className="p-1.5 bg-amber-50 text-amber-600 rounded-lg"><AlertCircle size={14} /></div>
+              </div>
+              <div className="text-2xl font-black text-amber-600">{directoryMetrics.porRevisar}</div>
+              <p className="text-[10px] font-medium text-amber-700 mt-0.5">Sin sucursal o contrato</p>
+            </div>
+
+            {/* Inactivos */}
+            <div 
+              onClick={() => { setOperationalTab('inactivo'); setFilterContractStatus(''); }}
+              className={`p-4 rounded-2xl border transition cursor-pointer shadow-sm ${
+                operationalTab === 'inactivo' 
+                  ? 'bg-rose-50/50 border-rose-400 ring-2 ring-rose-200' 
+                  : 'bg-white border-slate-200 hover:border-rose-300'
+              }`}
+            >
+              <div className="flex justify-between items-start mb-1">
+                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Inactivos</span>
+                <div className="p-1.5 bg-rose-50 text-rose-600 rounded-lg"><UserX size={14} /></div>
+              </div>
+              <div className="text-2xl font-black text-slate-700">{directoryMetrics.inactivos}</div>
+              <p className="text-[10px] font-medium text-rose-600 mt-0.5">Baja / Históricos</p>
+            </div>
+
+            {/* Vencimientos Contractuales */}
+            <div 
+              onClick={() => { setFilterContractStatus('por_vencer'); }}
+              className={`p-4 rounded-2xl border transition cursor-pointer shadow-sm ${
+                filterContractStatus === 'por_vencer' 
+                  ? 'bg-purple-50/50 border-purple-400 ring-2 ring-purple-200' 
+                  : 'bg-white border-slate-200 hover:border-purple-300'
+              }`}
+            >
+              <div className="flex justify-between items-start mb-1">
+                <span className="text-[10px] font-black text-purple-700 uppercase tracking-widest">Vencimientos</span>
+                <div className="p-1.5 bg-purple-50 text-purple-600 rounded-lg"><Clock size={14} /></div>
+              </div>
+              <div className="text-2xl font-black text-purple-600">{directoryMetrics.vencimientos}</div>
+              <p className="text-[10px] font-medium text-purple-700 mt-0.5">Por renovar (≤ 30d)</p>
+            </div>
+
+          </div>
+
+          {/* CONTENEDOR PRINCIPAL DE LA TABLA Y FILTROS */}
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden space-y-4">
             
-            <div className="p-6 space-y-4">
-              <p className="text-sm text-slate-600">
-                Selecciona el rango de fechas para el cual los turnos de este colaborador deben quedar forzosamente asociados al siguiente contrato:
-              </p>
+            {/* VISTAS DE ESTADO OPERATIVO (PESTAÑAS SECUNDARIAS) */}
+            <div className="px-4 pt-3 border-b border-slate-200 flex gap-2 overflow-x-auto bg-slate-50/50">
+              {[
+                { id: 'todos', label: 'Todos', count: directoryMetrics.total },
+                { id: 'en_servicio', label: 'En Servicio', count: directoryMetrics.enServicio },
+                { id: 'reserva', label: 'Reservas para Coberturas', count: directoryMetrics.reservas },
+                { id: 'inactivo', label: 'Inactivos', count: directoryMetrics.inactivos },
+                { id: 'por_revisar', label: 'Por Revisar', count: directoryMetrics.porRevisar }
+              ].map(tab => (
+                <button
+                  key={tab.id}
+                  onClick={() => setOperationalTab(tab.id as any)}
+                  className={`pb-2.5 px-3 text-xs font-bold transition-all border-b-2 flex items-center gap-1.5 whitespace-nowrap ${
+                    operationalTab === tab.id
+                      ? 'border-blue-600 text-blue-600'
+                      : 'border-transparent text-slate-500 hover:text-slate-800'
+                  }`}
+                >
+                  <span>{tab.label}</span>
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-black ${
+                    operationalTab === tab.id ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-500'
+                  }`}>
+                    {tab.count}
+                  </span>
+                </button>
+              ))}
+            </div>
+
+            {/* BARRA DE FILTROS DEL DIRECTORIO */}
+            <div className="p-4 bg-slate-50/80 border-b border-slate-200 flex flex-col lg:flex-row gap-3 items-stretch lg:items-center justify-between">
               
-              <div className="p-3 bg-slate-50 border border-slate-200 rounded text-sm font-medium">
-                {resolveModal.contrato.tipo} ({resolveModal.contrato.cargo || 'Sin cargo'})
-                <div className="text-xs text-slate-500 mt-1">ID: {resolveModal.contrato.id}</div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-bold text-slate-500 mb-1">Fecha Inicio Rango</label>
-                  <input 
-                    type="date" 
-                    value={resolveModal.fechaInicio}
-                    onChange={(e) => setResolveModal(prev => ({...prev, fechaInicio: e.target.value}))}
-                    className="w-full p-2 border border-slate-300 rounded text-sm"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-500 mb-1">Fecha Fin Rango</label>
-                  <input 
-                    type="date" 
-                    value={resolveModal.fechaTermino}
-                    onChange={(e) => setResolveModal(prev => ({...prev, fechaTermino: e.target.value}))}
-                    className="w-full p-2 border border-slate-300 rounded text-sm"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-500 mb-1">Motivo de Resolución</label>
-                <textarea 
-                  value={resolveModal.motivo}
-                  onChange={(e) => setResolveModal(prev => ({...prev, motivo: e.target.value}))}
-                  placeholder="Ej: Empleado trabaja doble turno bajo diferentes razones sociales, se clarifica."
-                  className="w-full p-2 border border-slate-300 rounded text-sm resize-none h-20"
+              {/* Buscador de Colaborador */}
+              <div className="relative flex-1 max-w-md">
+                <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={15} />
+                <input
+                  type="text"
+                  placeholder="Buscar por trabajador, RUT o código..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="w-full pl-9 pr-8 py-2 bg-white border border-slate-200 rounded-xl text-xs font-medium focus:ring-2 focus:ring-blue-500 focus:outline-none"
                 />
+                {searchTerm && (
+                  <button 
+                    onClick={() => setSearchTerm('')} 
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                  >
+                    <XCircle size={14} />
+                  </button>
+                )}
+              </div>
+
+              {/* Selectores de Filtro */}
+              <div className="flex flex-wrap items-center gap-2">
+                
+                {/* Sucursal */}
+                <select
+                  value={filterBranch}
+                  onChange={(e) => setFilterBranch(e.target.value)}
+                  className="px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-medium focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                >
+                  <option value="">Todas las Sucursales</option>
+                  <option value="0">Sin Asignar / Multisitio</option>
+                  {sites
+                    .filter(s => s.active && (!excludeFalabella || !falabellaSiteIds.has(String(s.id))))
+                    .map(s => (
+                      <option key={s.id} value={s.id}>{s.name}</option>
+                    ))}
+                </select>
+
+                {/* Tipo de Contrato */}
+                <select
+                  value={filterType}
+                  onChange={(e) => setFilterType(e.target.value)}
+                  className="px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-medium focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                >
+                  <option value="">Todos los Tipos</option>
+                  <option value="Plazo Fijo">Plazo Fijo</option>
+                  <option value="Indefinido">Indefinido</option>
+                  <option value="Obra y Faena">Obra y Faena</option>
+                </select>
+
+                {/* Estado Contractual */}
+                <select
+                  value={filterContractStatus}
+                  onChange={(e) => setFilterContractStatus(e.target.value)}
+                  className="px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-medium focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                >
+                  <option value="">Todos los Contratos</option>
+                  <option value="vigente">Vigente (Al Día)</option>
+                  <option value="por_vencer">Próximo a Vencer (≤ 30d)</option>
+                  <option value="termino_cumplido">Caducado / Término Cumplido</option>
+                  <option value="pendiente_firma">Pendiente de Firma</option>
+                  <option value="sin_contrato">Sin Contrato Registrado</option>
+                </select>
+
+                {/* Checkbox Excluir Falabella (REGLA ESPECÍFICA: CONSERVADO) */}
+                <label 
+                  className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-bold cursor-pointer transition select-none border ${
+                    excludeFalabella 
+                      ? 'bg-amber-50 border-amber-300 text-amber-900 shadow-sm' 
+                      : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50 hover:border-slate-300'
+                  }`}
+                  title="Oculta colaboradores y contratos asociados a sucursales de Falabella para facilitar la revisión del resto de la dotación"
+                >
+                  <input
+                    type="checkbox"
+                    checked={excludeFalabella}
+                    onChange={(e) => setExcludeFalabella(e.target.checked)}
+                    className="w-4 h-4 rounded text-blue-600 border-slate-300 focus:ring-blue-500 cursor-pointer accent-blue-600"
+                  />
+                  <span className="flex items-center gap-1.5">
+                    <span>Excluir Falabella</span>
+                    {falabellaWorkersCount > 0 && (
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-black ${
+                        excludeFalabella ? 'bg-amber-200 text-amber-800' : 'bg-slate-100 text-slate-500'
+                      }`}>
+                        {falabellaWorkersCount}
+                      </span>
+                    )}
+                  </span>
+                </label>
+
+                {hasActiveFilters && (
+                  <button
+                    onClick={handleClearFilters}
+                    className="px-3 py-2 text-xs font-bold text-slate-500 hover:text-slate-800 bg-slate-100 hover:bg-slate-200 rounded-xl transition"
+                    title="Restablecer todos los filtros"
+                  >
+                    Limpiar
+                  </button>
+                )}
+
               </div>
             </div>
 
-            <div className="p-4 bg-slate-50 border-t border-slate-200 flex justify-end gap-3">
-              <button 
-                onClick={() => setResolveModal(prev => ({...prev, isOpen: false}))}
-                className="px-4 py-2 text-slate-600 font-bold hover:bg-slate-200 rounded transition"
-                disabled={resolveModal.isProcessing}
-              >
-                Cancelar
-              </button>
-              <button 
-                onClick={handleResolveSubmit}
-                disabled={resolveModal.isProcessing || !resolveModal.motivo.trim()}
-                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded shadow transition disabled:opacity-50"
-              >
-                {resolveModal.isProcessing ? 'Resolviendo...' : 'Aplicar Resolución'}
-              </button>
+            {/* BANNER NOTICIA CUANDO EXCLUIR FALABELLA ESTÁ ACTIVO */}
+            {excludeFalabella && (
+              <div className="mx-4 mt-3 px-3.5 py-2 bg-amber-50/90 border border-amber-200 rounded-xl text-xs font-medium text-amber-800 flex items-center justify-between animate-in fade-in duration-200">
+                <span className="flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+                  <span>
+                    Filtro activo: <strong>Excluyendo personal y contratos de Falabella</strong> ({falabellaWorkersCount} colaboradores de Falabella ocultos temporalmente).
+                  </span>
+                </span>
+                <button 
+                  onClick={() => setExcludeFalabella(false)}
+                  className="text-[11px] font-bold text-amber-700 hover:text-amber-900 underline ml-2"
+                >
+                  Mostrar todos
+                </button>
+              </div>
+            )}
+
+            {/* TABLA DEL DIRECTORIO COMPLETO */}
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="border-b border-slate-200 text-[10px] uppercase tracking-widest text-slate-400 font-black bg-slate-50">
+                    <th className="p-3.5">Trabajador / RUT</th>
+                    <th className="p-3.5 text-center">Estado Operativo</th>
+                    <th className="p-3.5">Sucursal Referencia</th>
+                    <th className="p-3.5">Situación Contractual</th>
+                    <th className="p-3.5">Vigencia Contractual</th>
+                    <th className="p-3.5 text-center">Respaldo</th>
+                    <th className="p-3.5 text-right">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 text-xs">
+                  {paginatedWorkers.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="text-center py-12 text-slate-400 font-bold">
+                        No se encontraron colaboradores que coincidan con los filtros aplicados.
+                      </td>
+                    </tr>
+                  ) : (
+                    paginatedWorkers.map(w => {
+                      const isVigente = w.computedContractStatus === 'vigente';
+                      const isPorVencer = w.computedContractStatus === 'por_vencer';
+                      const isTerminoCumplido = w.computedContractStatus === 'termino_cumplido';
+                      const isPendienteFirma = w.computedContractStatus === 'pendiente_firma';
+                      const isSinContrato = w.computedContractStatus === 'sin_contrato';
+
+                      return (
+                        <tr key={w.id} className="hover:bg-slate-50/70 transition">
+                          
+                          {/* Trabajador / RUT */}
+                          <td className="p-3.5">
+                            <div 
+                              onClick={() => setViewingEmployee(w.employee)}
+                              className="cursor-pointer group"
+                              title="Click para ver ficha completa e historial de contratos"
+                            >
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <p className="font-bold text-slate-800 group-hover:text-blue-600 transition">
+                                  {w.workerName}
+                                </p>
+                                {w.historyCount > 1 && (
+                                  <span 
+                                    className="text-[10px] px-2 py-0.5 bg-slate-100 group-hover:bg-blue-50 text-slate-600 group-hover:text-blue-700 border border-slate-200 rounded-full font-bold transition flex items-center gap-1"
+                                    title={`Tiene ${w.historyCount} contratos registrados. Haz clic para ver el historial completo.`}
+                                  >
+                                    <Clock size={10} />
+                                    <span>{w.historyCount} contratos</span>
+                                  </span>
+                                )}
+                                {isSinContrato && (
+                                  <span className="text-[10px] px-2 py-0.5 bg-rose-50 text-rose-700 border border-rose-200 rounded-full font-bold">
+                                    Sin Contrato
+                                  </span>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-2 text-[11px] text-slate-400 mt-0.5">
+                                <span className="font-mono">{w.workerRut}</span>
+                                <span>•</span>
+                                <span>{w.cargo}</span>
+                              </div>
+                            </div>
+                          </td>
+
+                          {/* Estado Operativo */}
+                          <td className="p-3.5 text-center">
+                            <span className={`inline-block px-2.5 py-1 rounded-full text-[10px] font-bold uppercase border ${
+                              w.operationalStatus === 'en_servicio' ? 'bg-emerald-50 text-emerald-700 border-emerald-300' :
+                              w.operationalStatus === 'reserva' ? 'bg-blue-50 text-blue-700 border-blue-300' :
+                              w.operationalStatus === 'por_revisar' ? 'bg-amber-50 text-amber-700 border-amber-300' :
+                              'bg-rose-50 text-rose-700 border-rose-300'
+                            }`}>
+                              {w.operationalStatus === 'en_servicio' ? 'En servicio' :
+                               w.operationalStatus === 'reserva' ? 'Reserva cobertura' :
+                               w.operationalStatus === 'por_revisar' ? 'Por revisar' : 'Inactivo'}
+                            </span>
+                          </td>
+
+                          {/* Sucursal Referencia */}
+                          <td className="p-3.5">
+                            <div className="flex items-center gap-1.5 text-slate-700">
+                              <Building size={13} className="text-slate-400 shrink-0" />
+                              <span className="font-medium truncate max-w-[170px]" title={w.resolvedSiteName}>
+                                {w.resolvedSiteName}
+                              </span>
+                            </div>
+                          </td>
+
+                          {/* Situación Contractual */}
+                          <td className="p-3.5">
+                            <div className="space-y-0.5">
+                              <p className="font-semibold text-slate-800">{w.contractType}</p>
+                              <span className={`inline-block px-2 py-0.5 rounded text-[9px] font-bold uppercase border ${
+                                isVigente ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
+                                isPorVencer ? 'bg-amber-50 text-amber-700 border-amber-300 animate-pulse' :
+                                isTerminoCumplido ? 'bg-rose-50 text-rose-700 border-rose-300' :
+                                isPendienteFirma ? 'bg-purple-50 text-purple-700 border-purple-200' :
+                                isSinContrato ? 'bg-slate-100 text-slate-500 border-slate-200' :
+                                'bg-slate-50 text-slate-600 border-slate-200'
+                              }`}>
+                                {isTerminoCumplido ? 'Caducado' : w.computedContractStatus === 'por_vencer' ? 'Por Vencer' : w.computedContractStatus.replace('_', ' ')}
+                              </span>
+                            </div>
+                          </td>
+
+                          {/* Vigencia Contractual */}
+                          <td className="p-3.5">
+                            <div className="space-y-0.5">
+                              <span className="font-medium text-slate-800">
+                                {w.contractDates}
+                              </span>
+                              {w.diffDays !== null && (
+                                <p className={`text-[10px] font-bold ${
+                                  w.diffDays < 0 ? 'text-rose-600' :
+                                  w.diffDays <= 30 ? 'text-amber-600' : 'text-slate-400'
+                                }`}>
+                                  {w.diffDays < 0 
+                                    ? `Expiró hace ${Math.abs(w.diffDays)} días` 
+                                    : `${w.diffDays} días restantes`}
+                                </p>
+                              )}
+                            </div>
+                          </td>
+
+                          {/* Respaldo Documental */}
+                          <td className="p-3.5 text-center">
+                            <div className="flex flex-col items-center gap-1">
+                              <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-semibold ${
+                                w.docStatus === 'firmado_digital' ? 'bg-teal-50 text-teal-700' :
+                                w.docStatus === 'firmado_externo' ? 'bg-blue-50 text-blue-700' :
+                                w.docStatus === 'generado_drive' ? 'bg-indigo-50 text-indigo-700' :
+                                'bg-slate-100 text-slate-500'
+                              }`}>
+                                {w.docStatus.replace('_', ' ')}
+                              </span>
+                              <div className="flex items-center gap-1.5">
+                                {w.docUrl && (
+                                  <a
+                                    href={w.docUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-[10px] text-blue-600 hover:text-blue-800 font-bold underline flex items-center gap-0.5"
+                                    title="Ver PDF en Google Drive"
+                                  >
+                                    <ExternalLink size={10} /> PDF
+                                  </a>
+                                )}
+                                {w.dropboxUrl && (
+                                  <a
+                                    href={w.dropboxUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-[10px] text-indigo-600 hover:text-indigo-800 font-bold underline flex items-center gap-0.5"
+                                    title="Abrir carpeta en Dropbox"
+                                  >
+                                    <ExternalLink size={10} /> Dropbox
+                                  </a>
+                                )}
+                              </div>
+                            </div>
+                          </td>
+
+                          {/* Acciones */}
+                          <td className="p-3.5 text-right">
+                            <div className="flex items-center justify-end gap-1.5">
+                              
+                              {/* Ver Ficha */}
+                              <button
+                                onClick={() => setViewingEmployee(w.employee)}
+                                className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold transition flex items-center gap-1"
+                                title="Ver ficha completa e historial"
+                              >
+                                <Eye size={12} /> Ficha
+                              </button>
+
+                              {/* Acciones de gestión para Admin / RRHH */}
+                              {(currentUser?.role === 'admin' || currentUser?.role === 'rrhh') && (
+                                <>
+                                  {w.activeContract && isVigente && (
+                                    <button
+                                      onClick={() => setContractModalState({
+                                        isOpen: true,
+                                        mode: 'renew',
+                                        contratoAnterior: w.activeContract,
+                                        preselectedEmployee: w.employee
+                                      })}
+                                      className="px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-300 rounded-lg text-xs font-bold transition flex items-center gap-1"
+                                      title="Renovar contrato"
+                                    >
+                                      <RefreshCw size={11} /> Renovar
+                                    </button>
+                                  )}
+
+                                  {isSinContrato && (
+                                    <button
+                                      onClick={() => setContractModalState({
+                                        isOpen: true,
+                                        mode: 'create',
+                                        preselectedEmployee: w.employee
+                                      })}
+                                      className="px-2.5 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-300 rounded-lg text-xs font-bold transition flex items-center gap-1"
+                                      title="Regularizar y emitir contrato"
+                                    >
+                                      <Plus size={11} /> Contrato
+                                    </button>
+                                  )}
+                                </>
+                              )}
+
+                            </div>
+                          </td>
+
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
             </div>
+
+            {/* Paginación Confiable y Contadores */}
+            <div className="p-4 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row justify-between items-center gap-3">
+              <span className="text-xs text-slate-500 font-medium">
+                Mostrando <strong>{paginatedWorkers.length}</strong> de <strong>{filteredWorkers.length}</strong> colaboradores filtrados 
+                <span className="text-slate-400 ml-1">(Total registrados en el sistema: {employees.length})</span>
+              </span>
+              
+              {totalPages > 1 && (
+                <div className="flex items-center gap-1.5">
+                  <button
+                    disabled={currentPage === 1}
+                    onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                    className="px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-bold text-slate-600 disabled:opacity-50 hover:bg-slate-50 transition"
+                  >
+                    Anterior
+                  </button>
+                  <div className="px-3 py-1.5 text-xs font-bold text-slate-600 flex items-center">
+                    Página {currentPage} de {totalPages}
+                  </div>
+                  <button
+                    disabled={currentPage === totalPages}
+                    onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                    className="px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-bold text-slate-600 disabled:opacity-50 hover:bg-slate-50 transition"
+                  >
+                    Siguiente
+                  </button>
+                </div>
+              )}
+            </div>
+
           </div>
         </div>
       )}
 
+      {/* ========================================================================= */}
+      {/* VISTA 2: GESTIÓN DE VACACIONES (PRESERVADA) */}
+      {/* ========================================================================= */}
+      {mainTab === 'vacaciones' && (
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-4">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-slate-100 pb-4">
+            <div>
+              <h3 className="text-sm font-black text-slate-800 uppercase tracking-wider flex items-center gap-2">
+                <Palmtree size={18} className="text-emerald-500" />
+                Control y Aprobación de Vacaciones
+              </h3>
+              <p className="text-xs text-slate-400 mt-0.5">
+                {currentVacationsCount} trabajadores actualmente de vacaciones • {pendingVacationsCount} solicitudes pendientes
+              </p>
+            </div>
+            
+            <div className="relative w-full sm:w-64">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
+              <input
+                type="text"
+                placeholder="Buscar trabajador..."
+                className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium focus:ring-2 focus:ring-emerald-500 outline-none"
+                value={vacationSearch}
+                onChange={(e) => setVacationSearch(e.target.value)}
+              />
+            </div>
+          </div>
+
+          <div className="flex gap-2 overflow-x-auto pb-2">
+            {[
+              { id: 'todos', label: 'Todas' },
+              { id: 'pending', label: 'Pendientes' },
+              { id: 'approved', label: 'Aprobadas' },
+              { id: 'en_curso', label: 'En Curso' },
+              { id: 'completed', label: 'Finalizadas' },
+              { id: 'cancelled', label: 'Canceladas' }
+            ].map(tab => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveVacationTab(tab.id as any)}
+                className={`px-4 py-2 rounded-xl text-[11px] font-black uppercase tracking-wider whitespace-nowrap transition-all ${
+                  activeVacationTab === tab.id 
+                    ? 'bg-emerald-600 text-white shadow-md shadow-emerald-200' 
+                    : 'bg-slate-50 text-slate-500 hover:bg-slate-100'
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="border-b border-slate-100 text-[10px] uppercase tracking-widest text-slate-400 font-black">
+                  <th className="p-3">Trabajador</th>
+                  <th className="p-3">Sucursal</th>
+                  <th className="p-3">Periodo</th>
+                  <th className="p-3 text-center">Días</th>
+                  <th className="p-3">Estado</th>
+                  <th className="p-3 text-right">Acciones</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredVacations.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="text-center py-10 text-slate-400 font-bold text-sm">
+                      No se encontraron registros de vacaciones.
+                    </td>
+                  </tr>
+                ) : (
+                  filteredVacations.map(vac => (
+                    <tr key={vac.id} className="border-b border-slate-50 hover:bg-slate-50/50 transition">
+                      <td className="p-3">
+                        <p className="text-xs font-bold text-slate-700">{getEmpNameById(vac.employeeId)}</p>
+                      </td>
+                      <td className="p-3">
+                        <p className="text-[11px] font-medium text-slate-500">{getSiteNameById(vac.sucursalId)}</p>
+                      </td>
+                      <td className="p-3">
+                        <p className="text-[11px] font-bold text-slate-700">{formatDateDDMMYYYY(vac.startDate)}</p>
+                        <p className="text-[10px] text-slate-400">al {formatDateDDMMYYYY(vac.endDate)}</p>
+                      </td>
+                      <td className="p-3 text-center">
+                        <span className="px-2 py-1 bg-slate-100 text-slate-600 rounded-lg text-[10px] font-black">
+                          {vac.days}
+                        </span>
+                      </td>
+                      <td className="p-3">
+                        {vac.status === 'pending' && <span className="text-[10px] font-black bg-amber-50 text-amber-600 px-2 py-1 rounded-lg uppercase">Pendiente</span>}
+                        {vac.status === 'approved' && <span className="text-[10px] font-black bg-blue-50 text-blue-600 px-2 py-1 rounded-lg uppercase">Aprobada</span>}
+                        {vac.status === 'completed' && <span className="text-[10px] font-black bg-emerald-50 text-emerald-600 px-2 py-1 rounded-lg uppercase">Finalizada</span>}
+                        {vac.status === 'cancelled' && <span className="text-[10px] font-black bg-slate-100 text-slate-500 px-2 py-1 rounded-lg uppercase">Cancelada</span>}
+                        {vac.status === 'rejected' && <span className="text-[10px] font-black bg-rose-50 text-rose-600 px-2 py-1 rounded-lg uppercase">Rechazada</span>}
+                      </td>
+                      <td className="p-3 text-right">
+                        <div className="flex justify-end gap-2">
+                          {vac.status === 'pending' && (
+                            <>
+                              <button onClick={() => handleVacationAction(vac.id, 'approve', vac.status)} className="p-1.5 bg-emerald-50 text-emerald-600 hover:bg-emerald-100 rounded-lg transition" title="Aprobar"><CheckCircle size={14}/></button>
+                              <button onClick={() => handleVacationAction(vac.id, 'reject', vac.status)} className="p-1.5 bg-rose-50 text-rose-600 hover:bg-rose-100 rounded-lg transition" title="Rechazar"><XCircle size={14}/></button>
+                            </>
+                          )}
+                          {vac.status === 'approved' && (
+                            <>
+                              <button onClick={() => handleVacationAction(vac.id, 'complete', vac.status)} className="p-1.5 bg-emerald-50 text-emerald-600 hover:bg-emerald-100 rounded-lg transition" title="Marcar Finalizada"><CheckCircle size={14}/></button>
+                              <button onClick={() => handleVacationAction(vac.id, 'cancel', vac.status)} className="p-1.5 bg-slate-100 text-slate-500 hover:bg-slate-200 rounded-lg transition" title="Cancelar"><XCircle size={14}/></button>
+                            </>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL DE GESTIÓN CONTRACTUAL */}
+      {contractModalState.isOpen && (
+        <ContractManagementModal
+          isOpen={true}
+          onClose={() => setContractModalState({ isOpen: false, mode: 'create' })}
+          mode={contractModalState.mode}
+          preselectedEmployee={contractModalState.preselectedEmployee}
+          contratoAnterior={contractModalState.contratoAnterior}
+          contratoToEdit={contractModalState.contratoToEdit}
+          onSuccess={() => fetchContratos()}
+        />
+      )}
+
+      {/* MODAL DE FICHA DEL EMPLEADO */}
+      {viewingEmployee && (
+        <EmployeeModal
+          employee={viewingEmployee}
+          onClose={() => setViewingEmployee(null)}
+        />
+      )}
+
+      {/* MODAL DE REGISTRO DE VACACIONES */}
       {showVacationModal && (
         <VacationFormModal 
           onClose={() => setShowVacationModal(false)}
@@ -742,14 +1187,6 @@ const HRContractsDashboard: React.FC = () => {
         />
       )}
 
-      {regularizeModalEmp && (
-        <RegularizeContractModal
-          isOpen={true}
-          onClose={() => setRegularizeModalEmp(null)}
-          employee={regularizeModalEmp}
-          sites={sites}
-        />
-      )}
     </div>
   );
 };

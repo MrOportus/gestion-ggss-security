@@ -1,9 +1,16 @@
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Employee, Document } from '../types';
 import { useAppStore } from '../store/useAppStore';
-import { X, FileText, Edit2, Save, MapPin, User, Shield, Briefcase, Heart, AlertCircle, Trash2, AlertTriangle, Download } from 'lucide-react';
+import { 
+  X, FileText, Edit2, Save, MapPin, User, Shield, Briefcase, Heart, 
+  AlertCircle, Trash2, AlertTriangle, Download, Plus, RefreshCw, 
+  FileCheck, ExternalLink, ShieldCheck, Link2, Calendar, Clock
+} from 'lucide-react';
 import GeneratePasswordButton from './GeneratePasswordButton';
+import { ContractManagementModal } from './ContractManagementModal';
+import { Contrato } from '../types/phase1';
+import { resolveEmployeeOperationalStatus, evaluateContractBadge, formatDateDDMMYYYY } from '../lib/phase3/contratosService';
 
 interface EmployeeModalProps {
   employee: Employee;
@@ -84,16 +91,120 @@ const DataField = ({ label, value, name, type = "text", options = null, searchab
 };
 
 const EmployeeModal: React.FC<EmployeeModalProps> = ({ employee, onClose }) => {
-  const { updateEmployee, deleteEmployee, sites, contractHistory } = useAppStore();
+  const { updateEmployee, deleteEmployee, sites, contratos, currentUser } = useAppStore();
   const [isEditing, setIsEditing] = useState(false);
   const [editData, setEditData] = useState<Employee>(employee);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
-  const employeeFullName = `${employee.firstName} ${employee.lastNamePaterno}`;
-  const employeeContracts = (contractHistory || [])
-    .filter(c => c.workerName.toLowerCase() === employeeFullName.toLowerCase())
-    .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
-    .slice(0, 10);
+  // Modal para contratos
+  const [contractModalState, setContractModalState] = useState<{
+    isOpen: boolean;
+    mode: 'create' | 'renew' | 'edit' | 'link_doc';
+    contratoAnterior?: Contrato | null;
+    contratoToEdit?: Contrato | null;
+  }>({
+    isOpen: false,
+    mode: 'create',
+    contratoAnterior: null,
+    contratoToEdit: null
+  });
+
+  // Contratos estructurados del trabajador por ID exacto (no por nombre)
+  const workerContracts = useMemo(() => {
+    return (contratos || [])
+      .filter(c => c.colaboradorId === employee.id)
+      .sort((a, b) => (b.fechaInicio || '').localeCompare(a.fechaInicio || ''));
+  }, [contratos, employee.id]);
+
+  // Estado operativo calculado / asignado
+  const operationalStatus = useMemo(() => {
+    return resolveEmployeeOperationalStatus(editData);
+  }, [editData]);
+
+  // Contrato activo y situación de vigencia calculada
+  const contractStatusInfo = useMemo(() => {
+    const today = new Date().toISOString().split('T')[0];
+    
+    if (workerContracts.length === 0) {
+      if (employee.fechaInicioContrato) {
+        const isExp = Boolean(employee.fechaTerminoContrato && employee.fechaTerminoContrato < today);
+        return {
+          status: isExp ? 'vencido_legacy' : 'vigente_legacy',
+          label: isExp ? 'Caducado (Ficha - Requiere Regularización)' : 'Vigente (Ficha - Sin Contrato Estructurado)',
+          badgeColor: isExp ? 'bg-rose-100 text-rose-800 border-rose-300' : 'bg-blue-100 text-blue-800 border-blue-300',
+          activeContract: null,
+          isLegacyOnly: true
+        };
+      }
+      return {
+        status: 'sin_contrato',
+        label: 'Sin Contrato Registrado',
+        badgeColor: 'bg-red-100 text-red-800 border-red-300',
+        activeContract: null,
+        isLegacyOnly: false
+      };
+    }
+
+    const active = workerContracts.find(c => {
+      if (c.estado !== 'vigente' && c.estado !== 'pendiente_firma') return false;
+      if (c.fechaInicio > today) return false;
+      if (c.fechaTermino && c.fechaTermino < today) return false;
+      return true;
+    }) || workerContracts[0];
+
+    if (!active) {
+      return {
+        status: 'sin_contrato',
+        label: 'Sin Contrato Activo',
+        badgeColor: 'bg-red-100 text-red-800 border-red-300',
+        activeContract: null,
+        isLegacyOnly: false
+      };
+    }
+
+    if (active.estado === 'pendiente_firma') {
+      return {
+        status: 'pendiente_firma',
+        label: 'Pendiente de Firma',
+        badgeColor: 'bg-purple-100 text-purple-800 border-purple-300',
+        activeContract: active,
+        isLegacyOnly: false
+      };
+    }
+
+    if (active.fechaTermino) {
+      const fTerm = new Date(active.fechaTermino + 'T00:00:00');
+      const fToday = new Date(today + 'T00:00:00');
+      const diffDays = Math.ceil((fTerm.getTime() - fToday.getTime()) / (1000 * 60 * 60 * 24));
+
+      if (diffDays < 0) {
+        return {
+          status: 'vencido',
+          label: `Caducado (Venció hace ${Math.abs(diffDays)} días)`,
+          badgeColor: 'bg-rose-100 text-rose-800 border-rose-300',
+          activeContract: active,
+          isLegacyOnly: false
+        };
+      }
+      if (diffDays <= 30) {
+        return {
+          status: 'por_vencer',
+          label: `Por Vencer (${diffDays} días restantes)`,
+          badgeColor: 'bg-amber-100 text-amber-800 border-amber-300',
+          activeContract: active,
+          isLegacyOnly: false
+        };
+      }
+    }
+
+    return {
+      status: 'vigente',
+      label: 'Vigente al Día',
+      badgeColor: 'bg-emerald-100 text-emerald-800 border-emerald-300',
+      activeContract: active,
+      isLegacyOnly: false
+    };
+  }, [workerContracts, employee]);
 
   const calculateAge = (dateString?: string) => {
     if (!dateString) return 'N/A';
@@ -109,6 +220,11 @@ const EmployeeModal: React.FC<EmployeeModalProps> = ({ employee, onClose }) => {
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
+    if (name === 'estadoOperativo') {
+      const isAct = value !== 'inactivo';
+      setEditData(prev => ({ ...prev, estadoOperativo: value as any, isActive: isAct }));
+      return;
+    }
     setEditData(prev => ({ ...prev, [name]: value }));
   };
 
@@ -181,13 +297,25 @@ const EmployeeModal: React.FC<EmployeeModalProps> = ({ employee, onClose }) => {
             </div>
 
             <div className="flex-1 text-center md:text-left">
-              <div className="flex flex-wrap items-center justify-center md:justify-start gap-3">
+              <div className="flex flex-wrap items-center justify-center md:justify-start gap-2">
                 <h2 className="text-2xl font-black text-slate-900 uppercase">
                   {employee.firstName} {employee.lastNamePaterno} {employee.lastNameMaterno}
                 </h2>
-                <span className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${employee.isActive ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                  {employee.isActive ? 'Personal Activo' : 'Personal Inactivo'}
+                <span className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border ${
+                  operationalStatus === 'en_servicio' ? 'bg-emerald-50 text-emerald-700 border-emerald-300' :
+                  operationalStatus === 'reserva' ? 'bg-blue-50 text-blue-700 border-blue-300' :
+                  operationalStatus === 'por_revisar' ? 'bg-amber-50 text-amber-700 border-amber-300' :
+                  'bg-rose-50 text-rose-700 border-rose-300'
+                }`}>
+                  {operationalStatus === 'en_servicio' ? 'En servicio' :
+                   operationalStatus === 'reserva' ? 'Reserva para coberturas' :
+                   operationalStatus === 'por_revisar' ? 'Por revisar' : 'Inactivo'}
                 </span>
+                {!employee.isActive && (
+                  <span className="px-2 py-0.5 rounded text-[9px] font-bold uppercase bg-slate-100 text-slate-500 border border-slate-200">
+                    Baja / Inactivo
+                  </span>
+                )}
               </div>
               <p className="text-slate-500 font-medium flex items-center justify-center md:justify-start gap-2 mt-1">
                 <Shield size={14} className="text-blue-500" /> {employee.cargo} • ID: {employee.rut}
@@ -230,7 +358,7 @@ const EmployeeModal: React.FC<EmployeeModalProps> = ({ employee, onClose }) => {
                 <DataField label="Apellido Materno" value={editData.lastNameMaterno} name="lastNameMaterno" isEditing={isEditing} onChange={handleInputChange} />
                 <DataField label="RUT / ID" value={editData.rut} name="rut" isEditing={isEditing} onChange={handleInputChange} />
                 <DataField label="Código Interno" value={editData.codigo} name="codigo" isEditing={isEditing} onChange={handleInputChange} />
-                <DataField label="Nacimiento" value={editData.fechaNacimiento?.split('T')[0]} displayValue={editData.fechaNacimiento ? editData.fechaNacimiento.split('T')[0].split('-').reverse().join('/') : 'N/A'} name="fechaNacimiento" type="date" isEditing={isEditing} onChange={handleInputChange} />
+                <DataField label="Nacimiento" value={editData.fechaNacimiento?.split('T')[0]} displayValue={editData.fechaNacimiento ? formatDateDDMMYYYY(editData.fechaNacimiento) : 'N/A'} name="fechaNacimiento" type="date" isEditing={isEditing} onChange={handleInputChange} />
                 <DataField label="Nacionalidad" value={editData.nacionalidad} name="nacionalidad" isEditing={isEditing} onChange={handleInputChange} />
 
               </div>
@@ -335,14 +463,55 @@ const EmployeeModal: React.FC<EmployeeModalProps> = ({ employee, onClose }) => {
                     { val: 'worker', label: 'Guardia / Operativo' },
                     { val: 'supervisor', label: 'Supervisor' },
                     { val: 'admin', label: 'Administrador' },
-                    { val: 'mandante', label: 'Mandante / Cliente' }
+                    { val: 'mandante', label: 'Mandante / Cliente' },
+                    { val: 'rrhh', label: 'RR. HH.' }
                   ]}
                 />
 
                 <DataField
+                  label="Estado Operativo"
+                  value={editData.estadoOperativo || operationalStatus}
+                  name="estadoOperativo"
+                  isEditing={isEditing && (currentUser?.role === 'admin' || currentUser?.role === 'rrhh')}
+                  onChange={handleInputChange}
+                  options={[
+                    { val: 'en_servicio', label: 'En servicio' },
+                    { val: 'reserva', label: 'Reserva para coberturas' },
+                    { val: 'por_revisar', label: 'Por revisar' },
+                    { val: 'inactivo', label: 'Inactivo' }
+                  ]}
+                />
+
+                <div className="flex flex-col space-y-1">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Carpeta Dropbox / Repositorio</span>
+                  {isEditing ? (
+                    <input
+                      type="url"
+                      name="dropboxUrl"
+                      value={editData.dropboxUrl || ''}
+                      placeholder="https://www.dropbox.com/..."
+                      onChange={handleInputChange}
+                      className="w-full bg-blue-50/50 border-b-2 border-blue-200 p-1.5 text-xs font-medium focus:border-blue-500 outline-none transition-colors"
+                    />
+                  ) : editData.dropboxUrl ? (
+                    <a
+                      href={editData.dropboxUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-blue-600 hover:text-blue-800 font-semibold text-xs flex items-center gap-1.5 transition underline mt-1"
+                      title="Abrir carpeta de documentación externa en Dropbox"
+                    >
+                      <ExternalLink size={13} /> Abrir carpeta en Dropbox
+                    </a>
+                  ) : (
+                    <span className="text-slate-400 font-semibold text-xs mt-1">Sin enlace registrado</span>
+                  )}
+                </div>
+
+                <DataField
                   label="Vencimiento OS10"
                   value={editData.fechaVencimientoOS10?.split('T')[0]}
-                  displayValue={editData.fechaVencimientoOS10 ? new Date(editData.fechaVencimientoOS10).toLocaleDateString() : 'Pendiente'}
+                  displayValue={editData.fechaVencimientoOS10 ? formatDateDDMMYYYY(editData.fechaVencimientoOS10) : 'Pendiente'}
                   name="fechaVencimientoOS10"
                   type="date"
                   isEditing={isEditing}
@@ -352,7 +521,7 @@ const EmployeeModal: React.FC<EmployeeModalProps> = ({ employee, onClose }) => {
                 <DataField
                   label="Inicio Contrato"
                   value={editData.fechaInicioContrato?.split('T')[0]}
-                  displayValue={editData.fechaInicioContrato ? new Date(editData.fechaInicioContrato).toLocaleDateString() : 'No registrada'}
+                  displayValue={editData.fechaInicioContrato ? formatDateDDMMYYYY(editData.fechaInicioContrato) : 'No registrada'}
                   name="fechaInicioContrato"
                   type="date"
                   isEditing={isEditing}
@@ -376,7 +545,7 @@ const EmployeeModal: React.FC<EmployeeModalProps> = ({ employee, onClose }) => {
                   <DataField
                     label="Término Contrato"
                     value={editData.fechaTerminoContrato?.split('T')[0]}
-                    displayValue={editData.fechaTerminoContrato ? new Date(editData.fechaTerminoContrato).toLocaleDateString() : 'No registrada'}
+                    displayValue={editData.fechaTerminoContrato ? formatDateDDMMYYYY(editData.fechaTerminoContrato) : 'No registrada'}
                     name="fechaTerminoContrato"
                     type="date"
                     isEditing={isEditing}
@@ -399,57 +568,192 @@ const EmployeeModal: React.FC<EmployeeModalProps> = ({ employee, onClose }) => {
 
           </div>
 
-          {/* ÁREA DE DOCUMENTOS - ÚLTIMOS CONTRATOS */}
-          <div className="bg-slate-50 border border-slate-200 rounded-2xl p-6 flex flex-col items-center">
-            <div className="w-full lg:w-4/5">
-              <h3 className="flex items-center gap-2 text-xs font-black text-slate-800 uppercase tracking-widest mb-6">
-                <FileText size={16} className="text-blue-600" /> Registro de Contratos Previos
-              </h3>
-              
-              {employeeContracts.length === 0 ? (
-                <div className="py-12 flex flex-col items-center justify-center bg-white rounded-xl border-2 border-dashed border-slate-200">
-                  <FileText size={40} className="text-slate-200 mb-2" />
-                  <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Sin contratos generados</p>
+          {/* SECCIÓN CONTRACTUAL CENTRALIZADA */}
+          <div className="bg-slate-50 border border-slate-200 rounded-2xl p-6 space-y-6">
+            
+            {/* 1. Resumen Contractual Actual */}
+            <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-3">
+                <div className="flex items-center gap-2">
+                  <FileText className="text-blue-600" size={18} />
+                  <h3 className="text-xs font-black text-slate-800 uppercase tracking-widest">
+                    Situación Contractual Actual
+                  </h3>
+                </div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className={`px-3 py-1 rounded-full text-xs font-bold border ${contractStatusInfo.badgeColor}`}>
+                    {contractStatusInfo.label}
+                  </span>
+                  {(currentUser?.role === 'admin' || currentUser?.role === 'rrhh') && (
+                    <>
+                      {contractStatusInfo.activeContract && (
+                        <button
+                          type="button"
+                          onClick={() => setContractModalState({
+                            isOpen: true,
+                            mode: 'renew',
+                            contratoAnterior: contractStatusInfo.activeContract
+                          })}
+                          className="px-3 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-300 rounded-lg text-xs font-bold flex items-center gap-1.5 transition"
+                          title="Iniciar renovación contractual"
+                        >
+                          <RefreshCw size={13} /> Renovar
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => setContractModalState({
+                          isOpen: true,
+                          mode: 'create'
+                        })}
+                        className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-sm transition"
+                      >
+                        <Plus size={13} /> Nuevo Contrato
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              {contractStatusInfo.activeContract ? (
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-xs">
+                  <div className="bg-slate-50 p-3 rounded-lg border border-slate-100">
+                    <span className="text-[10px] text-slate-400 font-bold uppercase block">Tipo de Contrato</span>
+                    <span className="font-bold text-slate-800">{contractStatusInfo.activeContract.tipo}</span>
+                  </div>
+                  <div className="bg-slate-50 p-3 rounded-lg border border-slate-100">
+                    <span className="text-[10px] text-slate-400 font-bold uppercase block">Fecha Inicio</span>
+                    <span className="font-bold text-slate-800">{formatDateDDMMYYYY(contractStatusInfo.activeContract.fechaInicio)}</span>
+                  </div>
+                  <div className="bg-slate-50 p-3 rounded-lg border border-slate-100">
+                    <span className="text-[10px] text-slate-400 font-bold uppercase block">Fecha Término</span>
+                    <span className="font-bold text-slate-800">
+                      {contractStatusInfo.activeContract.fechaTermino ? formatDateDDMMYYYY(contractStatusInfo.activeContract.fechaTermino) : 'Indefinido'}
+                    </span>
+                  </div>
+                  <div className="bg-slate-50 p-3 rounded-lg border border-slate-100">
+                    <span className="text-[10px] text-slate-400 font-bold uppercase block">Respaldo Documental</span>
+                    <span className="font-bold text-slate-800 capitalize">
+                      {contractStatusInfo.activeContract.estadoDocumental?.replace('_', ' ') || 'No adjunto'}
+                    </span>
+                  </div>
                 </div>
               ) : (
-                <div className="flex flex-col gap-3">
-                  {employeeContracts.map(contract => {
-                    const fileIdMatch = contract.downloadUrl.match(/[\w-]{33,}/);
-                    const directDownloadUrl = fileIdMatch ? `https://drive.google.com/uc?export=download&id=${fileIdMatch[0]}` : contract.downloadUrl;
-                    
+                <div className="p-4 bg-amber-50/70 border border-amber-200 rounded-xl text-xs text-amber-900 flex items-start gap-3">
+                  <AlertCircle size={18} className="text-amber-600 shrink-0 mt-0.5" />
+                  <div>
+                    <p className="font-bold">Información contractual pendiente de regularización</p>
+                    <p className="text-[11px] text-amber-800 mt-0.5">
+                      Este colaborador no cuenta con un contrato canónico estructurado en el sistema. Puedes crear su registro contractual manual o vincular su documento físico/digital directamente.
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* 2. Historial de Contratos Estructurados */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <h4 className="text-xs font-black text-slate-700 uppercase tracking-wider flex items-center gap-2">
+                  <Clock size={15} className="text-slate-400" />
+                  Historial de Contratos Registrados ({workerContracts.length})
+                </h4>
+              </div>
+
+              {workerContracts.length === 0 ? (
+                <div className="py-8 flex flex-col items-center justify-center bg-white rounded-xl border-2 border-dashed border-slate-200 text-center p-4">
+                  <FileText size={32} className="text-slate-300 mb-2" />
+                  <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Sin contratos registrados en el historial</p>
+                  <p className="text-[11px] text-slate-400 mt-1 max-w-sm">
+                    Los contratos generados o regularizados para este colaborador aparecerán listados aquí con trazabilidad completa.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-2.5">
+                  {workerContracts.map((c) => {
+                    const badgeInfo = evaluateContractBadge(c);
+                    const canRenew = !badgeInfo.isCaducado && (c.estado === 'vigente' || badgeInfo.status === 'vigente');
+
                     return (
-                      <div key={contract.id} className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 p-4 bg-white border border-slate-100 rounded-xl hover:border-blue-300 transition-all shadow-sm">
-                        <div className="flex items-center gap-3">
-                          <div className="p-2 bg-blue-50 rounded-lg text-blue-600">
-                            <FileText size={20} />
+                      <div 
+                        key={c.id} 
+                        className="bg-white border border-slate-200 rounded-xl p-4 hover:border-blue-300 transition shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs"
+                      >
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-bold text-slate-800 text-sm">{c.tipo}</span>
+                            {c.numeroRenovacion && c.numeroRenovacion > 1 && (
+                              <span className="px-2 py-0.5 bg-blue-50 text-blue-700 border border-blue-200 rounded text-[10px] font-bold">
+                                Renovación #{c.numeroRenovacion}
+                              </span>
+                            )}
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${badgeInfo.badgeClass}`}>
+                              {badgeInfo.label}
+                            </span>
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-semibold ${
+                              c.estadoDocumental === 'firmado_digital' ? 'bg-teal-50 text-teal-700' :
+                              c.estadoDocumental === 'firmado_externo' ? 'bg-blue-50 text-blue-700' :
+                              'bg-amber-50 text-amber-700'
+                            }`}>
+                              Doc: {c.estadoDocumental?.replace('_', ' ') || 'No adjunto'}
+                            </span>
                           </div>
-                          <div>
-                            <p className="text-sm font-bold text-slate-800">{contract.siteName}</p>
-                            <p className="text-[10px] text-slate-500 font-bold uppercase mt-0.5">
-                              Generado: {new Date(contract.timestamp).toLocaleDateString()} 
-                              {contract.fechaInicio && ` • Inicio: ${new Date(contract.fechaInicio).toLocaleDateString()}`}
+
+                          <div className="text-[11px] text-slate-500 flex items-center gap-2 flex-wrap">
+                            <span>Vigencia: <strong className="text-slate-700">{formatDateDDMMYYYY(c.fechaInicio)}</strong> al <strong className="text-slate-700">{c.fechaTermino ? formatDateDDMMYYYY(c.fechaTermino) : 'Indefinido'}</strong></span>
+                            {c.cargo && <span>• Cargo: {c.cargo}</span>}
+                            <span>• Registrado: {formatDateDDMMYYYY(c.creadoEn)}</span>
+                          </div>
+
+                          {c.observacionesDocumento && (
+                            <p className="text-[10px] text-slate-400 italic">
+                              Obs: {c.observacionesDocumento}
                             </p>
-                          </div>
+                          )}
                         </div>
-                        
-                        <div className="flex w-full sm:w-auto items-center gap-2 shrink-0">
-                          <a 
-                            href={contract.downloadUrl} 
-                            target="_blank" 
-                            rel="noopener noreferrer"
-                            className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-bold text-xs transition-colors"
-                          >
-                            <FileText size={14} /> Ver
-                          </a>
-                          <a 
-                            href={directDownloadUrl} 
-                            target="_blank" 
-                            rel="noopener noreferrer"
-                            download={`Contrato_${employee.firstName}_${employee.lastNamePaterno}.pdf`}
-                            className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold text-xs transition-colors shadow-sm"
-                          >
-                            <Download size={14} /> Descargar
-                          </a>
+
+                        {/* Acciones de cada contrato */}
+                        <div className="flex items-center gap-2 shrink-0 self-end md:self-center">
+                          {c.googleDriveUrl && (
+                            <a
+                              href={c.googleDriveUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-bold text-xs flex items-center gap-1 transition"
+                              title="Ver documento adjunto"
+                            >
+                              <ExternalLink size={13} /> PDF
+                            </a>
+                          )}
+
+                          {(currentUser?.role === 'admin' || currentUser?.role === 'rrhh') && (
+                            <>
+                              {canRenew && (
+                                <button
+                                  type="button"
+                                  onClick={() => setContractModalState({
+                                    isOpen: true,
+                                    mode: 'renew',
+                                    contratoAnterior: c
+                                  })}
+                                  className="px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-lg font-bold text-xs flex items-center gap-1 transition"
+                                >
+                                  <RefreshCw size={13} /> Renovar
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => setContractModalState({
+                                  isOpen: true,
+                                  mode: 'edit',
+                                  contratoToEdit: c
+                                })}
+                                className="px-3 py-1.5 bg-slate-50 hover:bg-slate-100 text-slate-600 border border-slate-200 rounded-lg font-bold text-xs flex items-center gap-1 transition"
+                              >
+                                <Edit2 size={13} /> Editar
+                              </button>
+                            </>
+                          )}
                         </div>
                       </div>
                     );
@@ -457,7 +761,20 @@ const EmployeeModal: React.FC<EmployeeModalProps> = ({ employee, onClose }) => {
                 </div>
               )}
             </div>
+
           </div>
+
+          {/* Modal de Gestión Contractual */}
+          {contractModalState.isOpen && (
+            <ContractManagementModal
+              isOpen={true}
+              onClose={() => setContractModalState({ isOpen: false, mode: 'create' })}
+              mode={contractModalState.mode}
+              preselectedEmployee={employee}
+              contratoAnterior={contractModalState.contratoAnterior}
+              contratoToEdit={contractModalState.contratoToEdit}
+            />
+          )}
 
           {/* ZONA DE PELIGRO - ELIMINAR */}
           {isEditing && (

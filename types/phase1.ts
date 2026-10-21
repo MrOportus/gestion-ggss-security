@@ -32,12 +32,38 @@ export interface ContractShadowDiagnostic {
   schemaVersion: number;
 }
 
+export type EstadoContrato = 'borrador' | 'pendiente_firma' | 'vigente' | 'vencido' | 'renovado' | 'finiquitado' | 'finalizado' | 'anulado';
+
+export type EstadoDocumental = 
+  | 'firmado_digital'
+  | 'generado_drive'
+  | 'firmado_externo'
+  | 'pendiente_firma'
+  | 'archivado_externo'
+  | 'no_adjunto'
+  | 'pendiente_verificacion';
+
+export type OrigenRegistroContrato =
+  | 'emision_sistema'
+  | 'regularizacion_manual'
+  | 'externo_firmado'
+  | 'historico_legacy'
+  | 'importacion_documental'
+  | 'manual_aspro'
+  | 'apps_script_sync';
+
+export type EstadoConciliacionContrato =
+  | 'verificado'
+  | 'pendiente_revision'
+  | 'discrepancia_fechas'
+  | 'sin_documento';
+
 export interface Contrato {
   id: string; // Document ID en Firestore
   colaboradorId: string;
-  sucursalId: string; // Referencia a la sucursal donde aplica
+  sucursalId: string; // Referencia a la sucursal donde aplica ('0' = General / Multisitio)
   tipo: string;
-  estado: 'borrador' | 'pendiente_firma' | 'vigente' | 'vencido' | 'finiquitado' | 'anulado';
+  estado: EstadoContrato;
   fechaInicio: string; // YYYY-MM-DD
   fechaTermino?: string; // YYYY-MM-DD, opcional si es indefinido
   cargo?: string;
@@ -48,6 +74,22 @@ export interface Contrato {
   modificadoEn?: string;
   modificadoPor?: string;
   estadoAuditoria?: string;
+
+  // Nuevos campos de gestión contractual centralizada y trazabilidad
+  documentoId?: string | null; // Referencia a colección `documents/{docId}`
+  estadoDocumental?: EstadoDocumental;
+  observacionesDocumento?: string;
+  origenRegistro?: OrigenRegistroContrato;
+  estadoConciliacion?: EstadoConciliacionContrato;
+  observacionesConciliacion?: string;
+
+  // Trazabilidad de renovaciones
+  contratoAnteriorId?: string | null;
+  contratoSiguienteId?: string | null;
+  numeroRenovacion?: number; // 1 = original, 2 = primera renovación, etc.
+  fechaFirmaReal?: string; // Fecha en que se firmó el documento físico si difiere de creadoEn
+  permiteMultisucursal?: boolean;
+  schemaVersion?: number;
 }
 
 export interface AsignacionOperacional {

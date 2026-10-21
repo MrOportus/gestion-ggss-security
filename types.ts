@@ -1,5 +1,6 @@
 
 export type Role = 'admin' | 'supervisor' | 'worker' | 'mandante' | 'jefe_operaciones' | 'rrhh';
+export type EstadoOperativoColaborador = 'en_servicio' | 'reserva' | 'inactivo' | 'por_revisar';
 
 export interface User {
   uid: string;
@@ -58,6 +59,8 @@ export interface Employee {
   fechaTerminoContrato?: string; // ISO Date string
   isActive: boolean;
   currentSiteId?: number;
+  estadoOperativo?: EstadoOperativoColaborador; // 'en_servicio' | 'reserva' | 'inactivo' | 'por_revisar'
+  dropboxUrl?: string; // Enlace a carpeta o documento en Dropbox u otro repositorio externo
 
   // Tallas y Equipo (EPP)
   tallePantalon?: string;
@@ -679,4 +682,12 @@ export interface DocumentTemplate {
   actualizadoEn?: string;
   creadoPor: string;                   // UID del admin
 }
+
+export type { 
+  Contrato, 
+  EstadoContrato, 
+  EstadoDocumental, 
+  OrigenRegistroContrato, 
+  EstadoConciliacionContrato 
+} from './types/phase1';
 

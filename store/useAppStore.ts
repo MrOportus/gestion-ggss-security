@@ -35,7 +35,8 @@ import {
   DocumentData,
   arrayUnion,
   runTransaction,
-  serverTimestamp
+  serverTimestamp,
+  deleteField
 } from 'firebase/firestore';
 import { normalizeRut } from '../lib/rutUtils';
 
@@ -93,6 +94,9 @@ interface AppState {
   fetchContractHistory: () => Promise<void>;
   fetchContratos: (filtros?: { colaboradorId?: string; estado?: string; limit?: number }) => Promise<void>;
   createContrato: (contrato: Omit<Contrato, 'id'>) => Promise<string>;
+  updateContrato: (id: string, data: Partial<Contrato>) => Promise<void>;
+  renewContrato: (contratoAnteriorId: string, nuevoContrato: Omit<Contrato, 'id' | 'contratoAnteriorId' | 'numeroRenovacion'>) => Promise<string>;
+  linkDocumentToContract: (contratoId: string, documentoId: string, estadoDocumental?: import('../types/phase1').EstadoDocumental, observaciones?: string) => Promise<void>;
 
   // Site Actions
   addSite: (site: Omit<Site, 'id'>) => Promise<void>;
@@ -207,6 +211,20 @@ interface AppState {
   addDocumentTemplate: (tpl: Omit<DocumentTemplate, 'id' | 'creadoEn'>) => Promise<string>;
   updateDocumentTemplate: (id: string, data: Partial<DocumentTemplate>) => Promise<void>;
   deleteDocumentTemplate: (id: string) => Promise<void>;
+}
+
+/**
+ * Elimina recursivamente o filtra propiedades con valor `undefined` para evitar que Firestore SDK
+ * arroje errores fatales de "Unsupported field value: undefined".
+ */
+export function cleanFirestorePayload<T extends Record<string, any>>(obj: T): Partial<T> {
+  const result: any = {};
+  for (const [key, val] of Object.entries(obj)) {
+    if (val !== undefined) {
+      result[key] = val;
+    }
+  }
+  return result;
 }
 
 export const useAppStore = create<AppState>()(
@@ -566,7 +584,7 @@ export const useAppStore = create<AppState>()(
           const empCol = collection(db, "Colaboradores");
           let loadedEmployees: Employee[] = [];
 
-          if (currentUser.role === 'admin' || currentUser.role === 'supervisor') {
+          if (currentUser.role === 'admin' || currentUser.role === 'supervisor' || currentUser.role === 'rrhh' || currentUser.role === 'jefe_operaciones') {
             const empSnapshot = await getDocs(empCol);
             empSnapshot.forEach((doc) => {
               loadedEmployees.push({ ...doc.data(), id: doc.id } as Employee);
@@ -636,7 +654,7 @@ export const useAppStore = create<AppState>()(
             get().fetchGuardRounds(),
             get().fetchLoans(),
             get().fetchDigitalDocuments(),
-            ...(currentUser.role === 'admin' || currentUser.role === 'supervisor' ? [
+            ...(currentUser.role === 'admin' || currentUser.role === 'supervisor' || currentUser.role === 'rrhh' || currentUser.role === 'jefe_operaciones' ? [
               get().fetchResignationRequests(),
               get().fetchRecurringTasks(),
               get().fetchSubTasks(),
@@ -1221,16 +1239,200 @@ export const useAppStore = create<AppState>()(
       },
 
       createContrato: async (contratoData: Omit<Contrato, 'id'>) => {
+        // Prevención de duplicados exactos en memoria para evitar reintentos / dobles clicks
+        const existingDuplicate = get().contratos.find(c => 
+          c.colaboradorId === contratoData.colaboradorId &&
+          c.tipo === contratoData.tipo &&
+          c.fechaInicio === contratoData.fechaInicio &&
+          (c.fechaTermino || null) === (contratoData.fechaTermino || null) &&
+          c.estado !== 'anulado'
+        );
+        if (existingDuplicate) {
+          console.warn('[createContrato] Contrato idéntico detectado, retornando existente:', existingDuplicate.id);
+          return existingDuplicate.id;
+        }
+
         const id = `contrato_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-        const contrato: Contrato = { ...contratoData, id };
+        const now = new Date().toISOString();
+        const contrato: Contrato = { 
+          ...contratoData, 
+          id,
+          creadoEn: contratoData.creadoEn || now,
+          modificadoEn: now,
+          estadoDocumental: contratoData.estadoDocumental || (contratoData.documentoId ? 'firmado_digital' : 'no_adjunto'),
+          origenRegistro: contratoData.origenRegistro || 'manual_aspro',
+          estadoConciliacion: contratoData.estadoConciliacion || 'verificado'
+        };
+
         try {
-          await setDoc(doc(db, 'Contratos', id), contrato);
-          // Actualizar estado local del store
+          const cleanedContrato = cleanFirestorePayload(contrato);
+          await setDoc(doc(db, 'Contratos', id), cleanedContrato);
+          
+          // Sincronizar con Colaboradores solo si es un contrato vigente o pendiente de firma
+          if (contrato.estado === 'vigente' || contrato.estado === 'pendiente_firma') {
+            try {
+              const empRef = doc(db, 'Colaboradores', contrato.colaboradorId);
+              const updateEmpPayload: any = {
+                fechaInicioContrato: contrato.fechaInicio,
+                tipoContrato: contrato.tipo as any
+              };
+              if (contrato.fechaTermino) {
+                updateEmpPayload.fechaTerminoContrato = contrato.fechaTermino;
+              } else {
+                updateEmpPayload.fechaTerminoContrato = deleteField();
+              }
+              await updateDoc(empRef, updateEmpPayload);
+              set(state => ({
+                employees: state.employees.map(e => e.id === contrato.colaboradorId ? { 
+                  ...e, 
+                  fechaInicioContrato: contrato.fechaInicio,
+                  fechaTerminoContrato: contrato.fechaTermino || undefined,
+                  tipoContrato: contrato.tipo as any 
+                } : e)
+              }));
+            } catch (syncErr) {
+              console.warn('[createContrato] Advertencia sincronizando Colaboradores:', syncErr);
+            }
+          }
+
           set(state => ({ contratos: [contrato, ...state.contratos] }));
           console.log('[createContrato] Contrato creado en Firestore:', id);
           return id;
         } catch (error) {
           console.error('[createContrato] Error al crear contrato operativo:', error);
+          throw error;
+        }
+      },
+
+      updateContrato: async (id: string, data: Partial<Contrato>) => {
+        try {
+          const now = new Date().toISOString();
+          const updateData = cleanFirestorePayload({ ...data, modificadoEn: now });
+          await updateDoc(doc(db, 'Contratos', id), updateData as any);
+
+          set(state => ({
+            contratos: state.contratos.map(c => c.id === id ? { ...c, ...updateData } : c)
+          }));
+
+          const updatedContract = get().contratos.find(c => c.id === id);
+          if (updatedContract && (updatedContract.estado === 'vigente' || updatedContract.estado === 'pendiente_firma')) {
+            try {
+              const empRef = doc(db, 'Colaboradores', updatedContract.colaboradorId);
+              const updateEmpPayload: any = {
+                fechaInicioContrato: updatedContract.fechaInicio,
+                tipoContrato: updatedContract.tipo as any
+              };
+              if (updatedContract.fechaTermino) {
+                updateEmpPayload.fechaTerminoContrato = updatedContract.fechaTermino;
+              } else {
+                updateEmpPayload.fechaTerminoContrato = deleteField();
+              }
+              await updateDoc(empRef, updateEmpPayload);
+              set(state => ({
+                employees: state.employees.map(e => e.id === updatedContract.colaboradorId ? { 
+                  ...e, 
+                  fechaInicioContrato: updatedContract.fechaInicio,
+                  fechaTerminoContrato: updatedContract.fechaTermino || undefined,
+                  tipoContrato: updatedContract.tipo as any 
+                } : e)
+              }));
+            } catch (syncErr) {
+              console.warn('[updateContrato] Advertencia sincronizando Colaboradores:', syncErr);
+            }
+          }
+        } catch (error) {
+          console.error('[updateContrato] Error actualizando contrato:', error);
+          throw error;
+        }
+      },
+
+      renewContrato: async (contratoAnteriorId: string, nuevoContratoData: Omit<Contrato, 'id' | 'contratoAnteriorId' | 'numeroRenovacion'>) => {
+        const contratoAnterior = get().contratos.find(c => c.id === contratoAnteriorId);
+        const newId = `contrato_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+        const now = new Date().toISOString();
+        const numeroRenovacion = ((contratoAnterior?.numeroRenovacion) || 1) + 1;
+
+        const nuevoContrato: Contrato = {
+          ...nuevoContratoData,
+          id: newId,
+          contratoAnteriorId,
+          numeroRenovacion,
+          estado: nuevoContratoData.estado || 'vigente',
+          creadoEn: now,
+          modificadoEn: now,
+          estadoDocumental: nuevoContratoData.estadoDocumental || (nuevoContratoData.documentoId ? 'firmado_digital' : 'no_adjunto'),
+          origenRegistro: nuevoContratoData.origenRegistro || 'manual_aspro',
+          estadoConciliacion: nuevoContratoData.estadoConciliacion || 'verificado'
+        };
+
+        try {
+          // 1. Guardar nuevo contrato
+          const cleanedNuevoContrato = cleanFirestorePayload(nuevoContrato);
+          await setDoc(doc(db, 'Contratos', newId), cleanedNuevoContrato);
+
+          // 2. Transicionar contrato previo a 'renovado'
+          await updateDoc(doc(db, 'Contratos', contratoAnteriorId), {
+            estado: 'renovado',
+            contratoSiguienteId: newId,
+            modificadoEn: now
+          });
+
+          // 3. Sincronizar colaborador con las nuevas fechas activas
+          try {
+            const empRef = doc(db, 'Colaboradores', nuevoContrato.colaboradorId);
+            const updateEmpPayload: any = {
+              fechaInicioContrato: nuevoContrato.fechaInicio,
+              tipoContrato: nuevoContrato.tipo as any
+            };
+            if (nuevoContrato.fechaTermino) {
+              updateEmpPayload.fechaTerminoContrato = nuevoContrato.fechaTermino;
+            } else {
+              updateEmpPayload.fechaTerminoContrato = deleteField();
+            }
+            await updateDoc(empRef, updateEmpPayload);
+            set(state => ({
+              employees: state.employees.map(e => e.id === nuevoContrato.colaboradorId ? { 
+                ...e, 
+                fechaInicioContrato: nuevoContrato.fechaInicio,
+                fechaTerminoContrato: nuevoContrato.fechaTermino || undefined,
+                tipoContrato: nuevoContrato.tipo as any 
+              } : e)
+            }));
+          } catch (syncErr) {
+            console.warn('[renewContrato] Advertencia sincronizando Colaboradores:', syncErr);
+          }
+
+          // 4. Actualizar estado local
+          set(state => ({
+            contratos: [
+              nuevoContrato,
+              ...state.contratos.map(c => c.id === contratoAnteriorId ? { ...c, estado: 'renovado' as const, contratoSiguienteId: newId, modificadoEn: now } : c)
+            ]
+          }));
+
+          return newId;
+        } catch (error) {
+          console.error('[renewContrato] Error en renovación de contrato:', error);
+          throw error;
+        }
+      },
+
+      linkDocumentToContract: async (contratoId: string, documentoId: string, estadoDocumental: import('../types/phase1').EstadoDocumental = 'firmado_digital', observaciones?: string) => {
+        try {
+          const now = new Date().toISOString();
+          const updatePayload: any = cleanFirestorePayload({
+            documentoId,
+            estadoDocumental,
+            modificadoEn: now,
+            ...(observaciones && observaciones.trim() ? { observacionesDocumento: observaciones.trim() } : {})
+          });
+          await updateDoc(doc(db, 'Contratos', contratoId), updatePayload);
+
+          set(state => ({
+            contratos: state.contratos.map(c => c.id === contratoId ? { ...c, ...updatePayload } : c)
+          }));
+        } catch (error) {
+          console.error('[linkDocumentToContract] Error vinculando documento:', error);
           throw error;
         }
       },
