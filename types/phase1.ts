@@ -90,6 +90,33 @@ export interface Contrato {
   fechaFirmaReal?: string; // Fecha en que se firmó el documento físico si difiere de creadoEn
   permiteMultisucursal?: boolean;
   schemaVersion?: number;
+
+  // Campos V2 de emisión y auditoría criptográfica
+  plantillaId?: string;
+  plantillaVersion?: number;
+  docxStoragePath?: string;
+  pdfStoragePath?: string;
+  pdfSha256?: string;
+  pdfFirmadoStoragePath?: string;
+  pdfFirmadoSha256?: string;
+  estadoEmision?: 'borrador' | 'generando' | 'emitido' | 'error_emision';
+  canalFirma?: 'digital_aspro' | 'fisica_manuscrita';
+  signatureConfig?: {
+    page: 'last' | 'specific';
+    pageNumber: number;
+    posicionX: number;
+    posicionY: number;
+    targetPageResolved?: number;
+    pageWidth?: number;
+    pageHeight?: number;
+    orientation?: 'portrait' | 'landscape';
+  };
+  sueldoBase?: number;
+  gratificacion?: number;
+  turnoDetalle?: string;
+  horarioA?: string;
+  horarioB?: string;
+  metadataVariablesSnapshot?: Record<string, any>;
 }
 
 export interface AsignacionOperacional {

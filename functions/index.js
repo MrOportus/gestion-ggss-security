@@ -41,6 +41,10 @@ exports.updateEmployeeEmail = updateEmployeeEmail;
 const { generateBunnyUploadUrl } = require('./src/bunny/generateBunnyUploadUrl');
 exports.generateBunnyUploadUrl = generateBunnyUploadUrl;
 
+// Contratos V2 — Generación e integración documental
+const { emitirContratoV2 } = require('./src/contratos/emitirContratoV2');
+exports.emitirContratoV2 = emitirContratoV2;
+
 // Función para generar contratos (vía Apps Script)
 exports.generarContrato = onRequest(
     { 

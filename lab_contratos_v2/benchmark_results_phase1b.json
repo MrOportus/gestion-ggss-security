@@ -1,0 +1,165 @@
+{
+  "fecha": "2026-10-21T02:54:07.881Z",
+  "fase": "Fase 1B",
+  "resumen": [
+    {
+      "Motor": "Word COM (Referencia Fase 1A)",
+      "Entorno": "Windows 11 / Word 2016",
+      "TiempoMs": 4340,
+      "Tamaño": "166.82 KB",
+      "Páginas": 4,
+      "Dimensiones": "595.32 x 841.92 pt (A4)",
+      "Sin Etiquetas": "SÍ",
+      "Caracteres ES": "10/12",
+      "Cláusulas (1-9)": "9/9",
+      "Firmas OK": "SÍ",
+      "Tablas Turnos": "SÍ",
+      "Numeración Pág": "SÍ"
+    },
+    {
+      "Motor": "LibreOffice Headless (CLI Linux)",
+      "Entorno": "Debian Linux Container",
+      "TiempoMs": 2471,
+      "Tamaño": "79.23 KB",
+      "Páginas": 4,
+      "Dimensiones": "595.3 x 841.89 pt (A4)",
+      "Sin Etiquetas": "SÍ",
+      "Caracteres ES": "10/12",
+      "Cláusulas (1-9)": "9/9",
+      "Firmas OK": "SÍ",
+      "Tablas Turnos": "SÍ",
+      "Numeración Pág": "SÍ"
+    },
+    {
+      "Motor": "Gotenberg v8 (HTTP API Linux)",
+      "Entorno": "Docker / Cloud Run Container",
+      "TiempoMs": 783,
+      "Tamaño": "66.53 KB",
+      "Páginas": 4,
+      "Dimensiones": "595.3 x 841.89 pt (A4)",
+      "Sin Etiquetas": "SÍ",
+      "Caracteres ES": "10/12",
+      "Cláusulas (1-9)": "9/9",
+      "Firmas OK": "SÍ",
+      "Tablas Turnos": "SÍ",
+      "Numeración Pág": "SÍ"
+    }
+  ],
+  "detalles": {
+    "wordAnalysis": {
+      "filePath": "contrato_generado_v2.pdf",
+      "sizeBytes": 170820,
+      "sizeFormatted": "166.82 KB",
+      "pageCount": 4,
+      "pages": [
+        {
+          "pageNumber": 1,
+          "widthPt": 595.32,
+          "heightPt": 841.92
+        },
+        {
+          "pageNumber": 2,
+          "widthPt": 595.32,
+          "heightPt": 841.92
+        },
+        {
+          "pageNumber": 3,
+          "widthPt": 595.32,
+          "heightPt": 841.92
+        },
+        {
+          "pageNumber": 4,
+          "widthPt": 595.32,
+          "heightPt": 841.92
+        }
+      ],
+      "textLength": 6711,
+      "presentCharsCount": 10,
+      "totalCharsChecked": 12,
+      "unresolvedTagsCount": 0,
+      "unresolvedTags": [],
+      "presentClausesCount": 9,
+      "totalClauses": 9,
+      "hasSignatures": true,
+      "hasTableData": true,
+      "hasPageNumbering": true
+    },
+    "loAnalysis": {
+      "filePath": "contrato_libreoffice.pdf",
+      "sizeBytes": 81128,
+      "sizeFormatted": "79.23 KB",
+      "pageCount": 4,
+      "pages": [
+        {
+          "pageNumber": 1,
+          "widthPt": 595.3,
+          "heightPt": 841.89
+        },
+        {
+          "pageNumber": 2,
+          "widthPt": 595.3,
+          "heightPt": 841.89
+        },
+        {
+          "pageNumber": 3,
+          "widthPt": 595.3,
+          "heightPt": 841.89
+        },
+        {
+          "pageNumber": 4,
+          "widthPt": 595.3,
+          "heightPt": 841.89
+        }
+      ],
+      "textLength": 6415,
+      "presentCharsCount": 10,
+      "totalCharsChecked": 12,
+      "unresolvedTagsCount": 0,
+      "unresolvedTags": [],
+      "presentClausesCount": 9,
+      "totalClauses": 9,
+      "hasSignatures": true,
+      "hasTableData": true,
+      "hasPageNumbering": true
+    },
+    "gotenbergAnalysis": {
+      "filePath": "contrato_gotenberg.pdf",
+      "sizeBytes": 68129,
+      "sizeFormatted": "66.53 KB",
+      "pageCount": 4,
+      "pages": [
+        {
+          "pageNumber": 1,
+          "widthPt": 595.3,
+          "heightPt": 841.89
+        },
+        {
+          "pageNumber": 2,
+          "widthPt": 595.3,
+          "heightPt": 841.89
+        },
+        {
+          "pageNumber": 3,
+          "widthPt": 595.3,
+          "heightPt": 841.89
+        },
+        {
+          "pageNumber": 4,
+          "widthPt": 595.3,
+          "heightPt": 841.89
+        }
+      ],
+      "textLength": 6369,
+      "presentCharsCount": 10,
+      "totalCharsChecked": 12,
+      "unresolvedTagsCount": 0,
+      "unresolvedTags": [],
+      "presentClausesCount": 9,
+      "totalClauses": 9,
+      "hasSignatures": true,
+      "hasTableData": true,
+      "hasPageNumbering": true
+    },
+    "gotenbergMemoryMeasured": "92.14MiB / 7.723GiB"
+  }
+}

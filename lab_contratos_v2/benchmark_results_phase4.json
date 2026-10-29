@@ -1,0 +1,59 @@
+{
+  "timestamp": "2026-10-21T04:12:03.948Z",
+  "totalTests": 10,
+  "passedCount": 10,
+  "allPassed": true,
+  "elapsedMs": 3046,
+  "results": [
+    {
+      "test": "1. Control de Roles (IAM)",
+      "passed": true,
+      "detalle": "admin y rrhh autorizados; supervisor, worker y anónimos bloqueados con 403/401."
+    },
+    {
+      "test": "2. Modalidades Plazo Fijo e Indefinido",
+      "passed": true,
+      "detalle": "Plazo Fijo exige fechaTermino y valida cronología; Indefinido procesado exitosamente con sueldoBase."
+    },
+    {
+      "test": "3. Datos Obligatorios Ausentes",
+      "passed": true,
+      "detalle": "Rechazo preventivo con 400 ante ausencia de colaboradorId, fechaInicio o sueldoBase."
+    },
+    {
+      "test": "4. Idempotencia y Prevención de Duplicados",
+      "passed": true,
+      "detalle": "Reintento retornó contrato existente #cont_ca9930aa65e6cf45 sin reconvertir."
+    },
+    {
+      "test": "5. Fallo de Servicio Gotenberg (503/Timeout)",
+      "passed": true,
+      "detalle": "Error 503 capturado limpiamente; cero escrituras residuales en base de datos."
+    },
+    {
+      "test": "6. Compensación Reactiva en Storage",
+      "passed": true,
+      "detalle": "Fallo de Firestore disparó eliminación inmediata del archivo PDF huérfano en Storage."
+    },
+    {
+      "test": "7. Atomicidad en Asociación Documental",
+      "passed": true,
+      "detalle": "Transacción abortada: no se genera contrato desvinculado si falla la creación del documento digital."
+    },
+    {
+      "test": "8. Canal Físico y Posterior Adjunto",
+      "passed": true,
+      "detalle": "Emisión sin documentoId en estado no_adjunto; posterior adjunto de escaneado transiciona a vigente con SHA-256."
+    },
+    {
+      "test": "9. Preservación del Historial (Renovaciones)",
+      "passed": true,
+      "detalle": "Enlace bidireccional (#cont_7623e518cd3597f9 -> #cont_cd652845f74c1f5b) con numeroRenovacion=2 sin sobreescritura."
+    },
+    {
+      "test": "10. Compatibilidad de Esquemas TypeScript",
+      "passed": true,
+      "detalle": "Contrato cumple types/phase1.ts (schemaVersion: 2) y DigitalDocument cumple types.ts con URL HTTPS válida."
+    }
+  ]
+}

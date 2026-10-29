@@ -81,6 +81,13 @@ export default defineConfig({
   server: {
     host: '0.0.0.0',
     port: 3000,
+    proxy: {
+      '/api/gotenberg': {
+        target: 'http://localhost:3005',
+        changeOrigin: true,
+        rewrite: (path: string) => path.replace(/^\/api\/gotenberg/, '')
+      }
+    }
   },
   test: {
     environment: 'happy-dom',

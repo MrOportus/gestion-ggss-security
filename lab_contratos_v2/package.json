@@ -1,0 +1,15 @@
+{
+  "name": "lab-contratos-v2",
+  "version": "1.0.0",
+  "description": "Laboratorio aislado para pruebas tecnicas de Contratos V2 (docx a PDF)",
+  "main": "test_runner.cjs",
+  "private": true,
+  "type": "commonjs",
+  "dependencies": {
+    "docx": "^8.5.0",
+    "docxtemplater": "^3.50.0",
+    "pdf-lib": "^1.17.1",
+    "pdf-parse": "^2.4.5",
+    "pizzip": "^3.1.7"
+  }
+}

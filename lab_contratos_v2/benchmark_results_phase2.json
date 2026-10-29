@@ -1,0 +1,32 @@
+{
+  "timestamp": "2026-10-21T04:05:43.857Z",
+  "allPassed": true,
+  "results": [
+    {
+      "test": "Test 1: Emisión Digital ASPRO",
+      "passed": true,
+      "detalles": "4 páginas A4, 384 ms, documentoId: doc_5eba65865b706c0a"
+    },
+    {
+      "test": "Test 2: Emisión Física Manuscrita",
+      "passed": true,
+      "detalles": "Canal físico, sin documento digital, 439 ms"
+    },
+    {
+      "test": "Test 3: Idempotencia y Duplicados",
+      "passed": true,
+      "detalles": "Detectó duplicado y reutilizó contratoId existente sin reconversión"
+    },
+    {
+      "test": "Test 4: Rechazo Datos Incompletos",
+      "passed": true,
+      "detalles": "Error controlado: \"El sueldo base contractual (sueldoBase) debe ser un número válido mayor a cero.\""
+    },
+    {
+      "test": "Test 5: Control de Acceso IAM/Rol",
+      "passed": true,
+      "detalles": "Rechazado con código \"permission-denied\""
+    }
+  ],
+  "mockContractsCreated": 2
+}

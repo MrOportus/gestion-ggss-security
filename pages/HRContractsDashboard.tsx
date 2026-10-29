@@ -9,6 +9,9 @@ import {
 } from 'lucide-react';
 import VacationFormModal from '../components/VacationFormModal';
 import { ContractManagementModal } from '../components/ContractManagementModal';
+import { ContractEmissionModalV2 } from '../components/ContractEmissionModalV2';
+import { ContractTemplatesManager } from '../components/contratos/ContractTemplatesManager';
+import { ContractEmissionsHistory } from '../components/contratos/ContractEmissionsHistory';
 import EmployeeModal from '../components/EmployeeModal';
 import { Contrato, EstadoContrato, EstadoDocumental } from '../types/phase1';
 import { Employee, EstadoOperativoColaborador } from '../types';
@@ -53,7 +56,7 @@ const HRContractsDashboard: React.FC = () => {
   } = useAppStore();
 
   // ----- PESTAÑA PRINCIPAL DEL MÓDULO -----
-  const [mainTab, setMainTab] = useState<'directorio' | 'vacaciones'>('directorio');
+  const [mainTab, setMainTab] = useState<'directorio' | 'vacaciones' | 'plantillas' | 'historial'>('directorio');
 
   // ----- VISTAS DEL DIRECTORIO (ESTADO OPERATIVO) -----
   const [operationalTab, setOperationalTab] = useState<'todos' | 'en_servicio' | 'reserva' | 'inactivo' | 'por_revisar'>('todos');
@@ -75,6 +78,18 @@ const HRContractsDashboard: React.FC = () => {
 
   const [showVacationModal, setShowVacationModal] = useState(false);
   const [viewingEmployee, setViewingEmployee] = useState<Employee | null>(null);
+
+  // ----- ESTADO MODAL CONTRATOS V2 (FEATURE FLAG) -----
+  const [showEmissionV2Modal, setShowEmissionV2Modal] = useState(false);
+  const [emissionV2Employee, setEmissionV2Employee] = useState<Employee | null>(null);
+
+  // Feature flag: En desarrollo local activo por defecto; en prod requiere localStorage o ?v2=1
+  const isContratosV2Active = useMemo(() => {
+    if (typeof window === 'undefined') return false;
+    return Boolean(import.meta.env.DEV) ||
+           window.localStorage.getItem('aspro_feature_contratos_v2') === 'true' ||
+           new URLSearchParams(window.location.search).get('v2') === '1';
+  }, []);
 
   // ----- FILTROS DEL DIRECTORIO -----
   const [searchTerm, setSearchTerm] = useState('');
@@ -480,6 +495,18 @@ const HRContractsDashboard: React.FC = () => {
             </button>
           )}
 
+          {isContratosV2Active && (currentUser?.role === 'admin' || currentUser?.role === 'rrhh') && (
+            <button
+              onClick={() => {
+                setEmissionV2Employee(null);
+                setShowEmissionV2Modal(true);
+              }}
+              className="py-2.5 px-4 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold uppercase tracking-wider shadow-md shadow-blue-200 transition-all active:scale-95 flex items-center gap-2"
+            >
+              <FileText size={16} /> Emitir Contrato V2
+            </button>
+          )}
+
           <button
             onClick={() => setShowVacationModal(true)}
             className="py-2.5 px-5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold uppercase tracking-wider shadow-md shadow-emerald-200 transition-all active:scale-95 flex items-center gap-2"
@@ -490,10 +517,10 @@ const HRContractsDashboard: React.FC = () => {
       </div>
 
       {/* SELECTOR DE PESTAÑA PRINCIPAL */}
-      <div className="flex border-b border-slate-200 gap-4">
+      <div className="flex border-b border-slate-200 gap-4 overflow-x-auto">
         <button
           onClick={() => setMainTab('directorio')}
-          className={`pb-3 text-xs font-black uppercase tracking-wider flex items-center gap-2 border-b-2 transition ${
+          className={`pb-3 text-xs font-black uppercase tracking-wider flex items-center gap-2 border-b-2 transition whitespace-nowrap ${
             mainTab === 'directorio' 
               ? 'border-blue-600 text-blue-600' 
               : 'border-transparent text-slate-400 hover:text-slate-600'
@@ -503,7 +530,7 @@ const HRContractsDashboard: React.FC = () => {
         </button>
         <button
           onClick={() => setMainTab('vacaciones')}
-          className={`pb-3 text-xs font-black uppercase tracking-wider flex items-center gap-2 border-b-2 transition ${
+          className={`pb-3 text-xs font-black uppercase tracking-wider flex items-center gap-2 border-b-2 transition whitespace-nowrap ${
             mainTab === 'vacaciones' 
               ? 'border-blue-600 text-blue-600' 
               : 'border-transparent text-slate-400 hover:text-slate-600'
@@ -511,6 +538,30 @@ const HRContractsDashboard: React.FC = () => {
         >
           <Palmtree size={16} /> Gestión de Vacaciones ({vacations.length})
         </button>
+        {isContratosV2Active && (
+          <>
+            <button
+              onClick={() => setMainTab('plantillas')}
+              className={`pb-3 text-xs font-black uppercase tracking-wider flex items-center gap-2 border-b-2 transition whitespace-nowrap ${
+                mainTab === 'plantillas' 
+                  ? 'border-blue-600 text-blue-600' 
+                  : 'border-transparent text-slate-400 hover:text-slate-600'
+              }`}
+            >
+              <FileText size={16} /> Plantillas Word V2
+            </button>
+            <button
+              onClick={() => setMainTab('historial')}
+              className={`pb-3 text-xs font-black uppercase tracking-wider flex items-center gap-2 border-b-2 transition whitespace-nowrap ${
+                mainTab === 'historial' 
+                  ? 'border-blue-600 text-blue-600' 
+                  : 'border-transparent text-slate-400 hover:text-slate-600'
+              }`}
+            >
+              <ClipboardList size={16} /> Historial Emisiones Locales
+            </button>
+          </>
+        )}
       </div>
 
       {/* ========================================================================= */}
@@ -990,6 +1041,19 @@ const HRContractsDashboard: React.FC = () => {
                                       <Plus size={11} /> Contrato
                                     </button>
                                   )}
+
+                                  {isContratosV2Active && (
+                                    <button
+                                      onClick={() => {
+                                        setEmissionV2Employee(w.employee);
+                                        setShowEmissionV2Modal(true);
+                                      }}
+                                      className="px-2.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold transition flex items-center gap-1 shadow-sm"
+                                      title="Emitir Contrato V2 con plantilla Word (DOCX/PDF)"
+                                    >
+                                      <FileText size={11} /> V2
+                                    </button>
+                                  )}
                                 </>
                               )}
 
@@ -1158,6 +1222,20 @@ const HRContractsDashboard: React.FC = () => {
         </div>
       )}
 
+      {/* ========================================================================= */}
+      {/* VISTA 3: ADMINISTRADOR DE PLANTILLAS DOCX (FASE 5.2) */}
+      {/* ========================================================================= */}
+      {mainTab === 'plantillas' && (
+        <ContractTemplatesManager />
+      )}
+
+      {/* ========================================================================= */}
+      {/* VISTA 4: HISTORIAL DE EMISIONES LOCALES (FASE 5.2) */}
+      {/* ========================================================================= */}
+      {mainTab === 'historial' && (
+        <ContractEmissionsHistory />
+      )}
+
       {/* MODAL DE GESTIÓN CONTRACTUAL */}
       {contractModalState.isOpen && (
         <ContractManagementModal
@@ -1184,6 +1262,22 @@ const HRContractsDashboard: React.FC = () => {
         <VacationFormModal 
           onClose={() => setShowVacationModal(false)}
           onSuccess={() => setShowVacationModal(false)}
+        />
+      )}
+
+      {/* MODAL DE EMISIÓN CONTRATOS V2 (PROTEGIDO POR FEATURE FLAG) */}
+      {showEmissionV2Modal && (
+        <ContractEmissionModalV2
+          isOpen={showEmissionV2Modal}
+          onClose={() => setShowEmissionV2Modal(false)}
+          employees={employees}
+          sites={sites}
+          contratos={contratos}
+          preselectedEmployee={emissionV2Employee}
+          onEmitSuccess={() => {
+            showNotification('Contrato V2 emitido exitosamente.', 'success');
+            fetchContratos();
+          }}
         />
       )}
 
