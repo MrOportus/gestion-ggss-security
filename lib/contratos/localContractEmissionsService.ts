@@ -152,8 +152,12 @@ export function calcularEstiloCajaFirmaPorcentual(
 export interface EmisionLaboratorio {
   id: string; // ej. emision_lab_1729482938
   fechaHora: string; // ISO
+  fechaInicio?: string; // YYYY-MM-DD (fecha inicial del contrato)
+  nombreContrato?: string; // "Contrato + 1er nombre + 1er apellido + DDMM"
   colaboradorId: string;
   colaboradorNombre: string;
+  colaboradorPrimerNombre?: string;
+  colaboradorPrimerApellido?: string;
   colaboradorRut: string;
   plantillaId: string;
   plantillaNombre: string;
@@ -170,6 +174,64 @@ export interface EmisionLaboratorio {
   errorDetalle?: string;
   esLaboratorio: true; // Marca explícita para diferenciar de producción
   enviadoAFirmaReal: false;
+}
+
+/**
+ * Genera el nombre estándar del contrato según la nomenclatura oficial:
+ * "Contrato + 1er nombre + 1er apellido + DDMM"
+ * donde DDMM corresponde al día y mes de la fecha inicial del contrato generado.
+ */
+export function formatearNombreContrato(params: {
+  primerNombre?: string;
+  primerApellido?: string;
+  colaboradorNombre?: string;
+  fechaInicio?: string;
+  fechaHoraFallback?: string;
+}): string {
+  let first = (params.primerNombre || '').trim().split(/\s+/)[0] || '';
+  let last = (params.primerApellido || '').trim().split(/\s+/)[0] || '';
+
+  if ((!first || !last) && params.colaboradorNombre) {
+    const tokens = params.colaboradorNombre.trim().split(/\s+/).filter(Boolean);
+    if (!first && tokens.length > 0) {
+      first = tokens[0];
+    }
+    if (!last) {
+      if (tokens.length >= 4) {
+        last = tokens[2];
+      } else if (tokens.length >= 2) {
+        last = tokens[1];
+      }
+    }
+  }
+
+  first = first.replace(/[<>:"/\\|?*\x00-\x1F]/g, '').trim();
+  last = last.replace(/[<>:"/\\|?*\x00-\x1F]/g, '').trim();
+
+  let ddmm = '';
+  const rawDate = (params.fechaInicio || '').trim().split('T')[0];
+  if (rawDate) {
+    const parts = rawDate.split(/[-/]/);
+    if (parts.length === 3) {
+      if (parts[0].length === 4) {
+        // Formato YYYY-MM-DD
+        ddmm = `${parts[2].padStart(2, '0')}${parts[1].padStart(2, '0')}`;
+      } else if (parts[2].length === 4) {
+        // Formato DD-MM-YYYY
+        ddmm = `${parts[0].padStart(2, '0')}${parts[1].padStart(2, '0')}`;
+      }
+    }
+  }
+
+  if (!ddmm) {
+    const fallbackDate = params.fechaHoraFallback ? new Date(params.fechaHoraFallback) : new Date();
+    const validDate = isNaN(fallbackDate.getTime()) ? new Date() : fallbackDate;
+    const dd = String(validDate.getDate()).padStart(2, '0');
+    const mm = String(validDate.getMonth() + 1).padStart(2, '0');
+    ddmm = `${dd}${mm}`;
+  }
+
+  return ['Contrato', first, last, ddmm].filter(Boolean).join(' ');
 }
 
 class LocalContractEmissionsService {
@@ -194,7 +256,10 @@ class LocalContractEmissionsService {
   public async registrarEmision(params: {
     colaboradorId: string;
     colaboradorNombre: string;
+    colaboradorPrimerNombre?: string;
+    colaboradorPrimerApellido?: string;
     colaboradorRut: string;
+    fechaInicio?: string;
     plantillaId: string;
     plantillaNombre: string;
     plantillaVersion: number;
@@ -223,12 +288,23 @@ class LocalContractEmissionsService {
 
     const id = `emision_lab_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
     const fechaHora = new Date().toISOString();
+    const nombreContrato = formatearNombreContrato({
+      primerNombre: params.colaboradorPrimerNombre,
+      primerApellido: params.colaboradorPrimerApellido,
+      colaboradorNombre: params.colaboradorNombre,
+      fechaInicio: params.fechaInicio,
+      fechaHoraFallback: fechaHora
+    });
 
     const registro: EmisionLaboratorio = {
       id,
       fechaHora,
+      fechaInicio: params.fechaInicio,
+      nombreContrato,
       colaboradorId: params.colaboradorId,
       colaboradorNombre: params.colaboradorNombre,
+      colaboradorPrimerNombre: params.colaboradorPrimerNombre,
+      colaboradorPrimerApellido: params.colaboradorPrimerApellido,
       colaboradorRut: params.colaboradorRut,
       plantillaId: params.plantillaId,
       plantillaNombre: params.plantillaNombre,
@@ -321,9 +397,17 @@ class LocalContractEmissionsService {
 
     const blob = new Blob([buffer], { type: mime });
     const url = URL.createObjectURL(blob);
-    const sanitizedName = emision.colaboradorNombre.replace(/[^a-zA-Z0-9_\-]/g, '_');
+    const nombreBase =
+      emision.nombreContrato ||
+      formatearNombreContrato({
+        primerNombre: emision.colaboradorPrimerNombre,
+        primerApellido: emision.colaboradorPrimerApellido,
+        colaboradorNombre: emision.colaboradorNombre,
+        fechaInicio: emision.fechaInicio,
+        fechaHoraFallback: emision.fechaHora
+      });
     const ext = tipo === 'pdf' ? 'pdf' : 'docx';
-    const nombreArchivo = `Contrato_${sanitizedName}_${emision.id}.${ext}`;
+    const nombreArchivo = `${nombreBase}.${ext}`;
 
     return {
       url,

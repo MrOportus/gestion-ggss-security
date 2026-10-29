@@ -328,10 +328,20 @@ exports.emitirContratoV2 = onCall(
         }
       }
 
+      // Nomenclatura oficial: "Contrato + 1er nombre + 1er apellido + DDMM"
+      const primerNombre = String(workerData.firstName || '').trim().split(/\s+/)[0] || '';
+      const primerApellido = String(workerData.lastNamePaterno || '').trim().split(/\s+/)[0] || '';
+      const partesFechaInicio = String(fechaInicio || '').split('T')[0].split('-');
+      const ddmmContrato = partesFechaInicio.length === 3
+        ? `${partesFechaInicio[2].padStart(2, '0')}${partesFechaInicio[1].padStart(2, '0')}`
+        : '';
+      const nombreContrato = ['Contrato', primerNombre, primerApellido, ddmmContrato].filter(Boolean).join(' ');
+
       // Registro en Contratos/{contratoId}
       const contratoRef = db.collection('Contratos').doc(contratoId);
       batch.set(contratoRef, {
         id: contratoId,
+        nombreContrato,
         colaboradorId,
         sucursalId: String(sucursalId),
         tipo,
@@ -368,7 +378,7 @@ exports.emitirContratoV2 = onCall(
         const docRef = db.collection('documents').doc(documentoId);
         batch.set(docRef, {
           id: documentoId,
-          title: `Contrato de Trabajo — ${nombreCompleto}`,
+          title: nombreContrato,
           type: 'Contrato',
           assignedTo: colaboradorId,
           status: 'pending',

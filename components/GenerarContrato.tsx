@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useAppStore } from '../store/useAppStore';
 import { normalizeText, matchesEmployeeSearch } from '../lib/textUtils';
+import { formatearNombreContrato } from '../lib/contratos/localContractEmissionsService';
 
 import {
   FileText, Send, Clock, MapPin, Briefcase, DollarSign, Download, ArrowLeft, Search, Calendar, UserCheck, UserX, Eye, Loader2, History
@@ -161,10 +162,16 @@ const GenerarContrato: React.FC<GenerarContratoProps> = ({ onBack }) => {
         showNotification("¡Contrato generado exitosamente!", "success");
         const fileIdMatch = result.url.match(/[\w-]{33,}/);
         const directDownloadUrl = fileIdMatch ? `https://drive.google.com/uc?export=download&id=${fileIdMatch[0]}` : result.url;
+        const nombreContratoOficial = formatearNombreContrato({
+          primerNombre: contratoEmp.firstName,
+          primerApellido: contratoEmp.lastNamePaterno,
+          colaboradorNombre: `${contratoEmp.firstName || ''} ${contratoEmp.lastNamePaterno || ''}`.trim(),
+          fechaInicio: contratoData.fechaInicio
+        });
         const a = document.createElement('a');
         a.href = directDownloadUrl;
         a.target = '_blank';
-        a.download = `Contrato_${contratoEmp.firstName}_${contratoEmp.lastNamePaterno}.pdf`;
+        a.download = `${nombreContratoOficial}.pdf`;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);

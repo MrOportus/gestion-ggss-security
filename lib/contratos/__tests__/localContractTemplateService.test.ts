@@ -20,7 +20,8 @@ import {
   resolverPaginaObjetivoFirma,
   calcularCoordenadasPdfDesdeClic,
   calcularCoordenadasPdfDesdeArrastre,
-  calcularEstiloCajaFirmaPorcentual
+  calcularEstiloCajaFirmaPorcentual,
+  formatearNombreContrato
 } from '../localContractEmissionsService';
 
 describe('LocalContractTemplateService — Diccionario y Clasificación', () => {
@@ -685,7 +686,7 @@ describe('Posicionamiento Visual de Firma Digital en Contratos V2 (Reutilizació
     const plantilla = await localContractTemplateService.guardarPlantillaDOCX({
       nombre: 'FORMATO-Contrato-por-Faena-part-time-Banco 26 octubre',
       tipoDocumento: 'Contrato',
-      tipoContrato: 'Obra o Faena',
+      tipoContrato: 'Obra y Faena',
       archivoNombre: 'FORMATO-Contrato-por-Faena-part-time-Banco 26 octubre.docx',
       archivoBuffer: docxArrayBuffer
     });
@@ -777,7 +778,7 @@ describe('Posicionamiento Visual de Firma Digital en Contratos V2 (Reutilizació
       const syntheticPdf = await PDFDocument.create();
       for (let i = 0; i < 4; i++) syntheticPdf.addPage([612, 792]);
       const pdfBytes = await syntheticPdf.save();
-      pdfBuffer = pdfBytes.buffer.slice(pdfBytes.byteOffset, pdfBytes.byteOffset + pdfBytes.byteLength);
+      pdfBuffer = new Uint8Array(pdfBytes).buffer as ArrayBuffer;
     }
 
     // 4. Posicionar firma en última página (página 4) con clic del ratón
@@ -872,5 +873,54 @@ describe('Posicionamiento Visual de Firma Digital en Contratos V2 (Reutilizació
     });
     expect(emisionFisica.canalFirma).toBe('fisica_manuscrita');
     expect(emisionFisica.signatureConfig).toBeUndefined();
+  });
+
+  it('formatea y guarda el contrato con la nomenclatura "Contrato + 1er nombre + 1er apellido + DDMM"', async () => {
+    expect(
+      formatearNombreContrato({
+        primerNombre: 'Juan Carlos',
+        primerApellido: 'Pérez',
+        fechaInicio: '2026-10-28'
+      })
+    ).toBe('Contrato Juan Pérez 2810');
+
+    expect(
+      formatearNombreContrato({
+        primerNombre: 'nelson',
+        primerApellido: 'Demo',
+        fechaInicio: '2026-10-20'
+      })
+    ).toBe('Contrato nelson Demo 2010');
+
+    const fakePdf = new TextEncoder().encode('%PDF-1.7\n' + 'X'.repeat(600)).buffer;
+    const fakeDocx = new Uint8Array(650).buffer;
+
+    const emision = await localContractEmissionsService.registrarEmision({
+      colaboradorId: 'emp_nom_1',
+      colaboradorNombre: 'Juan Carlos Pérez Gómez',
+      colaboradorPrimerNombre: 'Juan Carlos',
+      colaboradorPrimerApellido: 'Pérez',
+      colaboradorRut: '12.345.678-9',
+      fechaInicio: '2026-10-28',
+      plantillaId: 'tpl_nom_1',
+      plantillaNombre: 'Plantilla Prueba',
+      plantillaVersion: 1,
+      sueldoBase: 553553,
+      tipoContrato: 'Plazo Fijo',
+      canalFirma: 'fisica_manuscrita',
+      docxBuffer: fakeDocx,
+      pdfBuffer: fakePdf,
+      pageCount: 2
+    });
+
+    expect(emision.nombreContrato).toBe('Contrato Juan Pérez 2810');
+
+    const descargaPdf = await localContractEmissionsService.crearDescarga(emision.id, 'pdf');
+    expect(descargaPdf.nombreArchivo).toBe('Contrato Juan Pérez 2810.pdf');
+    descargaPdf.revocar();
+
+    const descargaDocx = await localContractEmissionsService.crearDescarga(emision.id, 'docx');
+    expect(descargaDocx.nombreArchivo).toBe('Contrato Juan Pérez 2810.docx');
+    descargaDocx.revocar();
   });
 });

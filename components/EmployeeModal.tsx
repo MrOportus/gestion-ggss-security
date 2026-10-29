@@ -604,11 +604,12 @@ const EmployeeModal: React.FC<EmployeeModalProps> = ({ employee, onClose }) => {
                         type="button"
                         onClick={() => setContractModalState({
                           isOpen: true,
-                          mode: 'create'
+                          mode: 'create',
+                          contratoAnterior: contractStatusInfo.activeContract || null
                         })}
                         className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-sm transition"
                       >
-                        <Plus size={13} /> Nuevo Contrato
+                        <Plus size={13} /> Regularizar
                       </button>
                     </>
                   )}

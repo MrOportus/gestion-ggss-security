@@ -16,7 +16,8 @@ import {
 } from 'lucide-react';
 import {
   localContractEmissionsService,
-  EmisionLaboratorio
+  EmisionLaboratorio,
+  formatearNombreContrato
 } from '../../lib/contratos/localContractEmissionsService';
 import { formatCLP } from '../../lib/contratos/sueldoMinimoLegalService';
 
@@ -182,10 +183,20 @@ export const ContractEmissionsHistory: React.FC = () => {
                       </span>
                     </td>
 
-                    {/* Colaborador */}
+                    {/* Colaborador y Nombre de Archivo */}
                     <td className="p-4">
                       <div className="font-bold text-slate-800">{e.colaboradorNombre}</div>
-                      <span className="text-[10px] font-mono text-slate-400">{e.colaboradorRut}</span>
+                      <span className="text-[10px] font-mono text-slate-400 block">{e.colaboradorRut}</span>
+                      <span className="inline-block mt-1 px-2 py-0.5 bg-blue-50 text-blue-700 border border-blue-100 rounded text-[10px] font-mono font-bold">
+                        {e.nombreContrato ||
+                          formatearNombreContrato({
+                            primerNombre: e.colaboradorPrimerNombre,
+                            primerApellido: e.colaboradorPrimerApellido,
+                            colaboradorNombre: e.colaboradorNombre,
+                            fechaInicio: e.fechaInicio,
+                            fechaHoraFallback: e.fechaHora
+                          })}
+                      </span>
                     </td>
 
                     {/* Plantilla y Versión */}

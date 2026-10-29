@@ -25,7 +25,8 @@ import {
   EmisionLaboratorio,
   ContractSignatureConfig,
   crearSignatureConfigInicial,
-  resolverPaginaObjetivoFirma
+  resolverPaginaObjetivoFirma,
+  formatearNombreContrato
 } from '../lib/contratos/localContractEmissionsService';
 import type { SharedSignatureConfig } from './SharedSignatureBatchModal';
 import { ContractPdfSignaturePositioner } from './contratos/ContractPdfSignaturePositioner';
@@ -331,6 +332,17 @@ export const ContractEmissionModalV2: React.FC<ContractEmissionModalV2Props> = (
   const selectedTemplate = useMemo(() => {
     return plantillas.find(p => p.id === selectedTemplateId) || null;
   }, [plantillas, selectedTemplateId]);
+
+  // Nomenclatura oficial del documento: "Contrato + 1er nombre + 1er apellido + DDMM"
+  const nombreContratoGenerado = useMemo(() => {
+    if (!selectedWorker) return 'Contrato';
+    return formatearNombreContrato({
+      primerNombre: selectedWorker.firstName,
+      primerApellido: selectedWorker.lastNamePaterno,
+      colaboradorNombre: `${selectedWorker.firstName || ''} ${selectedWorker.lastNamePaterno || ''}`.trim(),
+      fechaInicio
+    });
+  }, [selectedWorker, fechaInicio]);
 
   // Sincronizar automáticamente tipoContrato desde la plantilla seleccionada
   useEffect(() => {
@@ -759,7 +771,10 @@ export const ContractEmissionModalV2: React.FC<ContractEmissionModalV2Props> = (
           registro = await localContractEmissionsService.registrarEmision({
             colaboradorId: selectedWorker.id,
             colaboradorNombre: workerFullName,
+            colaboradorPrimerNombre: selectedWorker.firstName,
+            colaboradorPrimerApellido: selectedWorker.lastNamePaterno,
             colaboradorRut: selectedWorker.rut,
+            fechaInicio,
             plantillaId: selectedTemplate.id,
             plantillaNombre: selectedTemplate.nombre,
             plantillaVersion: selectedTemplate.version,
@@ -1480,7 +1495,12 @@ export const ContractEmissionModalV2: React.FC<ContractEmissionModalV2Props> = (
 
               {/* Ficha Resumen de Emisión */}
               <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-3 text-xs">
-                <p className="font-black text-slate-700 uppercase tracking-wider text-[11px]">Resumen de la Emisión Inmutable</p>
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <p className="font-black text-slate-700 uppercase tracking-wider text-[11px]">Resumen de la Emisión Inmutable</p>
+                  <span className="px-2.5 py-1 bg-white border border-slate-200 rounded-lg font-mono font-bold text-[11px] text-blue-700">
+                    {nombreContratoGenerado}
+                  </span>
+                </div>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                   <div>
                     <span className="text-slate-400 font-bold uppercase block text-[10px]">Colaborador</span>
@@ -1506,7 +1526,7 @@ export const ContractEmissionModalV2: React.FC<ContractEmissionModalV2Props> = (
                 <ContractPdfSignaturePositioner
                   pdfBlobUrl={preparedDraft?.pdfBlobUrl || null}
                   pdfBuffer={preparedDraft?.pdfBuffer || null}
-                  documentLabel={`${selectedTemplate?.nombre || 'Contrato'} — ${selectedWorker?.firstName || ''} ${selectedWorker?.lastNamePaterno || ''}`.trim()}
+                  documentLabel={nombreContratoGenerado}
                   isGeneratingPreview={isGeneratingPreview}
                   onRegeneratePreview={() => {
                     setIsGeneratingPreview(true);
@@ -1565,6 +1585,10 @@ export const ContractEmissionModalV2: React.FC<ContractEmissionModalV2Props> = (
 
               {/* Tarjeta de Metadatos Criptográficos */}
               <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl text-left text-xs max-w-lg mx-auto space-y-2">
+                <div className="flex justify-between items-center pb-2 border-b border-slate-200">
+                  <span className="text-slate-500 font-semibold">Nombre del Contrato:</span>
+                  <span className="font-mono font-black text-slate-900">{nombreContratoGenerado}</span>
+                </div>
                 <div className="flex justify-between items-center pb-2 border-b border-slate-200">
                   <span className="text-slate-500 font-semibold">ID del Contrato:</span>
                   <span className="font-mono font-bold text-blue-600">{emissionResult.contratoId}</span>

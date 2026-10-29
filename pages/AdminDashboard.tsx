@@ -1,10 +1,12 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { useAppStore } from '../store/useAppStore';
-import { normalizeText, matchesEmployeeSearch } from '../lib/textUtils';
+import { normalizeText, matchesEmployeeSearch, formatDateDDMMYYYY } from '../lib/textUtils';
 
 import { collection, query, where, onSnapshot, orderBy, doc, updateDoc, limit } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { Employee, BoardNote } from '../types';
+import { Contrato } from '../types/phase1';
+import { resolveEmployeeOperationalStatus } from '../lib/phase3/contratosService';
 import {
   Users, FileCheck, MapPin, Search, Eye, AlertCircle, ShieldAlert, FileWarning, LogOut, Bell, Clock, Calendar, CheckCircle, Cake
 } from 'lucide-react';
@@ -13,12 +15,17 @@ import EmployeeModal from '../components/EmployeeModal';
 type DashboardFilter = 'active_total' | 'os10_all' | 'contracts_all' | 'reminders_all' | 'birthdays_all';
 
 const AdminDashboard: React.FC = () => {
-  const { employees, attendanceLogs, sites, forceCloseAttendance, currentUser, showConfirmation } = useAppStore();
+  const { employees, contratos, fetchContratos, attendanceLogs, sites, forceCloseAttendance, currentUser, showConfirmation } = useAppStore();
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<string | null>(null);
   const [activeFilter, setActiveFilter] = useState<DashboardFilter>('active_total');
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedSiteId, setSelectedSiteId] = useState<string | number>('all');
   const [siteInputValue, setSiteInputValue] = useState('');
+
+  // Sincronizar contratos desde Firestore al montar para garantizar consistencia con Panel RRHH
+  useEffect(() => {
+    fetchContratos();
+  }, [fetchContratos]);
 
   useEffect(() => {
     if (selectedSiteId === 'all') {
@@ -144,12 +151,157 @@ const AdminDashboard: React.FC = () => {
   // 1.1 Obtener datos del usuario actual para filtrado
   const currentEmp = employees.find(e => e.id === currentUser?.uid);
 
+  // Resolución centralizada de contratos por trabajador idéntica a Panel RRHH (HRContractsDashboard)
+  const contractInfoByWorkerId = useMemo(() => {
+    const todayIso = new Date().toISOString().split('T')[0];
+    const todayObj = new Date(todayIso + 'T00:00:00');
+
+    const contractsByWorker = new Map<string, Contrato[]>();
+    (contratos || []).forEach(c => {
+      const arr = contractsByWorker.get(c.colaboradorId) || [];
+      arr.push(c);
+      contractsByWorker.set(c.colaboradorId, arr);
+    });
+
+    const map = new Map<
+      string,
+      {
+        activeContract: Contrato | null;
+        contractType: string;
+        contractDates: string;
+        fechaInicio?: string;
+        fechaTermino?: string;
+        computedContractStatus:
+          | 'vigente'
+          | 'por_vencer'
+          | 'termino_cumplido'
+          | 'pendiente_firma'
+          | 'sin_contrato'
+          | 'renovado'
+          | 'borrador';
+        diffDays: number | null;
+        resolvedSiteId: string;
+        resolvedCargo: string;
+      }
+    >();
+
+    employees.forEach(emp => {
+      const operationalStatus = resolveEmployeeOperationalStatus(emp);
+      const userContracts = contractsByWorker.get(emp.id) || [];
+      const validContracts = userContracts.filter(c => c.estado !== 'anulado');
+
+      const sortedContracts = [...validContracts].sort((a, b) => {
+        const aIsVig = a.estado === 'vigente' && (!a.fechaTermino || a.fechaTermino >= todayIso) ? 1 : 0;
+        const bIsVig = b.estado === 'vigente' && (!b.fechaTermino || b.fechaTermino >= todayIso) ? 1 : 0;
+        if (aIsVig !== bIsVig) return bIsVig - aIsVig;
+        const aTerm = a.fechaTermino || '9999-99-99';
+        const bTerm = b.fechaTermino || '9999-99-99';
+        if (aTerm !== bTerm) return bTerm.localeCompare(aTerm);
+        const aIni = a.fechaInicio || '';
+        const bIni = b.fechaInicio || '';
+        if (aIni !== bIni) return bIni.localeCompare(aIni);
+        return (b.creadoEn || '').localeCompare(a.creadoEn || '');
+      });
+
+      const activeContract = sortedContracts[0] || null;
+
+      let computedContractStatus:
+        | 'vigente'
+        | 'por_vencer'
+        | 'termino_cumplido'
+        | 'pendiente_firma'
+        | 'sin_contrato'
+        | 'renovado'
+        | 'borrador' = 'sin_contrato';
+      let contractType = 'Sin Registro';
+      let contractDates = 'Sin contrato';
+      let fechaInicio: string | undefined = undefined;
+      let fechaTermino: string | undefined = undefined;
+      let diffDays: number | null = null;
+
+      if (activeContract) {
+        contractType = activeContract.tipo;
+        fechaInicio = activeContract.fechaInicio;
+        fechaTermino = activeContract.fechaTermino;
+        contractDates = `${formatDateDDMMYYYY(activeContract.fechaInicio)} al ${
+          activeContract.fechaTermino ? formatDateDDMMYYYY(activeContract.fechaTermino) : 'Indefinido'
+        }`;
+
+        if (activeContract.estado === 'pendiente_firma') {
+          computedContractStatus = 'pendiente_firma';
+        } else if (activeContract.estado === 'borrador') {
+          computedContractStatus = 'borrador';
+        } else if (activeContract.estado === 'renovado') {
+          computedContractStatus = 'renovado';
+        } else if (activeContract.estado === 'vencido' || activeContract.estado === 'finiquitado') {
+          computedContractStatus = 'termino_cumplido';
+        } else if (activeContract.fechaTermino) {
+          const termObj = new Date(activeContract.fechaTermino + 'T00:00:00');
+          diffDays = Math.ceil((termObj.getTime() - todayObj.getTime()) / (1000 * 60 * 60 * 24));
+          if (diffDays < 0) {
+            computedContractStatus = 'termino_cumplido';
+          } else if (diffDays <= 30) {
+            computedContractStatus = 'por_vencer';
+          } else {
+            computedContractStatus = 'vigente';
+          }
+        } else {
+          computedContractStatus = activeContract.estado === 'vigente' ? 'vigente' : 'termino_cumplido';
+        }
+      } else if (emp.fechaInicioContrato && operationalStatus !== 'inactivo') {
+        contractType = emp.tipoContrato || 'Plazo Fijo';
+        fechaInicio = emp.fechaInicioContrato;
+        fechaTermino = emp.fechaTerminoContrato;
+        if (emp.fechaTerminoContrato) {
+          contractDates = `${formatDateDDMMYYYY(emp.fechaInicioContrato)} al ${formatDateDDMMYYYY(emp.fechaTerminoContrato)}`;
+          const termObj = new Date(emp.fechaTerminoContrato + 'T00:00:00');
+          diffDays = Math.ceil((termObj.getTime() - todayObj.getTime()) / (1000 * 60 * 60 * 24));
+          if (diffDays < 0) {
+            computedContractStatus = 'termino_cumplido';
+          } else if (diffDays <= 30) {
+            computedContractStatus = 'por_vencer';
+          } else {
+            computedContractStatus = 'vigente';
+          }
+        } else {
+          contractDates = `${formatDateDDMMYYYY(emp.fechaInicioContrato)} al Indefinido`;
+          computedContractStatus = 'vigente';
+        }
+      }
+
+      let resolvedSiteId = '0';
+      if (activeContract?.sucursalId && activeContract.sucursalId !== '0') {
+        resolvedSiteId = String(activeContract.sucursalId);
+      } else if (emp.currentSiteId && Number(emp.currentSiteId) > 0) {
+        resolvedSiteId = String(emp.currentSiteId);
+      }
+
+      const resolvedCargo = activeContract?.cargo || emp.cargo || 'GUARDIA DE SEGURIDAD';
+
+      map.set(emp.id, {
+        activeContract,
+        contractType,
+        contractDates,
+        fechaInicio,
+        fechaTermino,
+        computedContractStatus,
+        diffDays,
+        resolvedSiteId,
+        resolvedCargo
+      });
+    });
+
+    return map;
+  }, [employees, contratos]);
+
   // Listas de Empleados según criterio (Filtrado por rol para Supervisores)
   const activeEmployees = employees.filter(e => {
-    if (!e.isActive) return false;
+    if (resolveEmployeeOperationalStatus(e) === 'inactivo') return false;
     // Si es supervisor, solo ve empleados de sus sedes asignadas
     if (currentUser?.role === 'supervisor') {
-      return (currentEmp?.assignedSites || []).includes(e.currentSiteId as any);
+      const assigned = (currentEmp?.assignedSites || []).map(String);
+      const resolvedSite = contractInfoByWorkerId.get(e.id)?.resolvedSiteId;
+      return assigned.includes(String(e.currentSiteId)) || (resolvedSite ? assigned.includes(String(resolvedSite)) : false);
     }
     return true;
   });
@@ -170,20 +322,34 @@ const AdminDashboard: React.FC = () => {
 
   const expiredOS10List = activeEmployees.filter(e => isBefore(e.fechaVencimientoOS10, today));
 
-  const expiredContractsList = activeEmployees.filter(e => (!e.tipoContrato || e.tipoContrato === 'Plazo Fijo') && isBefore(e.fechaTerminoContrato, today));
-  const expiringContracts_30 = activeEmployees.filter(e => (!e.tipoContrato || e.tipoContrato === 'Plazo Fijo') && isBetween(e.fechaTerminoContrato, today, thirtyDaysFromNow));
-  const expiringContracts_60 = activeEmployees.filter(e => {
-    if ((e.tipoContrato && e.tipoContrato !== 'Plazo Fijo') || !e.fechaTerminoContrato) return false;
-    const d = new Date(e.fechaTerminoContrato);
-    d.setHours(0, 0, 0, 0);
-    return d > thirtyDaysFromNow && d <= sixtyDaysFromNow;
-  });
-  const expiringContracts_90 = activeEmployees.filter(e => {
-    if ((e.tipoContrato && e.tipoContrato !== 'Plazo Fijo') || !e.fechaTerminoContrato) return false;
-    const d = new Date(e.fechaTerminoContrato);
-    d.setHours(0, 0, 0, 0);
-    return d > sixtyDaysFromNow && d <= ninetyDaysFromNow;
-  });
+  // Alertas de Contratos (100% consistente con Panel RRHH):
+  // 1. Alerta de Renovación Crítica: contratos vencidos dentro de los últimos 15 días (-15 <= diffDays < 0)
+  // 2. Próximos a Vencer: contratos vigentes que vencen en los próximos 30 días (0 <= diffDays <= 30)
+  const expiredContractsList = activeEmployees
+    .filter(e => {
+      const info = contractInfoByWorkerId.get(e.id);
+      return (
+        info?.computedContractStatus === 'termino_cumplido' &&
+        info.diffDays !== null &&
+        info.diffDays >= -15 &&
+        info.diffDays < 0
+      );
+    })
+    .sort((a, b) => {
+      const diffA = contractInfoByWorkerId.get(a.id)?.diffDays ?? 0;
+      const diffB = contractInfoByWorkerId.get(b.id)?.diffDays ?? 0;
+      return diffA - diffB;
+    });
+
+  const expiringContracts_30 = activeEmployees
+    .filter(e => contractInfoByWorkerId.get(e.id)?.computedContractStatus === 'por_vencer')
+    .sort((a, b) => {
+      const diffA = contractInfoByWorkerId.get(a.id)?.diffDays ?? 999;
+      const diffB = contractInfoByWorkerId.get(b.id)?.diffDays ?? 999;
+      return diffA - diffB;
+    });
+  const expiringContracts_60: typeof employees = [];
+  const expiringContracts_90: typeof employees = [];
 
   const expiringBirthdays_30 = activeEmployees.filter(e => isBirthdayInWindow(e.fechaNacimiento));
 
@@ -208,13 +374,11 @@ const AdminDashboard: React.FC = () => {
     case 'contracts_all':
       currentList = [
         ...expiredContractsList,
-        ...expiringContracts_30,
-        ...expiringContracts_60,
-        ...expiringContracts_90
+        ...expiringContracts_30
       ];
-      viewTitle = "Gestión de Contratos";
-      viewDescription = "Consolidado de personal con contrato vencido o por vencer en los próximos 90 días.";
-      dateColumnHeader = "Término Contrato";
+      viewTitle = "Alertas de Contratos — Renovación Crítica (≤ 15d) y Próximos a Vencer (≤ 30d)";
+      viewDescription = "Personal activo con renovación crítica (vencido hace ≤ 15 días) o contrato próximo a vencer en ≤ 30 días.";
+      dateColumnHeader = "Vigencia / Estado";
       break;
     case 'birthdays_all':
       currentList = [...expiringBirthdays_30].sort((a, b) => {
@@ -450,19 +614,42 @@ const AdminDashboard: React.FC = () => {
       return <span className={`font-bold ${textColor}`}>{date}</span>;
     }
     if (activeFilter === 'contracts_all') {
-      if (emp.tipoContrato && emp.tipoContrato !== 'Plazo Fijo') {
-        return <span className="font-bold text-slate-500 uppercase text-[10px] tracking-widest">{emp.tipoContrato}</span>;
+      const info = contractInfoByWorkerId.get(emp.id);
+      if (!info) {
+        return <span className="text-slate-400">Sin contrato</span>;
       }
 
-      const isExpired = isBefore(emp.fechaTerminoContrato, today);
-      const is30D = isBetween(emp.fechaTerminoContrato, today, thirtyDaysFromNow);
-      const date = emp.fechaTerminoContrato ? new Date(emp.fechaTerminoContrato).toLocaleDateString() : 'N/A';
+      const isCriticalExpired = info.diffDays !== null && info.diffDays < 0;
+      const dayLabel =
+        info.diffDays !== null
+          ? info.diffDays === 0
+            ? 'Vence hoy'
+            : info.diffDays < 0
+            ? `Vencido hace ${Math.abs(info.diffDays)} día${Math.abs(info.diffDays) === 1 ? '' : 's'} · Renovación Crítica`
+            : `${info.diffDays} día${info.diffDays === 1 ? '' : 's'} restante${info.diffDays === 1 ? '' : 's'}`
+          : '';
 
-      let textColor = "text-slate-600";
-      if (isExpired) textColor = "text-red-600";
-      else if (is30D) textColor = "text-orange-600";
-
-      return <span className={`font-bold ${textColor}`}>{date}</span>;
+      return (
+        <div className="text-center">
+          <span className={`font-bold block text-xs ${isCriticalExpired ? 'text-red-700' : 'text-slate-800'}`}>
+            {info.contractDates}
+          </span>
+          <div className="flex items-center justify-center gap-1.5 mt-0.5 flex-wrap">
+            <span className="text-[10px] font-bold text-slate-500 uppercase">{info.contractType}</span>
+            {dayLabel && (
+              <span
+                className={`text-[10px] font-black uppercase ${
+                  isCriticalExpired
+                    ? 'px-1.5 py-0.5 rounded bg-red-100 text-red-700 border border-red-200'
+                    : 'text-amber-600'
+                }`}
+              >
+                {isCriticalExpired ? dayLabel : `· ${dayLabel}`}
+              </span>
+            )}
+          </div>
+        </div>
+      );
     }
     if (activeFilter === 'birthdays_all') {
       const diffDays = getBirthdayProximityDays(emp.fechaNacimiento);
@@ -539,14 +726,15 @@ const AdminDashboard: React.FC = () => {
               <p className="text-xs font-bold uppercase tracking-wider text-slate-500">Alertas de Contratos</p>
               <div className="flex items-baseline gap-2">
                 <h3 className="text-2xl font-bold text-slate-800">{totalContractAlerts}</h3>
-                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-tight">Términos</p>
+                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-tight">
+                  {expiredContractsList.length > 0 ? `${expiredContractsList.length} Críticos · ${expiringContracts_30.length} Próx.` : 'Por renovar (≤ 30d)'}
+                </p>
               </div>
             </div>
           </div>
           <div className="mt-4 flex gap-1 h-1.5 rounded-full overflow-hidden bg-slate-100 relative z-10">
             <div className="bg-red-500 h-full" style={{ width: `${totalContractAlerts > 0 ? (expiredContractsList.length / totalContractAlerts) * 100 : 0}%` }}></div>
             <div className="bg-orange-500 h-full" style={{ width: `${totalContractAlerts > 0 ? (expiringContracts_30.length / totalContractAlerts) * 100 : 0}%` }}></div>
-            <div className="bg-blue-400 h-full flex-1"></div>
           </div>
           {activeFilter === 'contracts_all' && <div className="absolute right-0 top-0 bottom-0 w-1 bg-blue-500"></div>}
         </button>
@@ -982,9 +1170,18 @@ const AdminDashboard: React.FC = () => {
                   {(activeFilter === 'os10_all' || activeFilter === 'contracts_all' || activeFilter === 'birthdays_all') ? (
                     /* ── ALERTAS con sub-agrupación por Empresa ── */
                     (() => {
-                      // Helper: obtener el nombre de empresa de un empleado
+                      // Helper: obtener la sucursal y empresa de un empleado (priorizando sucursal del contrato activo igual que Panel RRHH)
+                      const resolveEmployeeSite = (emp: typeof employees[0]) => {
+                        const resolvedSiteId = contractInfoByWorkerId.get(emp.id)?.resolvedSiteId;
+                        if (resolvedSiteId && resolvedSiteId !== '0') {
+                          const contractSite = sites.find(s => String(s.id) === String(resolvedSiteId));
+                          if (contractSite) return contractSite;
+                        }
+                        return sites.find(s => String(s.id) === String(emp.currentSiteId));
+                      };
+
                       const getEmpresa = (emp: typeof employees[0]) => {
-                        const site = sites.find(s => s.id === emp.currentSiteId);
+                        const site = resolveEmployeeSite(emp);
                         return site?.empresa || 'Sin Empresa';
                       };
 
@@ -996,10 +1193,30 @@ const AdminDashboard: React.FC = () => {
                         { label: 'AVISO: VENCE 30-60 DÍAS', list: filteredList.filter(e => { if (!e.fechaVencimientoOS10) return false; const d = new Date(e.fechaVencimientoOS10); d.setHours(0, 0, 0, 0); return d > thirtyDaysFromNow && d <= sixtyDaysFromNow; }), color: 'text-orange-400', bg: 'bg-slate-50/40', icon: ShieldAlert },
                         { label: 'PLANIFICACIÓN: VENCE 60-90 DÍAS', list: filteredList.filter(e => { if (!e.fechaVencimientoOS10) return false; const d = new Date(e.fechaVencimientoOS10); d.setHours(0, 0, 0, 0); return d > sixtyDaysFromNow && d <= ninetyDaysFromNow; }), color: 'text-yellow-600', bg: 'bg-slate-50/20', icon: ShieldAlert },
                       ] : activeFilter === 'contracts_all' ? [
-                        { label: 'CRÍTICO: CONTRATO VENCIDO', list: filteredList.filter(e => isBefore(e.fechaTerminoContrato, today)), color: 'text-red-600', bg: 'bg-red-50/60', icon: AlertCircle },
-                        { label: 'URGENTE: VENCE < 30 DÍAS', list: filteredList.filter(e => isBetween(e.fechaTerminoContrato, today, thirtyDaysFromNow)), color: 'text-orange-600', bg: 'bg-orange-50/60', icon: FileWarning },
-                        { label: 'AVISO: VENCE 30-60 DÍAS', list: filteredList.filter(e => { if (!e.fechaTerminoContrato) return false; const d = new Date(e.fechaTerminoContrato); d.setHours(0, 0, 0, 0); return d > thirtyDaysFromNow && d <= sixtyDaysFromNow; }), color: 'text-blue-600', bg: 'bg-blue-50/30', icon: FileCheck },
-                        { label: 'PLANIFICACIÓN: VENCE 60-90 DÍAS', list: filteredList.filter(e => { if (!e.fechaTerminoContrato) return false; const d = new Date(e.fechaTerminoContrato); d.setHours(0, 0, 0, 0); return d > sixtyDaysFromNow && d <= ninetyDaysFromNow; }), color: 'text-slate-600', bg: 'bg-slate-50/10', icon: FileCheck },
+                        {
+                          label: 'ALERTA DE RENOVACIÓN CRÍTICA: CONTRATO VENCIDO (PLAZO ≤ 15 DÍAS)',
+                          list: filteredList.filter(e => {
+                            const info = contractInfoByWorkerId.get(e.id);
+                            return (
+                              info?.computedContractStatus === 'termino_cumplido' &&
+                              info.diffDays !== null &&
+                              info.diffDays >= -15 &&
+                              info.diffDays < 0
+                            );
+                          }),
+                          color: 'text-red-600',
+                          bg: 'bg-red-50/70',
+                          icon: AlertCircle
+                        },
+                        {
+                          label: 'PRÓXIMOS A VENCER: VENCIMIENTO EN ≤ 30 DÍAS',
+                          list: filteredList.filter(
+                            e => contractInfoByWorkerId.get(e.id)?.computedContractStatus === 'por_vencer'
+                          ),
+                          color: 'text-orange-600',
+                          bg: 'bg-orange-50/60',
+                          icon: FileWarning
+                        },
                       ] : [
                         {
                           label: 'CUMPLEAÑOS PRÓXIMOS (30 DÍAS)',
@@ -1064,7 +1281,9 @@ const AdminDashboard: React.FC = () => {
 
                                       {/* Filas de empleados de esta empresa */}
                                       {empList.map((emp) => {
-                                        const siteName = sites.find(s => s.id === emp.currentSiteId)?.name || 'Sin Asignar';
+                                        const resolvedSite = resolveEmployeeSite(emp);
+                                        const siteName = resolvedSite?.name || 'Sin Asignar';
+                                        const resolvedCargo = contractInfoByWorkerId.get(emp.id)?.resolvedCargo || emp.cargo;
                                         const diffDays = activeFilter === 'birthdays_all' ? getBirthdayProximityDays(emp.fechaNacimiento) : null;
                                         const isHighlight = activeFilter === 'birthdays_all' && (diffDays === 0 || diffDays === 1);
                                         const rowClass = isHighlight
@@ -1083,7 +1302,7 @@ const AdminDashboard: React.FC = () => {
                                               </td>
                                             )}
                                             <td className="px-6 py-3">
-                                              <div className="text-xs font-bold text-slate-700">{emp.cargo}</div>
+                                              <div className="text-xs font-bold text-slate-700">{resolvedCargo}</div>
                                               <div className="text-[10px] text-slate-400 flex items-center gap-1">
                                                 <MapPin size={10} /> {siteName}
                                               </div>

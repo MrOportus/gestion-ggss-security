@@ -1,13 +1,23 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { 
-  X, FileText, CheckCircle2, AlertCircle, Calendar, Building, 
-  Briefcase, Clock, Link2, ShieldAlert, RefreshCw, FileCheck
+import {
+  X,
+  FileText,
+  CheckCircle2,
+  AlertCircle,
+  Calendar,
+  Building,
+  Briefcase,
+  Clock,
+  Link2,
+  CalendarClock,
+  Search,
+  User
 } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import { Contrato, EstadoContrato, EstadoDocumental, OrigenRegistroContrato } from '../types/phase1';
 import { Employee } from '../types';
 import { deleteField } from 'firebase/firestore';
-import { formatDateDDMMYYYY } from '../lib/textUtils';
+import { formatDateDDMMYYYY, normalizeText } from '../lib/textUtils';
 
 interface Props {
   isOpen: boolean;
@@ -19,6 +29,19 @@ interface Props {
   onSuccess?: (contratoId: string) => void;
 }
 
+const DEFAULT_CARGO = 'Guardia de Seguridad';
+const VALID_CONTRACT_TYPES = ['Plazo Fijo', 'Part-Time', 'Obra y Faena', 'Indefinido'];
+
+function normalizeContractType(raw?: string): string {
+  if (!raw) return 'Plazo Fijo';
+  if (VALID_CONTRACT_TYPES.includes(raw)) return raw;
+  const lower = raw.toLowerCase();
+  if (lower.includes('part')) return 'Part-Time';
+  if (lower.includes('faena') || lower.includes('obra')) return 'Obra y Faena';
+  if (lower.includes('indefinido')) return 'Indefinido';
+  return 'Plazo Fijo';
+}
+
 export const ContractManagementModal: React.FC<Props> = ({
   isOpen,
   onClose,
@@ -28,13 +51,14 @@ export const ContractManagementModal: React.FC<Props> = ({
   contratoToEdit = null,
   onSuccess
 }) => {
-  const { 
-    employees, 
-    sites, 
-    digitalDocuments, 
-    createContrato, 
-    updateContrato, 
-    renewContrato, 
+  const {
+    employees,
+    sites,
+    contratos,
+    digitalDocuments,
+    createContrato,
+    updateContrato,
+    renewContrato,
     linkDocumentToContract,
     showNotification,
     currentUser
@@ -42,6 +66,10 @@ export const ContractManagementModal: React.FC<Props> = ({
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [workerSearch, setWorkerSearch] = useState('');
+  const [siteSearch, setSiteSearch] = useState('');
+
+  const isRegularizationMode = mode === 'create' || mode === 'renew';
 
   // Determinar empleado inicial
   const initialEmpId = useMemo(() => {
@@ -57,23 +85,23 @@ export const ContractManagementModal: React.FC<Props> = ({
     return employees.find(e => e.id === selectedEmpId) || null;
   }, [employees, selectedEmpId]);
 
-  // Form State
+  // Form State — cargo siempre mantiene por defecto "Guardia de Seguridad"
   const [formData, setFormData] = useState({
-    sucursalId: '',
+    sucursalId: '0',
     tipo: 'Plazo Fijo',
     fechaInicio: new Date().toISOString().split('T')[0],
     fechaTermino: '',
-    cargo: '',
+    cargo: DEFAULT_CARGO,
     jornada: '45 horas semanales',
     estado: 'vigente' as EstadoContrato,
     estadoDocumental: 'no_adjunto' as EstadoDocumental,
     documentoId: '',
     googleDriveUrl: '',
-    origenRegistro: (mode === 'renew' ? 'emision_sistema' : 'manual_aspro') as OrigenRegistroContrato,
+    origenRegistro: 'manual_aspro' as OrigenRegistroContrato,
     observacionesDocumento: '',
     observacionesConciliacion: '',
     fechaFirmaReal: '',
-    permiteMultisucursal: false,
+    permiteMultisucursal: false
   });
 
   // Inicialización de valores según modo
@@ -85,58 +113,138 @@ export const ContractManagementModal: React.FC<Props> = ({
         tipo: contratoToEdit.tipo || 'Plazo Fijo',
         fechaInicio: contratoToEdit.fechaInicio || '',
         fechaTermino: contratoToEdit.fechaTermino || '',
-        cargo: contratoToEdit.cargo || '',
-        jornada: contratoToEdit.jornada || '',
+        cargo: contratoToEdit.cargo || DEFAULT_CARGO,
+        jornada: contratoToEdit.jornada || '45 horas semanales',
         estado: contratoToEdit.estado || 'vigente',
-        estadoDocumental: contratoToEdit.estadoDocumental || (contratoToEdit.documentoId ? 'firmado_digital' : 'no_adjunto'),
+        estadoDocumental:
+          contratoToEdit.estadoDocumental || (contratoToEdit.documentoId ? 'firmado_digital' : 'no_adjunto'),
         documentoId: contratoToEdit.documentoId || '',
         googleDriveUrl: contratoToEdit.googleDriveUrl || '',
         origenRegistro: contratoToEdit.origenRegistro || 'manual_aspro',
         observacionesDocumento: contratoToEdit.observacionesDocumento || '',
         observacionesConciliacion: contratoToEdit.observacionesConciliacion || '',
         fechaFirmaReal: contratoToEdit.fechaFirmaReal || '',
-        permiteMultisucursal: !!contratoToEdit.permiteMultisucursal,
+        permiteMultisucursal: !!contratoToEdit.permiteMultisucursal
       });
-    } else if (mode === 'renew' && contratoAnterior) {
-      setSelectedEmpId(contratoAnterior.colaboradorId);
-      // Sugerir fecha de inicio un día después del término del anterior si existe
-      let defaultStart = new Date().toISOString().split('T')[0];
-      if (contratoAnterior.fechaTermino) {
-        const d = new Date(contratoAnterior.fechaTermino + 'T00:00:00');
-        d.setDate(d.getDate() + 1);
-        defaultStart = d.toISOString().split('T')[0];
-      }
+    } else if (preselectedEmployee || contratoAnterior) {
+      const empId = preselectedEmployee?.id || contratoAnterior?.colaboradorId || '';
+      setSelectedEmpId(empId);
+
+      const resolvedSite =
+        (contratoAnterior?.sucursalId && contratoAnterior.sucursalId !== '0'
+          ? String(contratoAnterior.sucursalId)
+          : preselectedEmployee?.currentSiteId
+          ? String(preselectedEmployee.currentSiteId)
+          : '0');
+
+      const resolvedStart =
+        contratoAnterior?.fechaInicio ||
+        preselectedEmployee?.fechaInicioContrato?.split('T')[0] ||
+        new Date().toISOString().split('T')[0];
+
+      const resolvedEnd =
+        contratoAnterior?.fechaTermino ||
+        preselectedEmployee?.fechaTerminoContrato?.split('T')[0] ||
+        '';
+
+      const resolvedTipo = normalizeContractType(
+        contratoAnterior?.tipo || preselectedEmployee?.tipoContrato
+      );
+
       setFormData({
-        sucursalId: contratoAnterior.sucursalId || '0',
-        tipo: contratoAnterior.tipo === 'Plazo Fijo' ? 'Indefinido' : contratoAnterior.tipo,
-        fechaInicio: defaultStart,
-        fechaTermino: '',
-        cargo: contratoAnterior.cargo || selectedEmployee?.cargo || '',
-        jornada: contratoAnterior.jornada || '45 horas semanales',
+        sucursalId: resolvedSite,
+        tipo: resolvedTipo,
+        fechaInicio: resolvedStart,
+        fechaTermino: resolvedEnd,
+        cargo: DEFAULT_CARGO,
+        jornada: contratoAnterior?.jornada || '45 horas semanales',
         estado: 'vigente',
         estadoDocumental: 'no_adjunto',
         documentoId: '',
         googleDriveUrl: '',
-        origenRegistro: 'emision_sistema',
-        observacionesDocumento: `Renovación de contrato #${contratoAnterior.id}`,
+        origenRegistro: 'manual_aspro',
+        observacionesDocumento: '',
         observacionesConciliacion: '',
         fechaFirmaReal: '',
-        permiteMultisucursal: !!contratoAnterior.permiteMultisucursal,
+        permiteMultisucursal: !!contratoAnterior?.permiteMultisucursal
       });
-    } else if (preselectedEmployee) {
-      setSelectedEmpId(preselectedEmployee.id);
-      setFormData(prev => ({
-        ...prev,
-        sucursalId: preselectedEmployee.currentSiteId?.toString() || '0',
-        cargo: preselectedEmployee.cargo || 'Guardia de Seguridad',
-        tipo: preselectedEmployee.tipoContrato || 'Plazo Fijo',
-        fechaInicio: preselectedEmployee.fechaInicioContrato?.split('T')[0] || new Date().toISOString().split('T')[0],
-        fechaTermino: preselectedEmployee.fechaTerminoContrato?.split('T')[0] || '',
-      }));
+    } else {
+      setSelectedEmpId('');
+      setFormData({
+        sucursalId: '0',
+        tipo: 'Plazo Fijo',
+        fechaInicio: new Date().toISOString().split('T')[0],
+        fechaTermino: '',
+        cargo: DEFAULT_CARGO,
+        jornada: '45 horas semanales',
+        estado: 'vigente',
+        estadoDocumental: 'no_adjunto',
+        documentoId: '',
+        googleDriveUrl: '',
+        origenRegistro: 'manual_aspro',
+        observacionesDocumento: '',
+        observacionesConciliacion: '',
+        fechaFirmaReal: '',
+        permiteMultisucursal: false
+      });
     }
   }, [mode, contratoToEdit, contratoAnterior, preselectedEmployee]);
 
-  // Documentos digitales disponibles para el trabajador seleccionado
+  // Al seleccionar un trabajador desde el buscador (cuando se abre desde el botón superior), precargar su sucursal y fechas si existen
+  const handleSelectEmployee = (empId: string) => {
+    setSelectedEmpId(empId);
+    const emp = employees.find(e => e.id === empId);
+    if (!emp) return;
+
+    const existingContracts = (contratos || []).filter(
+      c => c.colaboradorId === empId && c.estado !== 'anulado'
+    );
+    const latestContract = existingContracts[0] || null;
+
+    setFormData(prev => ({
+      ...prev,
+      sucursalId:
+        latestContract?.sucursalId && latestContract.sucursalId !== '0'
+          ? String(latestContract.sucursalId)
+          : emp.currentSiteId
+          ? String(emp.currentSiteId)
+          : prev.sucursalId || '0',
+      tipo: normalizeContractType(latestContract?.tipo || emp.tipoContrato || prev.tipo),
+      fechaInicio:
+        latestContract?.fechaInicio ||
+        emp.fechaInicioContrato?.split('T')[0] ||
+        prev.fechaInicio,
+      fechaTermino:
+        latestContract?.fechaTermino ||
+        emp.fechaTerminoContrato?.split('T')[0] ||
+        prev.fechaTermino,
+      cargo: DEFAULT_CARGO
+    }));
+  };
+
+  // Filtrado de trabajadores para el selector rápido
+  const filteredEmployees = useMemo(() => {
+    const term = normalizeText(workerSearch);
+    const base = employees;
+    if (!term) return base;
+    return base.filter(emp => {
+      const fullName = normalizeText(
+        `${emp.firstName || ''} ${emp.lastNamePaterno || ''} ${emp.lastNameMaterno || ''}`
+      );
+      const rut = normalizeText(emp.rut || '');
+      return fullName.includes(term) || rut.includes(term);
+    });
+  }, [employees, workerSearch]);
+
+  // Filtrado de sucursales por texto
+  const filteredSites = useMemo(() => {
+    const activeSites = sites.filter(s => s.active);
+    const term = normalizeText(siteSearch);
+    if (!term) return activeSites;
+    return activeSites.filter(s => normalizeText(s.name || '').includes(term));
+  }, [sites, siteSearch]);
+
+  // Documentos digitales disponibles para el trabajador seleccionado (solo usado en modo edit / link_doc)
   const workerDigitalDocs = useMemo(() => {
     if (!selectedEmpId) return [];
     return digitalDocuments.filter(d => d.assignedTo === selectedEmpId);
@@ -144,7 +252,9 @@ export const ContractManagementModal: React.FC<Props> = ({
 
   if (!isOpen) return null;
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
+  const handleChange = (
+    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>
+  ) => {
     const { name, value, type } = e.target;
     if (type === 'checkbox') {
       const checked = (e.target as HTMLInputElement).checked;
@@ -179,18 +289,18 @@ export const ContractManagementModal: React.FC<Props> = ({
     setError(null);
 
     if (!selectedEmpId) {
-      setError('Debes seleccionar o confirmar el colaborador.');
+      setError('Debes seleccionar el colaborador a regularizar.');
       return;
     }
 
-    if (!formData.tipo || !formData.fechaInicio) {
-      setError('Tipo de contrato y fecha de inicio son obligatorios.');
+    if (!formData.fechaInicio) {
+      setError('La fecha de inicio del contrato es obligatoria.');
       return;
     }
 
-    const isPlazoFijo = formData.tipo.toLowerCase().includes('plazo');
-    if (isPlazoFijo && !formData.fechaTermino) {
-      setError('Los contratos a plazo fijo requieren obligatoriamente una fecha de término.');
+    const isIndefinido = formData.tipo.toLowerCase().includes('indefinido');
+    if (!isIndefinido && !formData.fechaTermino) {
+      setError('Debes indicar la fecha de término del contrato para visualizar su vencimiento en el dashboard.');
       return;
     }
 
@@ -203,17 +313,18 @@ export const ContractManagementModal: React.FC<Props> = ({
 
     try {
       const actorId = currentUser?.uid || 'admin_user';
+      const cargoFinal = formData.cargo?.trim() || DEFAULT_CARGO;
 
       if (mode === 'edit' && contratoToEdit) {
         const editPayload: any = {
           sucursalId: formData.sucursalId || '0',
           tipo: formData.tipo,
           fechaInicio: formData.fechaInicio,
-          cargo: formData.cargo?.trim() || '',
-          jornada: formData.jornada?.trim() || '',
+          cargo: cargoFinal,
+          jornada: formData.jornada?.trim() || '45 horas semanales',
           estado: formData.estado,
           estadoDocumental: formData.estadoDocumental,
-          permiteMultisucursal: !!formData.permiteMultisucursal,
+          permiteMultisucursal: !!formData.permiteMultisucursal
         };
 
         if (formData.fechaTermino) {
@@ -259,36 +370,6 @@ export const ContractManagementModal: React.FC<Props> = ({
         await updateContrato(contratoToEdit.id, editPayload);
         showNotification('Contrato actualizado exitosamente', 'success');
         if (onSuccess) onSuccess(contratoToEdit.id);
-      } else if (mode === 'renew' && contratoAnterior) {
-        const renewPayload: any = {
-          colaboradorId: selectedEmpId,
-          sucursalId: formData.sucursalId || '0',
-          tipo: formData.tipo,
-          fechaInicio: formData.fechaInicio,
-          cargo: formData.cargo?.trim() || '',
-          jornada: formData.jornada?.trim() || '',
-          estado: formData.estado,
-          estadoDocumental: formData.estadoDocumental,
-          origenRegistro: formData.origenRegistro || 'manual_aspro',
-          permiteMultisucursal: !!formData.permiteMultisucursal,
-          creadoEn: new Date().toISOString(),
-          creadoPor: actorId,
-        };
-
-        if (formData.fechaTermino) renewPayload.fechaTermino = formData.fechaTermino;
-        if (formData.documentoId) renewPayload.documentoId = formData.documentoId;
-        if (formData.googleDriveUrl) renewPayload.googleDriveUrl = formData.googleDriveUrl;
-        if (formData.observacionesDocumento && formData.observacionesDocumento.trim()) {
-          renewPayload.observacionesDocumento = formData.observacionesDocumento.trim();
-        }
-        if (formData.observacionesConciliacion && formData.observacionesConciliacion.trim()) {
-          renewPayload.observacionesConciliacion = formData.observacionesConciliacion.trim();
-        }
-        if (formData.fechaFirmaReal) renewPayload.fechaFirmaReal = formData.fechaFirmaReal;
-
-        const newId = await renewContrato(contratoAnterior.id, renewPayload);
-        showNotification('Renovación registrada exitosamente. El contrato anterior fue archivado como Renovado.', 'success');
-        if (onSuccess) onSuccess(newId);
       } else if (mode === 'link_doc' && contratoToEdit) {
         await linkDocumentToContract(
           contratoToEdit.id,
@@ -299,42 +380,75 @@ export const ContractManagementModal: React.FC<Props> = ({
         showNotification('Documento vinculado exitosamente', 'success');
         if (onSuccess) onSuccess(contratoToEdit.id);
       } else {
-        // Crear nuevo contrato
-        const createPayload: any = {
-          colaboradorId: selectedEmpId,
-          sucursalId: formData.sucursalId || '0',
-          tipo: formData.tipo,
-          fechaInicio: formData.fechaInicio,
-          cargo: formData.cargo?.trim() || '',
-          jornada: formData.jornada?.trim() || '',
-          estado: formData.estado,
-          estadoDocumental: formData.estadoDocumental,
-          origenRegistro: formData.origenRegistro || 'manual_aspro',
-          permiteMultisucursal: !!formData.permiteMultisucursal,
-          creadoEn: new Date().toISOString(),
-          creadoPor: actorId,
-        };
+        // MODO REGULARIZAR (rápido, sin exigir documento digital)
+        const matchingSameDates = (contratos || []).find(
+          c =>
+            c.colaboradorId === selectedEmpId &&
+            c.fechaInicio === formData.fechaInicio &&
+            (c.fechaTermino || '') === (formData.fechaTermino || '') &&
+            c.estado !== 'anulado'
+        );
 
-        if (formData.fechaTermino) createPayload.fechaTermino = formData.fechaTermino;
-        if (formData.documentoId) createPayload.documentoId = formData.documentoId;
-        if (formData.googleDriveUrl) createPayload.googleDriveUrl = formData.googleDriveUrl;
-        if (formData.observacionesDocumento && formData.observacionesDocumento.trim()) {
-          createPayload.observacionesDocumento = formData.observacionesDocumento.trim();
-        }
-        if (formData.observacionesConciliacion && formData.observacionesConciliacion.trim()) {
-          createPayload.observacionesConciliacion = formData.observacionesConciliacion.trim();
-        }
-        if (formData.fechaFirmaReal) createPayload.fechaFirmaReal = formData.fechaFirmaReal;
+        if (matchingSameDates) {
+          const updateExistingPayload: any = {
+            sucursalId: formData.sucursalId || '0',
+            tipo: formData.tipo,
+            fechaInicio: formData.fechaInicio,
+            cargo: cargoFinal,
+            estado: 'vigente' as EstadoContrato
+          };
+          if (formData.fechaTermino) {
+            updateExistingPayload.fechaTermino = formData.fechaTermino;
+          } else {
+            updateExistingPayload.fechaTermino = deleteField();
+          }
+          await updateContrato(matchingSameDates.id, updateExistingPayload);
+          showNotification('Contrato regularizado exitosamente', 'success');
+          if (onSuccess) onSuccess(matchingSameDates.id);
+        } else {
+          // Buscar si el colaborador tenía un contrato vigente anterior para transicionarlo a 'renovado'
+          const prevVigente =
+            (contratoAnterior && contratoAnterior.estado === 'vigente' ? contratoAnterior : null) ||
+            (contratos || []).find(
+              c => c.colaboradorId === selectedEmpId && c.estado === 'vigente'
+            ) ||
+            null;
 
-        const newId = await createContrato(createPayload);
-        showNotification('Contrato registrado exitosamente', 'success');
-        if (onSuccess) onSuccess(newId);
+          const basePayload: any = {
+            colaboradorId: selectedEmpId,
+            sucursalId: formData.sucursalId || '0',
+            tipo: formData.tipo,
+            fechaInicio: formData.fechaInicio,
+            cargo: cargoFinal,
+            jornada: '45 horas semanales',
+            estado: 'vigente' as EstadoContrato,
+            estadoDocumental: 'no_adjunto' as EstadoDocumental,
+            origenRegistro: 'manual_aspro' as OrigenRegistroContrato,
+            permiteMultisucursal: false,
+            creadoEn: new Date().toISOString(),
+            creadoPor: actorId
+          };
+
+          if (formData.fechaTermino) {
+            basePayload.fechaTermino = formData.fechaTermino;
+          }
+
+          let newId: string;
+          if (prevVigente) {
+            newId = await renewContrato(prevVigente.id, basePayload);
+          } else {
+            newId = await createContrato(basePayload);
+          }
+
+          showNotification('Contrato regularizado exitosamente', 'success');
+          if (onSuccess) onSuccess(newId);
+        }
       }
 
       onClose();
     } catch (err: any) {
       console.error('Error saving contract:', err);
-      setError(err.message || 'Error al guardar el contrato.');
+      setError(err.message || 'Error al regularizar el contrato.');
     } finally {
       setLoading(false);
     }
@@ -342,10 +456,12 @@ export const ContractManagementModal: React.FC<Props> = ({
 
   const getTitle = () => {
     switch (mode) {
-      case 'renew': return 'Renovar Contrato de Trabajo';
-      case 'edit': return 'Editar Registro Contractual';
-      case 'link_doc': return 'Vincular Documento a Contrato';
-      default: return 'Nuevo Registro Contractual';
+      case 'edit':
+        return 'Editar Registro Contractual';
+      case 'link_doc':
+        return 'Vincular Documento a Contrato';
+      default:
+        return 'Regularizar Contrato';
     }
   };
 
@@ -353,28 +469,29 @@ export const ContractManagementModal: React.FC<Props> = ({
     if (selectedEmployee) {
       return `${selectedEmployee.firstName} ${selectedEmployee.lastNamePaterno} • ${selectedEmployee.rut}`;
     }
-    return 'Complete la información contractual estructurada';
+    return 'Registro rápido de fechas vigentes, sucursal y cargo';
   };
 
   return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[92vh]">
-        
-        {/* Header */}
-        <div className="bg-slate-900 px-6 py-4 flex items-center justify-between shrink-0">
-          <div className="flex items-center gap-3 text-white">
-            <div className="w-10 h-10 rounded-xl bg-blue-600/30 flex items-center justify-center text-blue-400">
-              {mode === 'renew' ? <RefreshCw size={20} /> : <FileText size={20} />}
+    <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
+      <div className="bg-white border border-slate-100 rounded-3xl shadow-2xl w-full max-w-xl overflow-hidden flex flex-col max-h-[92vh]">
+        {/* Header limpio estilo ASPRO */}
+        <div className="bg-white border-b border-slate-100 px-6 py-5 flex items-center justify-between shrink-0">
+          <div className="flex items-center gap-3.5">
+            <div className="w-10 h-10 rounded-2xl bg-blue-600 text-white shadow-lg shadow-blue-200 flex items-center justify-center shrink-0">
+              {isRegularizationMode ? <CalendarClock size={20} /> : <FileText size={20} />}
             </div>
             <div>
-              <h2 className="text-base font-bold text-white tracking-tight">{getTitle()}</h2>
+              <h2 className="text-base md:text-lg font-black text-slate-900 tracking-tight uppercase">
+                {getTitle()}
+              </h2>
               <p className="text-xs text-slate-400 font-medium">{getSubtitle()}</p>
             </div>
           </div>
-          <button 
+          <button
             type="button"
-            onClick={onClose} 
-            className="text-slate-400 hover:text-white transition-colors p-1 rounded-lg hover:bg-slate-800"
+            onClick={onClose}
+            className="text-slate-400 hover:text-slate-700 transition-colors p-2 rounded-xl hover:bg-slate-100"
           >
             <X size={20} />
           </button>
@@ -389,101 +506,117 @@ export const ContractManagementModal: React.FC<Props> = ({
             </div>
           )}
 
-          {/* Banner de Referencia en Renovación */}
-          {mode === 'renew' && contratoAnterior && (
-            <div className="p-4 rounded-xl bg-blue-50/70 border border-blue-200 text-xs text-blue-900 space-y-1.5">
-              <div className="flex items-center gap-2 font-bold text-blue-950">
-                <FileCheck size={16} className="text-blue-600" />
-                Contrato Previo a Renovar: #{contratoAnterior.id.slice(0, 14)}...
-              </div>
-              <p className="text-slate-600">
-                Tipo: <strong className="text-slate-800">{contratoAnterior.tipo}</strong> • 
-                Periodo: {formatDateDDMMYYYY(contratoAnterior.fechaInicio)} al {contratoAnterior.fechaTermino ? formatDateDDMMYYYY(contratoAnterior.fechaTermino) : 'Indefinido'} •
-                Renovación actual: #{contratoAnterior.numeroRenovacion || 1}
-              </p>
-              <p className="text-[11px] text-blue-700 italic">
-                Al confirmar, el contrato anterior quedará registrado en el historial como <strong>"Renovado"</strong> y el nuevo contrato tomará vigencia inmediata.
-              </p>
-            </div>
-          )}
-
-          {/* Banner Informativo de Ausencia Documental */}
-          {!formData.documentoId && !formData.googleDriveUrl && formData.estadoDocumental === 'no_adjunto' && (
-            <div className="p-3.5 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-800 flex items-start gap-2.5">
-              <ShieldAlert className="text-amber-600 shrink-0 mt-0.5" size={16} />
-              <div>
-                <strong>Registro sin respaldo digital adjunto:</strong> Se guardará la existencia y fechas del contrato para propósitos de gestión. No se marcará como verificado documentalmente hasta adjuntar o vincular el PDF firmado.
-              </div>
-            </div>
-          )}
-
           <form id="contract-form" onSubmit={handleSubmit} className="space-y-4">
-            
-            {/* Selector de Colaborador (solo si no viene preseleccionado) */}
-            {!preselectedEmployee && mode !== 'edit' && mode !== 'renew' && (
-              <div>
-                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
-                  Colaborador <span className="text-red-500">*</span>
-                </label>
-                <select
-                  value={selectedEmpId}
-                  onChange={(e) => setSelectedEmpId(e.target.value)}
-                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2 text-xs font-medium focus:border-blue-500 focus:bg-white focus:outline-none"
-                  required
-                >
-                  <option value="">-- Seleccionar Trabajador --</option>
-                  {employees.filter(e => e.isActive).map(emp => (
-                    <option key={emp.id} value={emp.id}>
-                      {emp.firstName} {emp.lastNamePaterno} {emp.lastNameMaterno || ''} ({emp.rut})
-                    </option>
-                  ))}
-                </select>
+            {/* Ficha del Colaborador si viene preseleccionado desde la fila */}
+            {preselectedEmployee ? (
+              <div className="p-3.5 bg-blue-50/60 border border-blue-200 rounded-2xl flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-xl bg-blue-600/10 text-blue-600 flex items-center justify-center font-black text-xs">
+                    <User size={16} />
+                  </div>
+                  <div>
+                    <p className="text-xs font-black text-slate-900">
+                      {preselectedEmployee.firstName} {preselectedEmployee.lastNamePaterno}{' '}
+                      {preselectedEmployee.lastNameMaterno || ''}
+                    </p>
+                    <p className="text-[11px] text-slate-500 font-mono">
+                      RUT: {preselectedEmployee.rut || '---'}
+                    </p>
+                  </div>
+                </div>
+                <span className="px-2.5 py-1 rounded-full bg-white border border-blue-200 text-[10px] font-black text-blue-700 uppercase tracking-wider">
+                  Regularización Rápida
+                </span>
               </div>
+            ) : (
+              mode !== 'edit' && (
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
+                    Colaborador <span className="text-red-500">*</span>
+                  </label>
+                  <div className="relative">
+                    <Search
+                      size={14}
+                      className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"
+                    />
+                    <input
+                      type="text"
+                      value={workerSearch}
+                      onChange={e => setWorkerSearch(e.target.value)}
+                      placeholder="Buscar colaborador por nombre o RUT..."
+                      className="w-full rounded-xl border border-slate-200 bg-slate-50 pl-9 pr-3.5 py-2 text-xs font-medium focus:border-blue-500 focus:bg-white focus:outline-none mb-1.5"
+                    />
+                  </div>
+                  <select
+                    value={selectedEmpId}
+                    onChange={e => handleSelectEmployee(e.target.value)}
+                    className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-xs font-semibold text-slate-800 focus:border-blue-500 focus:outline-none"
+                    required
+                  >
+                    <option value="">-- Seleccionar Trabajador ({filteredEmployees.length}) --</option>
+                    {filteredEmployees.map(emp => (
+                      <option key={emp.id} value={emp.id}>
+                        {emp.firstName} {emp.lastNamePaterno} {emp.lastNameMaterno || ''} ({emp.rut})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )
             )}
 
+            {/* Sucursal / Instalación con buscador rápido */}
+            <div className="space-y-1.5">
+              <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1">
+                <Building size={13} className="text-blue-600" />
+                Sucursal / Instalación <span className="text-red-500">*</span>
+              </label>
+              <div className="relative">
+                <Search
+                  size={13}
+                  className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"
+                />
+                <input
+                  type="text"
+                  value={siteSearch}
+                  onChange={e => {
+                    const val = e.target.value;
+                    setSiteSearch(val);
+                    const term = normalizeText(val);
+                    if (term) {
+                      const firstMatch = sites
+                        .filter(s => s.active)
+                        .find(s => normalizeText(s.name || '').includes(term));
+                      if (firstMatch) {
+                        setFormData(prev => ({ ...prev, sucursalId: String(firstMatch.id) }));
+                      }
+                    }
+                  }}
+                  placeholder="Filtrar sucursal escribiendo el nombre (ej. demo, banco)..."
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 pl-9 pr-3.5 py-2 text-xs font-medium focus:border-blue-500 focus:bg-white focus:outline-none"
+                />
+              </div>
+              <select
+                name="sucursalId"
+                value={formData.sucursalId}
+                onChange={handleChange}
+                className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-xs font-semibold text-slate-800 focus:border-blue-500 focus:outline-none"
+                required
+              >
+                <option value="0">Contrato General / Multisitio (Sin sucursal exclusiva)</option>
+                {filteredSites.map(site => (
+                  <option key={site.id} value={site.id}>
+                    {site.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Fechas de Vigencia del Contrato */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              
-              {/* Tipo de Contrato */}
-              <div>
-                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
-                  Tipo de Contrato <span className="text-red-500">*</span>
-                </label>
-                <select
-                  name="tipo"
-                  value={formData.tipo}
-                  onChange={handleChange}
-                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2 text-xs font-medium focus:border-blue-500 focus:bg-white focus:outline-none"
-                  required
-                >
-                  <option value="Plazo Fijo">Plazo Fijo</option>
-                  <option value="Indefinido">Indefinido</option>
-                  <option value="Obra y Faena">Obra y Faena</option>
-                </select>
-              </div>
-
-              {/* Sucursal Asignada / Convenida */}
-              <div>
-                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
-                  Sucursal de Referencia <span className="text-red-500">*</span>
-                </label>
-                <select
-                  name="sucursalId"
-                  value={formData.sucursalId}
-                  onChange={handleChange}
-                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2 text-xs font-medium focus:border-blue-500 focus:bg-white focus:outline-none"
-                  required
-                >
-                  <option value="0">Contrato General / Multisitio (Sin sucursal exclusiva)</option>
-                  {sites.filter(s => s.active).map(site => (
-                    <option key={site.id} value={site.id}>{site.name}</option>
-                  ))}
-                </select>
-              </div>
-
               {/* Fecha Inicio */}
               <div>
                 <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1 flex items-center gap-1">
-                  <Calendar size={13} className="text-slate-400" />
+                  <Calendar size={13} className="text-blue-600" />
                   Fecha de Inicio <span className="text-red-500">*</span>
                 </label>
                 <input
@@ -491,7 +624,7 @@ export const ContractManagementModal: React.FC<Props> = ({
                   name="fechaInicio"
                   value={formData.fechaInicio}
                   onChange={handleChange}
-                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2 text-xs font-medium focus:border-blue-500 focus:bg-white focus:outline-none"
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-xs font-semibold text-slate-800 focus:border-blue-500 focus:bg-white focus:outline-none"
                   required
                 />
               </div>
@@ -499,25 +632,48 @@ export const ContractManagementModal: React.FC<Props> = ({
               {/* Fecha Término */}
               <div>
                 <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1 flex items-center gap-1">
-                  <Calendar size={13} className="text-slate-400" />
+                  <Calendar size={13} className="text-blue-600" />
                   Fecha de Término
-                  {formData.tipo.includes('Plazo') && <span className="text-red-500 font-bold">*</span>}
-                  {!formData.tipo.includes('Plazo') && <span className="text-slate-400 font-normal text-[10px]">(Opcional)</span>}
+                  {!formData.tipo.toLowerCase().includes('indefinido') ? (
+                    <span className="text-red-500 font-bold">*</span>
+                  ) : (
+                    <span className="text-slate-400 font-normal text-[10px]">(Opcional)</span>
+                  )}
                 </label>
                 <input
                   type="date"
                   name="fechaTermino"
                   value={formData.fechaTermino}
                   onChange={handleChange}
-                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2 text-xs font-medium focus:border-blue-500 focus:bg-white focus:outline-none"
-                  required={formData.tipo.includes('Plazo')}
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-xs font-semibold text-slate-800 focus:border-blue-500 focus:bg-white focus:outline-none"
+                  required={!formData.tipo.toLowerCase().includes('indefinido')}
                 />
               </div>
+            </div>
 
-              {/* Cargo */}
+            {/* Tipo de Contrato y Cargo (por defecto siempre "Guardia de Seguridad") */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                  Modalidad / Tipo
+                </label>
+                <select
+                  name="tipo"
+                  value={formData.tipo}
+                  onChange={handleChange}
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-xs font-semibold text-slate-800 focus:border-blue-500 focus:bg-white focus:outline-none"
+                  required
+                >
+                  <option value="Plazo Fijo">Plazo Fijo</option>
+                  <option value="Part-Time">Part-Time</option>
+                  <option value="Obra y Faena">Obra y Faena</option>
+                  <option value="Indefinido">Indefinido</option>
+                </select>
+              </div>
+
               <div>
                 <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1 flex items-center gap-1">
-                  <Briefcase size={13} className="text-slate-400" />
+                  <Briefcase size={13} className="text-blue-600" />
                   Cargo
                 </label>
                 <input
@@ -525,172 +681,108 @@ export const ContractManagementModal: React.FC<Props> = ({
                   name="cargo"
                   value={formData.cargo}
                   onChange={handleChange}
-                  placeholder="Ej: Guardia de Seguridad OS-10"
-                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2 text-xs font-medium focus:border-blue-500 focus:bg-white focus:outline-none"
+                  placeholder="Guardia de Seguridad"
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-xs font-semibold text-slate-800 focus:border-blue-500 focus:bg-white focus:outline-none"
                 />
               </div>
-
-              {/* Jornada */}
-              <div>
-                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1 flex items-center gap-1">
-                  <Clock size={13} className="text-slate-400" />
-                  Jornada / Horario
-                </label>
-                <input
-                  type="text"
-                  name="jornada"
-                  value={formData.jornada}
-                  onChange={handleChange}
-                  placeholder="Ej: 45 horas semanales / 4x4"
-                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2 text-xs font-medium focus:border-blue-500 focus:bg-white focus:outline-none"
-                />
-              </div>
-
-              {/* Estado Contractual */}
-              <div>
-                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
-                  Estado Contractual
-                </label>
-                <select
-                  name="estado"
-                  value={formData.estado}
-                  onChange={handleChange}
-                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2 text-xs font-medium focus:border-blue-500 focus:bg-white focus:outline-none"
-                >
-                  <option value="vigente">Vigente</option>
-                  <option value="pendiente_firma">Pendiente de Firma</option>
-                  <option value="borrador">Borrador / Datos Incompletos</option>
-                  <option value="vencido">Vencido (Histórico)</option>
-                  <option value="finiquitado">Finiquitado</option>
-                </select>
-              </div>
-
-              {/* Origen del Registro */}
-              <div>
-                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
-                  Origen del Registro
-                </label>
-                <select
-                  name="origenRegistro"
-                  value={formData.origenRegistro}
-                  onChange={handleChange}
-                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2 text-xs font-medium focus:border-blue-500 focus:bg-white focus:outline-none"
-                >
-                  <option value="manual_aspro">Ingreso Manual ASPRO</option>
-                  <option value="externo_firmado">Firmado Externamente</option>
-                  <option value="emision_sistema">Generado en Sistema (Apps Script/Drive)</option>
-                  <option value="historico_legacy">Histórico / Regularización Legacy</option>
-                  <option value="importacion_documental">Importación Documental</option>
-                </select>
-              </div>
-
             </div>
 
-            {/* SECCIÓN DOCUMENTAL: VINCULAR PDF */}
-            <div className="pt-2 border-t border-slate-200">
-              <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                <Link2 size={14} className="text-blue-600" />
-                Respaldo Documental
-              </h4>
+            {/* Campos adicionales solo cuando se edita un contrato desde la ficha detallada */}
+            {(mode === 'edit' || mode === 'link_doc') && (
+              <div className="pt-3 border-t border-slate-200 space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1 flex items-center gap-1">
+                      <Clock size={13} className="text-slate-400" />
+                      Jornada / Horario
+                    </label>
+                    <input
+                      type="text"
+                      name="jornada"
+                      value={formData.jornada}
+                      onChange={handleChange}
+                      placeholder="45 horas semanales"
+                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2 text-xs font-medium focus:border-blue-500 focus:bg-white focus:outline-none"
+                    />
+                  </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {/* Selector de Documento Digital Existente */}
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">
-                    Vincular Documento Digital (Firma Electrónica)
-                  </label>
-                  <select
-                    value={formData.documentoId}
-                    onChange={handleDocumentSelect}
-                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2 text-xs font-medium focus:border-blue-500 focus:bg-white focus:outline-none"
-                  >
-                    <option value="">-- Sin documento digital vinculado --</option>
-                    {workerDigitalDocs.map(doc => (
-                      <option key={doc.id} value={doc.id}>
-                        {doc.title} ({doc.status === 'signed' ? 'Firmado' : 'Pendiente'}) - {formatDateDDMMYYYY(doc.createdAt)}
-                      </option>
-                    ))}
-                  </select>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                      Estado Contractual
+                    </label>
+                    <select
+                      name="estado"
+                      value={formData.estado}
+                      onChange={handleChange}
+                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2 text-xs font-medium focus:border-blue-500 focus:bg-white focus:outline-none"
+                    >
+                      <option value="vigente">Vigente</option>
+                      <option value="pendiente_firma">Pendiente de Firma</option>
+                      <option value="borrador">Borrador / Datos Incompletos</option>
+                      <option value="vencido">Vencido (Histórico)</option>
+                      <option value="finiquitado">Finiquitado</option>
+                    </select>
+                  </div>
                 </div>
 
-                {/* Estado Documental */}
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">
-                    Estado Documental Legal
-                  </label>
-                  <select
-                    name="estadoDocumental"
-                    value={formData.estadoDocumental}
-                    onChange={handleChange}
-                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2 text-xs font-medium focus:border-blue-500 focus:bg-white focus:outline-none"
-                  >
-                    <option value="no_adjunto">No Adjunto / Físico sin digitalizar</option>
-                    <option value="firmado_digital">Firmado Digitalmente (ASPRO)</option>
-                    <option value="firmado_externo">Firmado Externamente (Papel / Notaría)</option>
-                    <option value="generado_drive">Generado en Google Drive</option>
-                    <option value="pendiente_firma">Pendiente de Firma</option>
-                    <option value="archivado_externo">Archivado en Expediente Físico</option>
-                    <option value="pendiente_verificacion">Pendiente de Verificación</option>
-                  </select>
-                </div>
+                <div className="pt-2 border-t border-slate-200">
+                  <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                    <Link2 size={14} className="text-blue-600" />
+                    Respaldo Documental (Opcional)
+                  </h4>
 
-                {/* URL Externa / Drive si aplica */}
-                <div className="col-span-1 md:col-span-2">
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">
-                    Enlace de Descarga / URL Externa de Respaldo (Opcional)
-                  </label>
-                  <input
-                    type="url"
-                    name="googleDriveUrl"
-                    value={formData.googleDriveUrl}
-                    onChange={handleChange}
-                    placeholder="https://drive.google.com/... o enlace al repositorio"
-                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2 text-xs font-medium focus:border-blue-500 focus:bg-white focus:outline-none"
-                  />
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 mb-1">
+                        Vincular Documento Digital
+                      </label>
+                      <select
+                        value={formData.documentoId}
+                        onChange={handleDocumentSelect}
+                        className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2 text-xs font-medium focus:border-blue-500 focus:bg-white focus:outline-none"
+                      >
+                        <option value="">-- Sin documento digital vinculado --</option>
+                        {workerDigitalDocs.map(doc => (
+                          <option key={doc.id} value={doc.id}>
+                            {doc.title} ({doc.status === 'signed' ? 'Firmado' : 'Pendiente'}) -{' '}
+                            {formatDateDDMMYYYY(doc.createdAt)}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 mb-1">
+                        Estado Documental
+                      </label>
+                      <select
+                        name="estadoDocumental"
+                        value={formData.estadoDocumental}
+                        onChange={handleChange}
+                        className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2 text-xs font-medium focus:border-blue-500 focus:bg-white focus:outline-none"
+                      >
+                        <option value="no_adjunto">Físico / Sin digitalizar</option>
+                        <option value="firmado_digital">Firmado Digitalmente (ASPRO)</option>
+                        <option value="firmado_externo">Firmado Externamente (Papel)</option>
+                        <option value="generado_drive">Generado en Google Drive</option>
+                        <option value="pendiente_firma">Pendiente de Firma</option>
+                        <option value="archivado_externo">Archivado en Expediente Físico</option>
+                      </select>
+                    </div>
+                  </div>
                 </div>
               </div>
-            </div>
-
-            {/* Checkbox Multisucursal */}
-            <div className="flex items-center gap-2 p-3 bg-slate-50 rounded-xl border border-slate-200">
-              <input
-                type="checkbox"
-                id="permiteMultisucursal"
-                name="permiteMultisucursal"
-                checked={formData.permiteMultisucursal}
-                onChange={handleChange}
-                className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 border-slate-300"
-              />
-              <label htmlFor="permiteMultisucursal" className="text-xs text-slate-700 cursor-pointer">
-                <strong>Habilitado para coberturas multisucursal:</strong> El trabajador puede cubrir turnos extraordinarios o servicios bajo demanda (ej. Falabella) sin reportar conflicto de sucursal.
-              </label>
-            </div>
-
-            {/* Observaciones */}
-            <div>
-              <label className="block text-xs font-semibold text-slate-600 mb-1">
-                Observaciones Administrativas / Conciliación
-              </label>
-              <textarea
-                name="observacionesDocumento"
-                value={formData.observacionesDocumento}
-                onChange={handleChange}
-                rows={2}
-                placeholder="Indique ubicación del documento físico, antecedentes de la firma o notas de RR. HH."
-                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2 text-xs font-medium focus:border-blue-500 focus:bg-white focus:outline-none resize-none"
-              />
-            </div>
-
+            )}
           </form>
         </div>
 
         {/* Footer */}
-        <div className="bg-slate-50 px-6 py-4 border-t border-slate-200 flex items-center justify-between shrink-0">
+        <div className="bg-white px-6 py-4 border-t border-slate-100 flex items-center justify-between shrink-0">
           <button
             type="button"
             onClick={onClose}
             disabled={loading}
-            className="px-4 py-2 text-xs font-bold text-slate-600 hover:text-slate-800 transition"
+            className="px-4 py-2.5 text-xs font-bold text-slate-600 hover:text-slate-800 rounded-xl hover:bg-slate-50 transition"
           >
             Cancelar
           </button>
@@ -698,7 +790,7 @@ export const ContractManagementModal: React.FC<Props> = ({
             form="contract-form"
             type="submit"
             disabled={loading}
-            className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-sm transition disabled:opacity-50"
+            className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-2 shadow-md shadow-blue-200 transition disabled:opacity-50"
           >
             {loading ? (
               <>
@@ -708,12 +800,11 @@ export const ContractManagementModal: React.FC<Props> = ({
             ) : (
               <>
                 <CheckCircle2 size={16} />
-                {mode === 'renew' ? 'Confirmar Renovación' : mode === 'edit' ? 'Guardar Cambios' : 'Registrar Contrato'}
+                {mode === 'edit' ? 'Guardar Cambios' : 'Regularizar'}
               </>
             )}
           </button>
         </div>
-
       </div>
     </div>
   );

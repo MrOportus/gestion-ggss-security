@@ -201,6 +201,8 @@ const HRContractsDashboard: React.FC = () => {
           computedContractStatus = 'borrador';
         } else if (activeContract.estado === 'renovado') {
           computedContractStatus = 'renovado';
+        } else if (activeContract.estado === 'vencido' || activeContract.estado === 'finiquitado') {
+          computedContractStatus = 'termino_cumplido';
         } else if (activeContract.fechaTermino) {
           const termObj = new Date(activeContract.fechaTermino + 'T00:00:00');
           diffDays = Math.ceil((termObj.getTime() - todayObj.getTime()) / (1000 * 60 * 60 * 24));
@@ -214,7 +216,7 @@ const HRContractsDashboard: React.FC = () => {
         } else {
           computedContractStatus = activeContract.estado === 'vigente' ? 'vigente' : 'termino_cumplido';
         }
-      } else if (emp.fechaInicioContrato) {
+      } else if (emp.fechaInicioContrato && operationalStatus !== 'inactivo') {
         // Datos contractuales heredados / legacy en la ficha de empleado
         isLegacy = true;
         contractType = emp.tipoContrato || 'Plazo Fijo';
@@ -236,12 +238,12 @@ const HRContractsDashboard: React.FC = () => {
         }
       }
 
-      // Resolución de Sucursal de Referencia / Asignada
+      // Resolución de Sucursal de Referencia / Asignada (prioriza sucursal del contrato activo si fue regularizada)
       let resolvedSiteId = '0';
-      if (emp.currentSiteId && Number(emp.currentSiteId) > 0) {
-        resolvedSiteId = String(emp.currentSiteId);
-      } else if (activeContract?.sucursalId && activeContract.sucursalId !== '0') {
+      if (activeContract?.sucursalId && activeContract.sucursalId !== '0') {
         resolvedSiteId = String(activeContract.sucursalId);
+      } else if (emp.currentSiteId && Number(emp.currentSiteId) > 0) {
+        resolvedSiteId = String(emp.currentSiteId);
       }
 
       const resolvedSiteName = resolvedSiteId === '0' || !resolvedSiteId
@@ -300,8 +302,18 @@ const HRContractsDashboard: React.FC = () => {
     const enServicio = baseWorkers.filter(w => w.operationalStatus === 'en_servicio').length;
     const reservas = baseWorkers.filter(w => w.operationalStatus === 'reserva').length;
     const inactivos = baseWorkers.filter(w => w.operationalStatus === 'inactivo').length;
-    const porRevisar = baseWorkers.filter(w => w.operationalStatus === 'por_revisar' || w.computedContractStatus === 'sin_contrato').length;
-    const vencimientos = baseWorkers.filter(w => w.computedContractStatus === 'por_vencer' || w.computedContractStatus === 'termino_cumplido').length;
+    const porRevisar = baseWorkers.filter(
+      w => w.operationalStatus !== 'inactivo' && (w.operationalStatus === 'por_revisar' || w.computedContractStatus === 'sin_contrato')
+    ).length;
+    const vencimientos = baseWorkers.filter(
+      w =>
+        w.operationalStatus !== 'inactivo' &&
+        (w.computedContractStatus === 'por_vencer' ||
+          (w.computedContractStatus === 'termino_cumplido' &&
+            w.diffDays !== null &&
+            w.diffDays >= -15 &&
+            w.diffDays < 0))
+    ).length;
 
     return {
       total,
@@ -322,7 +334,9 @@ const HRContractsDashboard: React.FC = () => {
     // 1. Pestaña de Estado Operativo
     if (operationalTab !== 'todos') {
       if (operationalTab === 'por_revisar') {
-        list = list.filter(w => w.operationalStatus === 'por_revisar' || w.computedContractStatus === 'sin_contrato');
+        list = list.filter(
+          w => w.operationalStatus !== 'inactivo' && (w.operationalStatus === 'por_revisar' || w.computedContractStatus === 'sin_contrato')
+        );
       } else {
         list = list.filter(w => w.operationalStatus === operationalTab);
       }
@@ -347,6 +361,25 @@ const HRContractsDashboard: React.FC = () => {
     if (filterContractStatus) {
       if (filterContractStatus === 'vigente') {
         list = list.filter(w => w.computedContractStatus === 'vigente' || w.computedContractStatus === 'por_vencer');
+      } else if (filterContractStatus === 'por_vencer') {
+        list = list.filter(
+          w =>
+            w.operationalStatus !== 'inactivo' &&
+            (w.computedContractStatus === 'por_vencer' ||
+              (w.computedContractStatus === 'termino_cumplido' &&
+                w.diffDays !== null &&
+                w.diffDays >= -15 &&
+                w.diffDays < 0))
+        );
+      } else if (filterContractStatus === 'renovacion_critica') {
+        list = list.filter(
+          w =>
+            w.operationalStatus !== 'inactivo' &&
+            w.computedContractStatus === 'termino_cumplido' &&
+            w.diffDays !== null &&
+            w.diffDays >= -15 &&
+            w.diffDays < 0
+        );
       } else {
         list = list.filter(w => w.computedContractStatus === filterContractStatus);
       }
@@ -491,7 +524,7 @@ const HRContractsDashboard: React.FC = () => {
               })}
               className="py-2.5 px-5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold uppercase tracking-wider shadow-md shadow-blue-200 transition-all active:scale-95 flex items-center gap-2"
             >
-              <Plus size={16} /> Emitir Contrato
+              <CalendarClock size={16} /> Regularizar
             </button>
           )}
 
@@ -626,7 +659,7 @@ const HRContractsDashboard: React.FC = () => {
 
             {/* Casos por Revisar */}
             <div 
-              onClick={() => { setOperationalTab('por_revisar'); }}
+              onClick={() => { setOperationalTab('por_revisar'); setFilterContractStatus(''); }}
               className={`p-4 rounded-2xl border transition cursor-pointer shadow-sm ${
                 operationalTab === 'por_revisar' 
                   ? 'bg-amber-50/50 border-amber-400 ring-2 ring-amber-200' 
@@ -660,7 +693,10 @@ const HRContractsDashboard: React.FC = () => {
 
             {/* Vencimientos Contractuales */}
             <div 
-              onClick={() => { setFilterContractStatus('por_vencer'); }}
+              onClick={() => {
+                setOperationalTab('todos');
+                setFilterContractStatus(prev => (prev === 'por_vencer' ? '' : 'por_vencer'));
+              }}
               className={`p-4 rounded-2xl border transition cursor-pointer shadow-sm ${
                 filterContractStatus === 'por_vencer' 
                   ? 'bg-purple-50/50 border-purple-400 ring-2 ring-purple-200' 
@@ -672,7 +708,7 @@ const HRContractsDashboard: React.FC = () => {
                 <div className="p-1.5 bg-purple-50 text-purple-600 rounded-lg"><Clock size={14} /></div>
               </div>
               <div className="text-2xl font-black text-purple-600">{directoryMetrics.vencimientos}</div>
-              <p className="text-[10px] font-medium text-purple-700 mt-0.5">Por renovar (≤ 30d)</p>
+              <p className="text-[10px] font-medium text-purple-700 mt-0.5">Próx. ≤30d / Críticos ≤15d</p>
             </div>
 
           </div>
@@ -769,8 +805,9 @@ const HRContractsDashboard: React.FC = () => {
                 >
                   <option value="">Todos los Contratos</option>
                   <option value="vigente">Vigente (Al Día)</option>
-                  <option value="por_vencer">Próximo a Vencer (≤ 30d)</option>
-                  <option value="termino_cumplido">Caducado / Término Cumplido</option>
+                  <option value="por_vencer">Alertas: Próx. a Vencer (≤ 30d) y Críticos (≤ 15d)</option>
+                  <option value="renovacion_critica">Alerta Renovación Crítica (Vencido ≤ 15d)</option>
+                  <option value="termino_cumplido">Caducado / Término Cumplido (Todos)</option>
                   <option value="pendiente_firma">Pendiente de Firma</option>
                   <option value="sin_contrato">Sin Contrato Registrado</option>
                 </select>
@@ -930,12 +967,19 @@ const HRContractsDashboard: React.FC = () => {
                               <span className={`inline-block px-2 py-0.5 rounded text-[9px] font-bold uppercase border ${
                                 isVigente ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
                                 isPorVencer ? 'bg-amber-50 text-amber-700 border-amber-300 animate-pulse' :
+                                (isTerminoCumplido && w.diffDays !== null && w.diffDays >= -15) ? 'bg-rose-100 text-rose-800 border-rose-400 animate-pulse' :
                                 isTerminoCumplido ? 'bg-rose-50 text-rose-700 border-rose-300' :
                                 isPendienteFirma ? 'bg-purple-50 text-purple-700 border-purple-200' :
                                 isSinContrato ? 'bg-slate-100 text-slate-500 border-slate-200' :
                                 'bg-slate-50 text-slate-600 border-slate-200'
                               }`}>
-                                {isTerminoCumplido ? 'Caducado' : w.computedContractStatus === 'por_vencer' ? 'Por Vencer' : w.computedContractStatus.replace('_', ' ')}
+                                {isTerminoCumplido && w.diffDays !== null && w.diffDays >= -15
+                                  ? 'Renovación Crítica'
+                                  : isTerminoCumplido
+                                  ? 'Caducado'
+                                  : w.computedContractStatus === 'por_vencer'
+                                  ? 'Por Vencer'
+                                  : w.computedContractStatus.replace('_', ' ')}
                               </span>
                             </div>
                           </td>
@@ -952,7 +996,9 @@ const HRContractsDashboard: React.FC = () => {
                                   w.diffDays <= 30 ? 'text-amber-600' : 'text-slate-400'
                                 }`}>
                                   {w.diffDays < 0 
-                                    ? `Expiró hace ${Math.abs(w.diffDays)} días` 
+                                    ? w.diffDays >= -15
+                                      ? `Vencido hace ${Math.abs(w.diffDays)} días · Renovación Crítica`
+                                      : `Expiró hace ${Math.abs(w.diffDays)} días`
                                     : `${w.diffDays} días restantes`}
                                 </p>
                               )}
@@ -1013,34 +1059,18 @@ const HRContractsDashboard: React.FC = () => {
                               {/* Acciones de gestión para Admin / RRHH */}
                               {(currentUser?.role === 'admin' || currentUser?.role === 'rrhh') && (
                                 <>
-                                  {w.activeContract && isVigente && (
-                                    <button
-                                      onClick={() => setContractModalState({
-                                        isOpen: true,
-                                        mode: 'renew',
-                                        contratoAnterior: w.activeContract,
-                                        preselectedEmployee: w.employee
-                                      })}
-                                      className="px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-300 rounded-lg text-xs font-bold transition flex items-center gap-1"
-                                      title="Renovar contrato"
-                                    >
-                                      <RefreshCw size={11} /> Renovar
-                                    </button>
-                                  )}
-
-                                  {isSinContrato && (
-                                    <button
-                                      onClick={() => setContractModalState({
-                                        isOpen: true,
-                                        mode: 'create',
-                                        preselectedEmployee: w.employee
-                                      })}
-                                      className="px-2.5 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-300 rounded-lg text-xs font-bold transition flex items-center gap-1"
-                                      title="Regularizar y emitir contrato"
-                                    >
-                                      <Plus size={11} /> Contrato
-                                    </button>
-                                  )}
+                                  <button
+                                    onClick={() => setContractModalState({
+                                      isOpen: true,
+                                      mode: 'create',
+                                      preselectedEmployee: w.employee,
+                                      contratoAnterior: w.activeContract
+                                    })}
+                                    className="px-2.5 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-300 rounded-lg text-xs font-bold transition flex items-center gap-1"
+                                    title="Regularizar fechas vigentes y sucursal del contrato"
+                                  >
+                                    <CalendarClock size={11} /> Regularizar
+                                  </button>
 
                                   {isContratosV2Active && (
                                     <button
