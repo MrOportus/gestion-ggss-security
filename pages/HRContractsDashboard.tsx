@@ -46,6 +46,7 @@ const HRContractsDashboard: React.FC = () => {
   const { 
     employees, 
     contratos, 
+    digitalDocuments,
     vacations, 
     sites, 
     updateVacationStatus, 
@@ -190,8 +191,13 @@ const HRContractsDashboard: React.FC = () => {
       if (activeContract) {
         contractType = activeContract.tipo;
         contractDates = `${formatDateDDMMYYYY(activeContract.fechaInicio)} al ${activeContract.fechaTermino ? formatDateDDMMYYYY(activeContract.fechaTermino) : 'Indefinido'}`;
-        docStatus = activeContract.estadoDocumental || 'no_adjunto';
-        docUrl = activeContract.googleDriveUrl;
+        const linkedDoc = activeContract.documentoId
+          ? (digitalDocuments || []).find(d => d.id === activeContract.documentoId)
+          : undefined;
+        docStatus = linkedDoc?.status === 'signed'
+          ? 'firmado_digital'
+          : (activeContract.estadoDocumental || (linkedDoc ? 'pendiente_firma' : 'no_adjunto'));
+        docUrl = linkedDoc?.signedUrl || activeContract.googleDriveUrl || linkedDoc?.originalUrl;
 
         if (activeContract.estado === 'pendiente_firma') {
           computedContractStatus = 'pendiente_firma';
@@ -277,7 +283,7 @@ const HRContractsDashboard: React.FC = () => {
         isLegacy
       };
     });
-  }, [employees, contratos, siteMap, falabellaSiteIds]);
+  }, [employees, contratos, digitalDocuments, siteMap, falabellaSiteIds]);
 
   // Cantidad total de trabajadores vinculados a Falabella
   const falabellaWorkersCount = useMemo(() => {
@@ -1009,6 +1015,7 @@ const HRContractsDashboard: React.FC = () => {
                               <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-semibold ${
                                 w.docStatus === 'firmado_digital' ? 'bg-teal-50 text-teal-700' :
                                 w.docStatus === 'firmado_externo' ? 'bg-blue-50 text-blue-700' :
+                                w.docStatus === 'pendiente_firma' ? 'bg-purple-50 text-purple-700 border border-purple-200' :
                                 w.docStatus === 'generado_drive' ? 'bg-indigo-50 text-indigo-700' :
                                 'bg-slate-100 text-slate-500'
                               }`}>
@@ -1280,7 +1287,7 @@ const HRContractsDashboard: React.FC = () => {
       {/* MODAL DE FICHA DEL EMPLEADO */}
       {viewingEmployee && (
         <EmployeeModal
-          employee={viewingEmployee}
+          employee={employees.find(e => e.id === viewingEmployee.id) || viewingEmployee}
           onClose={() => setViewingEmployee(null)}
         />
       )}

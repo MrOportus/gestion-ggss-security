@@ -430,8 +430,13 @@ const DocumentsPage: React.FC = () => {
 
         let baseSigX = (docToSign.signatureConfig as any)?.posicionX;
         let baseSigY = (docToSign.signatureConfig as any)?.posicionY;
+        const usesExactBoxWidth =
+            (docToSign.signatureConfig as any)?.boxWidth === 120 ||
+            (docToSign.signatureConfig as any)?.targetPageResolved !== undefined;
 
-        let x = baseSigX !== undefined ? baseSigX + (200 - 120) / 2 : ((pdfWidth - 120) / 2);
+        let x = baseSigX !== undefined
+            ? (usesExactBoxWidth ? baseSigX : baseSigX + (200 - 120) / 2)
+            : ((pdfWidth - 120) / 2);
         if (docToSign.signatureConfig?.position === 'left') {
             x = 50;
         } else if (docToSign.signatureConfig?.position === 'right') {

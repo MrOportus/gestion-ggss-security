@@ -51,14 +51,14 @@ service cloud.firestore {
 
     // Reglas para la colección de documentos digitales (Signatures)
     match /documents/{docId} {
-      allow create, delete: if isAdmin();
+      allow create, delete: if isAdmin() || isRRHH();
 
-      // Lectura: admin o el dueño del documento (asignado a él)
-      allow read: if isAdmin() || (request.auth != null && resource.data.assignedTo == request.auth.uid);
+      // Lectura: admin, rrhh o el dueño del documento (asignado a él)
+      allow read: if isAdmin() || isRRHH() || (request.auth != null && resource.data.assignedTo == request.auth.uid);
 
-      // Actualización: el admin o el propio trabajador pueden actualizar,
+      // Actualización: el admin, rrhh o el propio trabajador pueden actualizar,
       // PERO ningún cliente puede escribir los campos de integridad (protegidos por backend).
-      allow update: if (isAdmin() || (request.auth != null && resource.data.assignedTo == request.auth.uid))
+      allow update: if (isAdmin() || isRRHH() || (request.auth != null && resource.data.assignedTo == request.auth.uid))
         && !request.resource.data.diff(resource.data).affectedKeys()
             .hasAny(['validationId', 'integridad']);
     }
@@ -259,7 +259,13 @@ service cloud.firestore {
     
     match /Contratos/{id} {
       allow read: if request.auth != null;
-      allow write: if isAdmin() || isRRHH();
+      allow create, delete: if isAdmin() || isRRHH();
+      allow update: if isAdmin() || isRRHH() || (
+        request.auth != null &&
+        resource.data.colaboradorId == request.auth.uid &&
+        request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['estadoDocumental', 'googleDriveUrl', 'fechaFirmaReal', 'modificadoEn'])
+      );
     }
     
     match /AsignacionesOperacionales/{id} {

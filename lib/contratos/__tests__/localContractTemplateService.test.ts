@@ -762,7 +762,8 @@ describe('Posicionamiento Visual de Firma Digital en Contratos V2 (Reutilizació
         headers: {
           'Content-Type': `multipart/form-data; boundary=${boundary}`
         },
-        body: bodyBuffer
+        body: bodyBuffer,
+        signal: AbortSignal.timeout(1200)
       });
       if (!res.ok) throw new Error(`Gotenberg status ${res.status}`);
       pdfBuffer = await res.arrayBuffer();

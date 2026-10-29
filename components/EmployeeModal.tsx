@@ -1,5 +1,5 @@
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Employee, Document } from '../types';
 import { useAppStore } from '../store/useAppStore';
 import { 
@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import GeneratePasswordButton from './GeneratePasswordButton';
 import { ContractManagementModal } from './ContractManagementModal';
+import { ContractEmissionModalV2 } from './ContractEmissionModalV2';
 import { Contrato } from '../types/phase1';
 import { resolveEmployeeOperationalStatus, evaluateContractBadge, formatDateDDMMYYYY } from '../lib/phase3/contratosService';
 
@@ -33,7 +34,7 @@ const DataField = ({ label, value, name, type = "text", options = null, searchab
 
   // Lógica inteligente para mostrar el texto de la opción en lugar del ID (valor) cuando estamos en modo lectura
   const displayValue = customDisplayValue || (options
-    ? options.find((opt: any) => String(opt.val) === String(value))?.label || '---'
+    ? options.find((opt: any) => String(opt.val) === String(value))?.label || value || '---'
     : value || '---');
 
   return (
@@ -91,10 +92,21 @@ const DataField = ({ label, value, name, type = "text", options = null, searchab
 };
 
 const EmployeeModal: React.FC<EmployeeModalProps> = ({ employee, onClose }) => {
-  const { updateEmployee, deleteEmployee, sites, contratos, currentUser } = useAppStore();
+  const { updateEmployee, deleteEmployee, employees, sites, contratos, digitalDocuments, fetchContratos, showNotification, currentUser } = useAppStore();
+  const liveEmployee = useMemo(
+    () => employees.find(e => e.id === employee.id) || employee,
+    [employees, employee]
+  );
   const [isEditing, setIsEditing] = useState(false);
-  const [editData, setEditData] = useState<Employee>(employee);
+  const [editData, setEditData] = useState<Employee>(liveEmployee);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showEmissionV2Modal, setShowEmissionV2Modal] = useState(false);
+
+  useEffect(() => {
+    if (!isEditing) {
+      setEditData(liveEmployee);
+    }
+  }, [liveEmployee, isEditing]);
 
   // Modal para contratos
   const [contractModalState, setContractModalState] = useState<{
@@ -109,11 +121,23 @@ const EmployeeModal: React.FC<EmployeeModalProps> = ({ employee, onClose }) => {
     contratoToEdit: null
   });
 
-  // Contratos estructurados del trabajador por ID exacto (no por nombre)
+  // Contratos estructurados del trabajador por ID exacto (ordenados con vigente primero y fecha más reciente)
   const workerContracts = useMemo(() => {
+    const today = new Date().toISOString().split('T')[0];
     return (contratos || [])
-      .filter(c => c.colaboradorId === employee.id)
-      .sort((a, b) => (b.fechaInicio || '').localeCompare(a.fechaInicio || ''));
+      .filter(c => c.colaboradorId === employee.id && c.estado !== 'anulado')
+      .sort((a, b) => {
+        const aIsVig = a.estado === 'vigente' && (!a.fechaTermino || a.fechaTermino >= today) ? 1 : 0;
+        const bIsVig = b.estado === 'vigente' && (!b.fechaTermino || b.fechaTermino >= today) ? 1 : 0;
+        if (aIsVig !== bIsVig) return bIsVig - aIsVig;
+        const aTerm = a.fechaTermino || '9999-99-99';
+        const bTerm = b.fechaTermino || '9999-99-99';
+        if (aTerm !== bTerm) return bTerm.localeCompare(aTerm);
+        const aIni = a.fechaInicio || '';
+        const bIni = b.fechaInicio || '';
+        if (aIni !== bIni) return bIni.localeCompare(aIni);
+        return (b.creadoEn || '').localeCompare(a.creadoEn || '');
+      });
   }, [contratos, employee.id]);
 
   // Estado operativo calculado / asignado
@@ -126,8 +150,8 @@ const EmployeeModal: React.FC<EmployeeModalProps> = ({ employee, onClose }) => {
     const today = new Date().toISOString().split('T')[0];
     
     if (workerContracts.length === 0) {
-      if (employee.fechaInicioContrato) {
-        const isExp = Boolean(employee.fechaTerminoContrato && employee.fechaTerminoContrato < today);
+      if (liveEmployee.fechaInicioContrato) {
+        const isExp = Boolean(liveEmployee.fechaTerminoContrato && liveEmployee.fechaTerminoContrato < today);
         return {
           status: isExp ? 'vencido_legacy' : 'vigente_legacy',
           label: isExp ? 'Caducado (Ficha - Requiere Regularización)' : 'Vigente (Ficha - Sin Contrato Estructurado)',
@@ -147,7 +171,6 @@ const EmployeeModal: React.FC<EmployeeModalProps> = ({ employee, onClose }) => {
 
     const active = workerContracts.find(c => {
       if (c.estado !== 'vigente' && c.estado !== 'pendiente_firma') return false;
-      if (c.fechaInicio > today) return false;
       if (c.fechaTermino && c.fechaTermino < today) return false;
       return true;
     }) || workerContracts[0];
@@ -520,8 +543,8 @@ const EmployeeModal: React.FC<EmployeeModalProps> = ({ employee, onClose }) => {
 
                 <DataField
                   label="Inicio Contrato"
-                  value={editData.fechaInicioContrato?.split('T')[0]}
-                  displayValue={editData.fechaInicioContrato ? formatDateDDMMYYYY(editData.fechaInicioContrato) : 'No registrada'}
+                  value={(contractStatusInfo.activeContract?.fechaInicio || editData.fechaInicioContrato)?.split('T')[0]}
+                  displayValue={(contractStatusInfo.activeContract?.fechaInicio || editData.fechaInicioContrato) ? formatDateDDMMYYYY(contractStatusInfo.activeContract?.fechaInicio || editData.fechaInicioContrato) : 'No registrada'}
                   name="fechaInicioContrato"
                   type="date"
                   isEditing={isEditing}
@@ -530,22 +553,24 @@ const EmployeeModal: React.FC<EmployeeModalProps> = ({ employee, onClose }) => {
 
                 <DataField
                   label="Tipo de Contrato"
-                  value={editData.tipoContrato || 'Plazo Fijo'}
+                  value={contractStatusInfo.activeContract?.tipo || editData.tipoContrato || 'Plazo Fijo'}
                   name="tipoContrato"
                   isEditing={isEditing}
                   onChange={handleInputChange}
                   options={[
                     { val: 'Plazo Fijo', label: 'Plazo Fijo' },
                     { val: 'Indefinido', label: 'Indefinido' },
-                    { val: 'Obra y Faena', label: 'Obra y Faena' }
+                    { val: 'Obra y Faena', label: 'Obra y Faena' },
+                    { val: 'Part-Time', label: 'Part-Time' },
+                    { val: 'Falabella Part-Time', label: 'Falabella Part-Time' }
                   ]}
                 />
 
-                {(!editData.tipoContrato || editData.tipoContrato === 'Plazo Fijo') && (
+                {(contractStatusInfo.activeContract?.tipo || editData.tipoContrato) !== 'Indefinido' && (
                   <DataField
                     label="Término Contrato"
-                    value={editData.fechaTerminoContrato?.split('T')[0]}
-                    displayValue={editData.fechaTerminoContrato ? formatDateDDMMYYYY(editData.fechaTerminoContrato) : 'No registrada'}
+                    value={(contractStatusInfo.activeContract?.fechaTermino || editData.fechaTerminoContrato)?.split('T')[0]}
+                    displayValue={(contractStatusInfo.activeContract?.fechaTermino || editData.fechaTerminoContrato) ? formatDateDDMMYYYY(contractStatusInfo.activeContract?.fechaTermino || editData.fechaTerminoContrato) : 'No registrada'}
                     name="fechaTerminoContrato"
                     type="date"
                     isEditing={isEditing}
@@ -611,6 +636,14 @@ const EmployeeModal: React.FC<EmployeeModalProps> = ({ employee, onClose }) => {
                       >
                         <Plus size={13} /> Regularizar
                       </button>
+                      <button
+                        type="button"
+                        onClick={() => setShowEmissionV2Modal(true)}
+                        className="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-sm transition"
+                        title="Emitir contrato Word + PDF con firma digital (V2)"
+                      >
+                        <FileText size={13} /> Emitir V2
+                      </button>
                     </>
                   )}
                 </div>
@@ -674,6 +707,11 @@ const EmployeeModal: React.FC<EmployeeModalProps> = ({ employee, onClose }) => {
                   {workerContracts.map((c) => {
                     const badgeInfo = evaluateContractBadge(c);
                     const canRenew = !badgeInfo.isCaducado && (c.estado === 'vigente' || badgeInfo.status === 'vigente');
+                    const linkedDoc = c.documentoId ? digitalDocuments.find(d => d.id === c.documentoId) : undefined;
+                    const resolvedDocStatus = linkedDoc?.status === 'signed'
+                      ? 'firmado_digital'
+                      : (c.estadoDocumental || (linkedDoc ? 'pendiente_firma' : 'no_adjunto'));
+                    const resolvedPdfUrl = linkedDoc?.signedUrl || c.googleDriveUrl || linkedDoc?.originalUrl;
 
                     return (
                       <div 
@@ -692,11 +730,12 @@ const EmployeeModal: React.FC<EmployeeModalProps> = ({ employee, onClose }) => {
                               {badgeInfo.label}
                             </span>
                             <span className={`px-2 py-0.5 rounded text-[10px] font-semibold ${
-                              c.estadoDocumental === 'firmado_digital' ? 'bg-teal-50 text-teal-700' :
-                              c.estadoDocumental === 'firmado_externo' ? 'bg-blue-50 text-blue-700' :
+                              resolvedDocStatus === 'firmado_digital' ? 'bg-teal-50 text-teal-700' :
+                              resolvedDocStatus === 'firmado_externo' ? 'bg-blue-50 text-blue-700' :
+                              resolvedDocStatus === 'pendiente_firma' ? 'bg-purple-50 text-purple-700 border border-purple-200' :
                               'bg-amber-50 text-amber-700'
                             }`}>
-                              Doc: {c.estadoDocumental?.replace('_', ' ') || 'No adjunto'}
+                              Doc: {resolvedDocStatus.replace('_', ' ')}
                             </span>
                           </div>
 
@@ -715,9 +754,9 @@ const EmployeeModal: React.FC<EmployeeModalProps> = ({ employee, onClose }) => {
 
                         {/* Acciones de cada contrato */}
                         <div className="flex items-center gap-2 shrink-0 self-end md:self-center">
-                          {c.googleDriveUrl && (
+                          {resolvedPdfUrl && (
                             <a
-                              href={c.googleDriveUrl}
+                              href={resolvedPdfUrl}
                               target="_blank"
                               rel="noopener noreferrer"
                               className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-bold text-xs flex items-center gap-1 transition"
@@ -771,9 +810,27 @@ const EmployeeModal: React.FC<EmployeeModalProps> = ({ employee, onClose }) => {
               isOpen={true}
               onClose={() => setContractModalState({ isOpen: false, mode: 'create' })}
               mode={contractModalState.mode}
-              preselectedEmployee={employee}
+              preselectedEmployee={liveEmployee}
               contratoAnterior={contractModalState.contratoAnterior}
               contratoToEdit={contractModalState.contratoToEdit}
+              onSuccess={() => fetchContratos()}
+            />
+          )}
+
+          {/* Modal de Emisión de Contrato V2 desde la Ficha */}
+          {showEmissionV2Modal && (
+            <ContractEmissionModalV2
+              isOpen={showEmissionV2Modal}
+              onClose={() => setShowEmissionV2Modal(false)}
+              employees={employees}
+              sites={sites}
+              contratos={contratos}
+              preselectedEmployee={liveEmployee}
+              contratoAnterior={contractStatusInfo.activeContract}
+              onEmitSuccess={() => {
+                showNotification('Contrato V2 emitido y actualizado en la ficha.', 'success');
+                fetchContratos();
+              }}
             />
           )}
 

@@ -1248,15 +1248,28 @@ export const useAppStore = create<AppState>()(
           c.estado !== 'anulado'
         );
         if (existingDuplicate) {
-          console.warn('[createContrato] Contrato idéntico detectado, retornando existente:', existingDuplicate.id);
+          console.warn('[createContrato] Contrato idéntico detectado, actualizando y retornando existente:', existingDuplicate.id);
+          if (contratoData.documentoId || contratoData.googleDriveUrl || contratoData.estadoDocumental || contratoData.sueldoBase) {
+            await get().updateContrato(existingDuplicate.id, contratoData);
+          }
           return existingDuplicate.id;
         }
+
+        const prevActiveList = get().contratos.filter(c =>
+          c.colaboradorId === contratoData.colaboradorId &&
+          (c.estado === 'vigente' || c.estado === 'pendiente_firma')
+        );
+        const maxPrevRenovacion = prevActiveList.reduce((max, c) => Math.max(max, c.numeroRenovacion || 1), 0);
 
         const id = `contrato_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
         const now = new Date().toISOString();
         const contrato: Contrato = { 
           ...contratoData, 
           id,
+          ...(prevActiveList.length > 0 && !contratoData.numeroRenovacion ? {
+            contratoAnteriorId: prevActiveList[0].id,
+            numeroRenovacion: maxPrevRenovacion + 1
+          } : {}),
           creadoEn: contratoData.creadoEn || now,
           modificadoEn: now,
           estadoDocumental: contratoData.estadoDocumental || (contratoData.documentoId ? 'firmado_digital' : 'no_adjunto'),
@@ -1267,6 +1280,16 @@ export const useAppStore = create<AppState>()(
         try {
           const cleanedContrato = cleanFirestorePayload(contrato);
           await setDoc(doc(db, 'Contratos', id), cleanedContrato);
+
+          if ((contrato.estado === 'vigente' || contrato.estado === 'pendiente_firma') && prevActiveList.length > 0) {
+            await Promise.all(prevActiveList.map(prev =>
+              updateDoc(doc(db, 'Contratos', prev.id), {
+                estado: 'renovado',
+                contratoSiguienteId: id,
+                modificadoEn: now
+              }).catch(e => console.warn('[createContrato] Error marcando contrato previo como renovado:', e))
+            ));
+          }
           
           // Sincronizar con Colaboradores solo si es un contrato vigente o pendiente de firma
           if (contrato.estado === 'vigente' || contrato.estado === 'pendiente_firma') {
@@ -1295,7 +1318,17 @@ export const useAppStore = create<AppState>()(
             }
           }
 
-          set(state => ({ contratos: [contrato, ...state.contratos] }));
+          const prevIds = new Set(prevActiveList.map(p => p.id));
+          set(state => ({
+            contratos: [
+              contrato,
+              ...state.contratos.map(c =>
+                (contrato.estado === 'vigente' || contrato.estado === 'pendiente_firma') && prevIds.has(c.id)
+                  ? { ...c, estado: 'renovado' as const, contratoSiguienteId: id, modificadoEn: now }
+                  : c
+              )
+            ]
+          }));
           console.log('[createContrato] Contrato creado en Firestore:', id);
           return id;
         } catch (error) {
@@ -2366,7 +2399,45 @@ export const useAppStore = create<AppState>()(
         try {
           const docRef = doc(db, "documents", id);
           await updateDoc(docRef, updateData);
-          // Ya no hacemos set manual porque onSnapshot se encarga
+
+          try {
+            const qContratos = query(collection(db, "Contratos"), where("documentoId", "==", id));
+            const snapContratos = await getDocs(qContratos);
+            const fechaFirmaReal = signedAt.split('T')[0];
+            const contractUpdates: Promise<any>[] = [];
+            const updatedContractIds = new Set<string>();
+
+            snapContratos.forEach((cDoc) => {
+              updatedContractIds.add(cDoc.id);
+              contractUpdates.push(
+                updateDoc(doc(db, "Contratos", cDoc.id), {
+                  estadoDocumental: 'firmado_digital',
+                  googleDriveUrl: signedUrl,
+                  fechaFirmaReal,
+                  modificadoEn: signedAt
+                })
+              );
+            });
+
+            if (contractUpdates.length > 0) {
+              await Promise.all(contractUpdates);
+              set(state => ({
+                contratos: state.contratos.map(c =>
+                  updatedContractIds.has(c.id) || c.documentoId === id
+                    ? {
+                        ...c,
+                        estadoDocumental: 'firmado_digital' as const,
+                        googleDriveUrl: signedUrl,
+                        fechaFirmaReal,
+                        modificadoEn: signedAt
+                      }
+                    : c
+                )
+              }));
+            }
+          } catch (syncContractErr) {
+            console.warn("Advertencia sincronizando contrato firmado:", syncContractErr);
+          }
         } catch (error) { console.error("Error signing digital document:", error); }
       },
 

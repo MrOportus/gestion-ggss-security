@@ -30,6 +30,9 @@ import {
 } from '../lib/contratos/localContractEmissionsService';
 import type { SharedSignatureConfig } from './SharedSignatureBatchModal';
 import { ContractPdfSignaturePositioner } from './contratos/ContractPdfSignaturePositioner';
+import { useAppStore } from '../store/useAppStore';
+import { db } from '../lib/firebase';
+import { doc, updateDoc } from 'firebase/firestore';
 
 export interface ContractEmissionModalV2Props {
   isOpen: boolean;
@@ -65,6 +68,7 @@ export interface EmissionPayload {
 export interface EmissionResult {
   status: 'success' | 'idempotent_duplicate';
   contratoId: string;
+  localEmisionId?: string;
   documentoId?: string | null;
   canalFirma: 'digital_aspro' | 'fisica_manuscrita';
   signatureConfig?: ContractSignatureConfig;
@@ -91,6 +95,9 @@ interface PreparedContractDraft {
   pdfBlobUrl: string;
   pageCount: number;
   emisionRegistradaId?: string;
+  firestoreContratoId?: string;
+  firestoreDocumentoId?: string;
+  pdfStorageUrl?: string;
 }
 
 export const ContractEmissionModalV2: React.FC<ContractEmissionModalV2Props> = ({
@@ -104,6 +111,13 @@ export const ContractEmissionModalV2: React.FC<ContractEmissionModalV2Props> = (
   onEmitSuccess,
   emissionService
 }) => {
+  const uploadFile = useAppStore(state => state.uploadFile);
+  const addDigitalDocument = useAppStore(state => state.addDigitalDocument);
+  const createContrato = useAppStore(state => state.createContrato);
+  const renewContrato = useAppStore(state => state.renewContrato);
+  const updateContrato = useAppStore(state => state.updateContrato);
+  const currentUser = useAppStore(state => state.currentUser);
+  const storeContratos = useAppStore(state => state.contratos);
   // Pasos del Wizard: 1: Trabajador & Plantilla, 2: Cláusulas & Sueldo Base, 3: Canal & Revisión, 4: Éxito
   const [currentStep, setCurrentStep] = useState<1 | 2 | 3 | 4>(1);
 
@@ -657,8 +671,9 @@ export const ContractEmissionModalV2: React.FC<ContractEmissionModalV2Props> = (
   const handleDescargar = async (tipo: 'docx' | 'pdf') => {
     if (!emissionResult) return;
     try {
+      const targetLocalId = emissionResult.localEmisionId || emissionResult.contratoId;
       const { url, nombreArchivo, revocar } = await localContractEmissionsService.crearDescarga(
-        emissionResult.contratoId,
+        targetLocalId,
         tipo
       );
       const link = document.createElement('a');
@@ -737,7 +752,7 @@ export const ContractEmissionModalV2: React.FC<ContractEmissionModalV2Props> = (
         // Reutilizar el borrador ya convertido en Gotenberg si corresponde al mismo contrato actual
         let draft = preparedDraft;
         if (!draft || draft.draftKey !== currentDraftKey) {
-          setEmissionProgressText('2/3 Convirtiendo DOCX a PDF en Gotenberg local (http://localhost:3005)...');
+          setEmissionProgressText('2/4 Convirtiendo DOCX a PDF en Gotenberg...');
           draft = await generarDocumentosBorradorActual();
         }
 
@@ -756,7 +771,7 @@ export const ContractEmissionModalV2: React.FC<ContractEmissionModalV2Props> = (
               }
             : undefined;
 
-        setEmissionProgressText('3/3 Guardando DOCX, PDF y ubicación de firma en IndexedDB...');
+        setEmissionProgressText('3/4 Guardando respaldo local en IndexedDB...');
 
         let registro: EmisionLaboratorio | null = null;
         if (draft.emisionRegistradaId) {
@@ -786,23 +801,129 @@ export const ContractEmissionModalV2: React.FC<ContractEmissionModalV2Props> = (
             pdfBuffer: draft.pdfBuffer,
             pageCount: draft.pageCount
           });
-
-          setPreparedDraft(prev =>
-            prev && prev.draftKey === draft!.draftKey
-              ? { ...prev, emisionRegistradaId: registro!.id }
-              : prev
-          );
         }
+
+        // 4/4 Subir PDF a Firebase Storage, crear Documento Digital pendiente y registrar/renovar Contrato en Firestore
+        let pdfStorageUrl = draft.pdfStorageUrl;
+        let firestoreDocumentoId = draft.firestoreDocumentoId;
+        let firestoreContratoId = draft.firestoreContratoId;
+
+        if (currentUser && typeof uploadFile === 'function' && typeof createContrato === 'function') {
+          setEmissionProgressText('4/4 Registrando contrato en ficha del colaborador y enviando a firma...');
+
+          if (!pdfStorageUrl) {
+            const pdfBlob = new Blob([draft.pdfBuffer], { type: 'application/pdf' });
+            const safeFileName = nombreContratoGenerado
+              .normalize('NFD')
+              .replace(/[\u0300-\u036f]/g, '')
+              .replace(/[^a-zA-Z0-9_-]/g, '_');
+            const storagePath = `original_docs/${Date.now()}_${Math.random().toString(36).substring(2, 7)}_${safeFileName}.pdf`;
+            pdfStorageUrl = await uploadFile(pdfBlob, storagePath);
+          }
+
+          if (canalFirma === 'digital_aspro' && finalSigConfig && pdfStorageUrl) {
+            const sigConfigPayload = {
+              page: finalSigConfig.page,
+              ...(finalSigConfig.page === 'specific' ? { pageNumber: finalSigConfig.pageNumber } : {}),
+              posicionX: finalSigConfig.posicionX,
+              posicionY: finalSigConfig.posicionY,
+              boxWidth: 120,
+              targetPageResolved: finalSigConfig.targetPageResolved
+            };
+
+            if (firestoreDocumentoId) {
+              await updateDoc(doc(db, 'documents', firestoreDocumentoId), {
+                signatureConfig: sigConfigPayload
+              });
+            } else {
+              firestoreDocumentoId = await addDigitalDocument({
+                title: nombreContratoGenerado,
+                type: 'Contrato',
+                assignedTo: selectedWorker.id,
+                originalUrl: pdfStorageUrl,
+                signatureConfig: sigConfigPayload as any
+              });
+            }
+          }
+
+          const baseContratoPayload: Omit<Contrato, 'id'> = {
+            colaboradorId: selectedWorker.id,
+            sucursalId: sucursalId || '0',
+            tipo: modalidadPlantilla,
+            fechaInicio,
+            ...(fechaTermino ? { fechaTermino } : {}),
+            cargo: cargo || 'Guardia de Seguridad',
+            jornada: jornadaDerivada,
+            horarioA,
+            horarioB,
+            sueldoBase: Number(sueldoBase),
+            estado: 'vigente',
+            estadoDocumental: canalFirma === 'digital_aspro' ? 'pendiente_firma' : 'no_adjunto',
+            ...(firestoreDocumentoId ? { documentoId: firestoreDocumentoId } : {}),
+            ...(pdfStorageUrl ? { googleDriveUrl: pdfStorageUrl } : {}),
+            origenRegistro: 'emision_sistema',
+            estadoConciliacion: 'verificado',
+            creadoEn: new Date().toISOString(),
+            creadoPor: currentUser?.uid || 'admin'
+          };
+
+          if (firestoreContratoId) {
+            await updateContrato(firestoreContratoId, baseContratoPayload);
+          } else {
+            const allContratos = contratos.length > 0 ? contratos : storeContratos;
+            const sameDatesContract = allContratos.find(c =>
+              c.colaboradorId === selectedWorker.id &&
+              c.fechaInicio === fechaInicio &&
+              (c.fechaTermino || null) === (fechaTermino || null) &&
+              c.estado !== 'anulado'
+            );
+
+            if (sameDatesContract) {
+              await updateContrato(sameDatesContract.id, baseContratoPayload);
+              firestoreContratoId = sameDatesContract.id;
+            } else {
+              const prevActiveContract =
+                contratoAnterior ||
+                allContratos
+                  .filter(c =>
+                    c.colaboradorId === selectedWorker.id &&
+                    (c.estado === 'vigente' || c.estado === 'pendiente_firma')
+                  )
+                  .sort((a, b) => (b.fechaTermino || '9999-99-99').localeCompare(a.fechaTermino || '9999-99-99'))[0] ||
+                null;
+
+              if (prevActiveContract) {
+                firestoreContratoId = await renewContrato(prevActiveContract.id, baseContratoPayload);
+              } else {
+                firestoreContratoId = await createContrato(baseContratoPayload);
+              }
+            }
+          }
+        }
+
+        setPreparedDraft(prev =>
+          prev && prev.draftKey === draft!.draftKey
+            ? {
+                ...prev,
+                emisionRegistradaId: registro!.id,
+                firestoreContratoId,
+                firestoreDocumentoId,
+                pdfStorageUrl
+              }
+            : prev
+        );
 
         result = {
           status: 'success',
-          contratoId: registro.id,
-          documentoId: canalFirma === 'digital_aspro' ? `doc_lab_${registro.id}` : null,
+          contratoId: firestoreContratoId || registro.id,
+          localEmisionId: registro.id,
+          documentoId: firestoreDocumentoId || (canalFirma === 'digital_aspro' ? `doc_lab_${registro.id}` : null),
           canalFirma,
           signatureConfig: registro.signatureConfig,
           pdfSha256: registro.pdfSha256,
           pageCount: registro.pageCount,
           pageSize: `${pdfPageDimensions.width} x ${pdfPageDimensions.height} pt`,
+          pdfUrl: pdfStorageUrl,
           sueldoBaseUtilizado: sueldoBase,
           timings: { totalMs: 980 }
         };
@@ -1658,11 +1779,19 @@ export const ContractEmissionModalV2: React.FC<ContractEmissionModalV2Props> = (
                 </button>
               </div>
 
-              {/* Confirmación de Persistencia Local */}
+              {/* Confirmación de Persistencia */}
               <div className="max-w-lg mx-auto p-3.5 bg-blue-50 border border-blue-200 rounded-xl text-left text-xs text-blue-900 flex items-start gap-2.5">
                 <ShieldCheck size={16} className="text-blue-600 shrink-0 mt-0.5" />
                 <span>
-                  <strong>Persistido en IndexedDB local:</strong> Los archivos binarios, metadatos y la configuración de posicionamiento de firma están almacenados localmente y no se perderán al recargar. Puede revisarlos en cualquier momento desde la pestaña <em>"Historial Emisiones Locales"</em>.
+                  {canalFirma === 'digital_aspro' ? (
+                    <>
+                      <strong>Contrato registrado en la ficha del trabajador y enviado a Documentos Pendientes:</strong> El nuevo contrato ya figura como vigente en el perfil del colaborador y fue enviado a su bandeja de <em>Documentos Pendientes de Firma</em> en la App del Trabajador.
+                    </>
+                  ) : (
+                    <>
+                      <strong>Contrato registrado en la ficha del trabajador:</strong> El nuevo contrato ya figura como vigente en el perfil del colaborador con su respaldo PDF disponible.
+                    </>
+                  )}
                 </span>
               </div>
             </div>
