@@ -83,12 +83,10 @@ const HRContractsDashboard: React.FC = () => {
   const [showEmissionV2Modal, setShowEmissionV2Modal] = useState(false);
   const [emissionV2Employee, setEmissionV2Employee] = useState<Employee | null>(null);
 
-  // Feature flag: En desarrollo local activo por defecto; en prod requiere localStorage o ?v2=1
+  // Contratos V2 habilitado por defecto tanto en local como en versión desplegada
   const isContratosV2Active = useMemo(() => {
-    if (typeof window === 'undefined') return false;
-    return Boolean(import.meta.env.DEV) ||
-           window.localStorage.getItem('aspro_feature_contratos_v2') === 'true' ||
-           new URLSearchParams(window.location.search).get('v2') === '1';
+    if (typeof window === 'undefined') return true;
+    return window.localStorage.getItem('aspro_feature_contratos_v2') !== 'false';
   }, []);
 
   // ----- FILTROS DEL DIRECTORIO -----
