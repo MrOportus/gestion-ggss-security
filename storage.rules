@@ -20,6 +20,11 @@ service firebase.storage {
       allow read: if request.auth != null;
     }
 
+    // Plantillas DOCX de contratos (Contratos V2)
+    match /contract_templates/{allPaths=**} {
+      allow read, write: if request.auth != null;
+    }
+
     // Documentos Corporativos (Biblioteca)
     match /company_documents/{allPaths=**} {
       allow write: if request.auth != null;

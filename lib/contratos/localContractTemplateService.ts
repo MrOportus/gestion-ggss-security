@@ -15,6 +15,13 @@ import localforage from 'localforage';
 import PizZip from 'pizzip';
 import Docxtemplater from 'docxtemplater';
 import { DOMParser, XMLSerializer } from '@xmldom/xmldom';
+import { collection, doc, getDocs, setDoc, deleteDoc } from 'firebase/firestore';
+import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
+
+/** Colección de Firestore y carpeta de Storage donde se centralizan las plantillas (acceso desde cualquier equipo) */
+const PLANTILLAS_COLLECTION = 'plantillas_contratos';
+const PLANTILLAS_STORAGE_DIR = 'contract_templates';
+const SYNCED_IDS_KEY = 'aspro_plantillas_sincronizadas_v1';
 
 const WORD_NAMESPACE = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
 
@@ -633,6 +640,140 @@ class LocalContractTemplateService {
     }
   }
 
+  // ─────────────────────────────────────────────────────────────────────────
+  // SINCRONIZACIÓN CON FIREBASE (Firestore + Storage)
+  // IndexedDB queda solo como caché local; la fuente de verdad es Firebase.
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /** Devuelve db/storage solo si hay una sesión autenticada (en tests o sin login retorna null) */
+  private async obtenerFirebase(): Promise<{ db: any; storage: any } | null> {
+    if (typeof window === 'undefined') return null;
+    if ((import.meta as any).env?.MODE === 'test') return null;
+    try {
+      const mod: any = await import('../firebase');
+      if (!mod?.auth?.currentUser) return null;
+      return { db: mod.db, storage: mod.storage };
+    } catch {
+      return null;
+    }
+  }
+
+  private leerIdsSincronizados(): Set<string> {
+    try {
+      const raw = typeof window !== 'undefined' ? window.localStorage.getItem(SYNCED_IDS_KEY) : null;
+      return new Set<string>(raw ? JSON.parse(raw) : []);
+    } catch {
+      return new Set<string>();
+    }
+  }
+
+  private guardarIdsSincronizados(ids: Set<string>): void {
+    try {
+      window.localStorage.setItem(SYNCED_IDS_KEY, JSON.stringify(Array.from(ids)));
+    } catch { /* sin localStorage */ }
+  }
+
+  private limpiarParaFirestore<T extends Record<string, any>>(obj: T): T {
+    return JSON.parse(JSON.stringify(obj));
+  }
+
+  /** Sube metadatos (y opcionalmente el binario) de una plantilla de usuario a Firebase */
+  private async publicarPlantillaRemota(p: PlantillaContractual, buffer?: ArrayBuffer | null): Promise<void> {
+    if (p.esEjemploSintetico) return;
+    const fb = await this.obtenerFirebase();
+    if (!fb) return;
+
+    const storagePath = `${PLANTILLAS_STORAGE_DIR}/${p.id}.docx`;
+    let downloadUrl: string | undefined = (p as any).downloadUrl;
+
+    if (buffer) {
+      const fileRef = ref(fb.storage, storagePath);
+      await uploadBytes(fileRef, new Blob([buffer], {
+        type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+      }));
+      downloadUrl = await getDownloadURL(fileRef);
+    }
+
+    await setDoc(
+      doc(fb.db, PLANTILLAS_COLLECTION, p.id),
+      this.limpiarParaFirestore({ ...p, storagePath, ...(downloadUrl ? { downloadUrl } : {}), actualizadoEn: new Date().toISOString() }),
+      { merge: true }
+    );
+
+    const ids = this.leerIdsSincronizados();
+    ids.add(p.id);
+    this.guardarIdsSincronizados(ids);
+  }
+
+  /**
+   * Reconcilia IndexedDB con Firebase:
+   * - Plantillas remotas → se copian a la caché local.
+   * - Plantillas locales de usuario que nunca se subieron (creadas antes de esta mejora) → se migran a Firebase.
+   * - Plantillas locales que ya se habían sincronizado pero ya no existen en Firebase (borradas desde otro equipo) → se eliminan localmente.
+   */
+  private async sincronizarConFirebase(): Promise<void> {
+    const fb = await this.obtenerFirebase();
+    if (!fb) return;
+
+    try {
+      const snap = await getDocs(collection(fb.db, PLANTILLAS_COLLECTION));
+      const remotas = new Map<string, PlantillaContractual>();
+      snap.forEach(d => remotas.set(d.id, d.data() as PlantillaContractual));
+
+      const ids = this.leerIdsSincronizados();
+
+      // 1. Remoto → Local
+      for (const [id, remota] of remotas) {
+        await this.metadataStore.setItem(id, remota);
+        ids.add(id);
+      }
+
+      // 2. Local → Remoto (migración) o limpieza de borrados remotos
+      const locales: PlantillaContractual[] = [];
+      await this.metadataStore.iterate<PlantillaContractual, void>(val => { locales.push(val); });
+
+      for (const local of locales) {
+        if (local.esEjemploSintetico || remotas.has(local.id)) continue;
+        if (ids.has(local.id)) {
+          await this.metadataStore.removeItem(local.id);
+          await this.binaryStore.removeItem(local.id);
+          ids.delete(local.id);
+        } else {
+          const buf = await this.binaryStore.getItem<ArrayBuffer>(local.id);
+          if (buf) {
+            try {
+              await this.publicarPlantillaRemota(local, buf);
+              ids.add(local.id);
+            } catch (err) {
+              console.warn(`[LocalContractTemplateService] No se pudo migrar la plantilla ${local.id}:`, err);
+            }
+          }
+        }
+      }
+
+      this.guardarIdsSincronizados(ids);
+    } catch (err) {
+      console.warn('[LocalContractTemplateService] Sincronización con Firebase falló (se usa caché local):', err);
+    }
+  }
+
+  /** Descarga el binario desde Storage y lo cachea localmente */
+  private async descargarBinarioRemoto(id: string): Promise<ArrayBuffer | null> {
+    const fb = await this.obtenerFirebase();
+    if (!fb) return null;
+    try {
+      const url = await getDownloadURL(ref(fb.storage, `${PLANTILLAS_STORAGE_DIR}/${id}.docx`));
+      const res = await fetch(url);
+      if (!res.ok) return null;
+      const buf = await res.arrayBuffer();
+      await this.binaryStore.setItem(id, buf);
+      return buf;
+    } catch (err) {
+      console.warn(`[LocalContractTemplateService] No se pudo descargar la plantilla ${id} desde Storage:`, err);
+      return null;
+    }
+  }
+
   /**
    * Semillas de demostración/ejemplo claramente rotuladas
    */
@@ -923,6 +1064,19 @@ class LocalContractTemplateService {
     // Persistir metadatos en metadataStore (IndexedDB)
     await this.metadataStore.setItem(id, nuevaPlantilla);
 
+    // Publicar en Firebase (Storage + Firestore) para acceso desde cualquier equipo
+    const fb = await this.obtenerFirebase();
+    if (fb) {
+      try {
+        await this.publicarPlantillaRemota(nuevaPlantilla, params.archivoBuffer);
+      } catch (err: any) {
+        // No dejar una plantilla "fantasma" solo local: revertir y avisar
+        await this.metadataStore.removeItem(id);
+        await this.binaryStore.removeItem(id);
+        throw new Error(`No se pudo guardar la plantilla en Firebase: ${err?.message || err}`);
+      }
+    }
+
     return nuevaPlantilla;
   }
 
@@ -969,6 +1123,7 @@ class LocalContractTemplateService {
    */
   public async listarPlantillas(): Promise<PlantillaContractual[]> {
     await this.inicializar();
+    await this.sincronizarConFirebase();
     const plantillas: PlantillaContractual[] = [];
     const porActualizar: PlantillaContractual[] = [];
 
@@ -982,6 +1137,7 @@ class LocalContractTemplateService {
 
     for (const p of porActualizar) {
       await this.metadataStore.setItem(p.id, p);
+      this.publicarPlantillaRemota(p).catch(() => { /* solo metadatos; reintento en próxima carga */ });
     }
 
     return plantillas.sort((a, b) => b.fechaIncorporacion.localeCompare(a.fechaIncorporacion));
@@ -1141,6 +1297,9 @@ class LocalContractTemplateService {
       } catch (err) {
         console.warn('[LocalContractTemplateService] Fallback de binario sintético falló:', err);
       }
+    }
+    if (!buffer && !id.includes('sintetica')) {
+      buffer = await this.descargarBinarioRemoto(id);
     }
     if (!buffer) return null;
 
@@ -1410,15 +1569,25 @@ class LocalContractTemplateService {
 
     const actualizada: PlantillaContractual = { ...p, activa };
     await this.metadataStore.setItem(id, actualizada);
+    await this.publicarPlantillaRemota(actualizada);
     return actualizada;
   }
 
   /**
-   * Elimina una plantilla y su binario asociado
+   * Elimina una plantilla y su binario asociado (local y Firebase)
    */
   public async eliminarPlantilla(id: string): Promise<void> {
+    const fb = await this.obtenerFirebase();
+    if (fb) {
+      await deleteDoc(doc(fb.db, PLANTILLAS_COLLECTION, id));
+      try {
+        await deleteObject(ref(fb.storage, `${PLANTILLAS_STORAGE_DIR}/${id}.docx`));
+      } catch { /* el binario pudo no existir */ }
+    }
     await this.metadataStore.removeItem(id);
     await this.binaryStore.removeItem(id);
+    const ids = this.leerIdsSincronizados();
+    if (ids.delete(id)) this.guardarIdsSincronizados(ids);
   }
 
   /**

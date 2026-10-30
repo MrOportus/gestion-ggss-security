@@ -293,7 +293,7 @@ export const ContractTemplatesManager: React.FC = () => {
       {cargando ? (
         <div className="bg-white p-12 text-center rounded-2xl border border-slate-200">
           <RefreshCw size={24} className="animate-spin mx-auto text-blue-600 mb-2" />
-          <p className="text-xs text-slate-400 font-bold uppercase tracking-wider">Cargando plantillas desde IndexedDB...</p>
+          <p className="text-xs text-slate-400 font-bold uppercase tracking-wider">Sincronizando plantillas desde Firebase...</p>
         </div>
       ) : plantillas.length === 0 ? (
         <div className="bg-white p-12 text-center rounded-2xl border border-dashed border-slate-300 space-y-3">
@@ -638,7 +638,7 @@ export const ContractTemplatesManager: React.FC = () => {
                 ) : (
                   <>
                     <Check size={14} />
-                    <span>Guardar en Almacén Local</span>
+                    <span>Guardar Plantilla</span>
                   </>
                 )}
               </button>
