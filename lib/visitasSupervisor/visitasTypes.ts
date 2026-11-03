@@ -84,6 +84,20 @@ export interface NovedadDraft {
 
 export type MotivoVisita = 'Visita No Programada' | 'Visita Programada' | 'Otro';
 
+export type EstadoLibro = 'ok' | 'con_observacion';
+
+export interface LibroAsistenciaDraft {
+  revisado: boolean | null;
+  estado: EstadoLibro | null;
+  observacion: string;
+}
+
+export interface LibroNovedadesDraft {
+  estado: EstadoLibro | null;
+  observacion: string;
+  dejoConstancia: boolean | null;
+}
+
 export interface EppGuardiasDraft {
   completo: boolean | null;
   detalleFaltante: string;
@@ -102,6 +116,9 @@ export interface VisitaDraft {
   motivoOtro?: string;
   guardiasDeTurno: string;
   epp: EppGuardiasDraft;
+
+  libroAsistencia: LibroAsistenciaDraft;
+  libroNovedades: LibroNovedadesDraft;
 
   fotos: FotoVisitaLocal[];
   checklist: ChecklistVisita;
@@ -138,6 +155,17 @@ export interface VisitaSupervisorDoc {
   };
 
   checklist: ChecklistVisita;
+
+  libroAsistencia?: {
+    revisado: boolean;
+    estado?: EstadoLibro;
+    observacion?: string;
+  };
+  libroNovedades?: {
+    estado: EstadoLibro;
+    observacion?: string;
+    dejoConstancia: boolean;
+  };
 
   entrevistaMandante: {
     realizada: boolean;

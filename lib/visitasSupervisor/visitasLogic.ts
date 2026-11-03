@@ -21,7 +21,7 @@ export const RESULTADO_LABEL: Record<ResultadoVisita, string> = {
 
 export const RESULTADO_EMOJI: Record<ResultadoVisita, string> = {
   sin_novedades: '🟢',
-  con_observaciones: '🟠',
+  con_observaciones: '🟡',
   con_novedad: '🔴',
 };
 
@@ -33,7 +33,7 @@ export const ESTADO_CARGO_LABEL: Record<EstadoCargo, string> = {
 
 export const ESTADO_CARGO_EMOJI: Record<EstadoCargo, string> = {
   ok: '🟢',
-  observacion: '🟠',
+  observacion: '🟡',
   faltante: '🔴',
 };
 
@@ -72,6 +72,8 @@ export function crearBorrador(params: {
     motivo: '',
     guardiasDeTurno: '',
     epp: { completo: null, detalleFaltante: '' },
+    libroAsistencia: { revisado: null, estado: null, observacion: '' },
+    libroNovedades: { estado: null, observacion: '', dejoConstancia: null },
     fotos: [],
     checklist: getChecklistParaSucursal(params.sucursalId),
     entrevista: { realizada: null, nombre: '', resumen: '', compromiso: null, compromisoTexto: '' },
@@ -96,23 +98,29 @@ export function resumenCargos(draft: Pick<VisitaDraft, 'checklist'>): ResumenCar
 
 /**
  * Resultado automático:
- *  - Novedad relevante = SÍ                         → con_novedad
- *  - Observaciones = SÍ o algún cargo no está OK    → con_observaciones
- *  - En otro caso                                   → sin_novedades
+ *  - Novedad relevante = SÍ                                       → con_novedad
+ *  - Observaciones = SÍ o algún cargo no OK o libros con observ.  → con_observaciones
+ *  - En otro caso                                                 → sin_novedades
  */
 export function calcularResultado(
-  draft: Pick<VisitaDraft, 'checklist' | 'observaciones' | 'novedad'>
+  draft: Pick<VisitaDraft, 'checklist' | 'observaciones' | 'novedad'> & Partial<Pick<VisitaDraft, 'libroAsistencia' | 'libroNovedades'>>
 ): ResultadoVisita {
-  if (draft.novedad.hay === true) return 'con_novedad';
+  if (draft.novedad?.hay === true) return 'con_novedad';
   const c = resumenCargos(draft);
-  if (draft.observaciones.hay === true || c.observacion > 0 || c.faltante > 0) return 'con_observaciones';
+  if (
+    draft.observaciones?.hay === true ||
+    c.observacion > 0 ||
+    c.faltante > 0 ||
+    draft.libroAsistencia?.estado === 'con_observacion' ||
+    draft.libroNovedades?.estado === 'con_observacion'
+  ) return 'con_observaciones';
   return 'sin_novedades';
 }
 
 // ─── Validación ───────────────────────────────────────────────────────────────
 
 export interface ErrorValidacion {
-  seccion: 'cargos' | 'mandante' | 'observaciones' | 'novedad';
+  seccion: 'cargos' | 'mandante' | 'observaciones' | 'novedad' | 'libroAsistencia' | 'libroNovedades' | 'nota';
   mensaje: string;
 }
 
@@ -142,6 +150,31 @@ export function validarBorrador(draft: VisitaDraft): ErrorValidacion[] {
     errores.push({ seccion: 'cargos', mensaje: 'Indique si el EPP de los guardias está completo.' });
   } else if (!draft.epp.completo && !draft.epp.detalleFaltante.trim()) {
     errores.push({ seccion: 'cargos', mensaje: 'Indique qué EPP falta y por qué.' });
+  }
+
+  const la = draft.libroAsistencia;
+  if (la) {
+    if (la.revisado === null) {
+      errores.push({ seccion: 'libroAsistencia', mensaje: 'Responda si se revisó el libro de asistencia.' });
+    } else if (la.revisado === true) {
+      if (la.estado === null) {
+        errores.push({ seccion: 'libroAsistencia', mensaje: 'Indique el estado del libro de asistencia (OK o Con observación).' });
+      } else if (la.estado === 'con_observacion' && !la.observacion.trim()) {
+        errores.push({ seccion: 'libroAsistencia', mensaje: 'Escriba la observación del libro de asistencia.' });
+      }
+    }
+  }
+
+  const ln = draft.libroNovedades;
+  if (ln) {
+    if (ln.estado === null) {
+      errores.push({ seccion: 'libroNovedades', mensaje: 'Indique el estado del libro de novedades (OK o Con observación).' });
+    } else if (ln.estado === 'con_observacion' && !ln.observacion.trim()) {
+      errores.push({ seccion: 'libroNovedades', mensaje: 'Escriba la observación del libro de novedades.' });
+    }
+    if (ln.dejoConstancia === null) {
+      errores.push({ seccion: 'libroNovedades', mensaje: 'Responda si se dejó constancia en el libro de novedades.' });
+    }
   }
 
   const e = draft.entrevista;
@@ -216,6 +249,28 @@ export function construirDocumentoVisita(
         ...(i.obligatorio !== undefined ? { obligatorio: i.obligatorio } : {}),
       })),
     },
+    ...(draft.libroAsistencia && draft.libroAsistencia.revisado !== null
+      ? {
+          libroAsistencia: {
+            revisado: draft.libroAsistencia.revisado === true,
+            ...(draft.libroAsistencia.estado ? { estado: draft.libroAsistencia.estado } : {}),
+            ...(draft.libroAsistencia.estado === 'con_observacion' && draft.libroAsistencia.observacion.trim()
+              ? { observacion: draft.libroAsistencia.observacion.trim() }
+              : {}),
+          },
+        }
+      : {}),
+    ...(draft.libroNovedades && draft.libroNovedades.estado !== null
+      ? {
+          libroNovedades: {
+            estado: draft.libroNovedades.estado,
+            ...(draft.libroNovedades.estado === 'con_observacion' && draft.libroNovedades.observacion.trim()
+              ? { observacion: draft.libroNovedades.observacion.trim() }
+              : {}),
+            dejoConstancia: draft.libroNovedades.dejoConstancia === true,
+          },
+        }
+      : {}),
     entrevistaMandante: e.realizada
       ? {
           realizada: true,
@@ -262,12 +317,12 @@ export const FILTROS_VACIOS: FiltrosVisitas = {
   busqueda: '',
 };
 
-/** Filtros por defecto: últimos 15 días */
+/** Filtros por defecto: últimos 30 días */
 export function filtrosInicialesVisitas(hoy: Date = new Date()): FiltrosVisitas {
-  const hace15 = new Date(hoy);
-  hace15.setDate(hace15.getDate() - 15);
+  const hace30 = new Date(hoy);
+  hace30.setDate(hace30.getDate() - 30);
   return {
-    desde: fechaLocalISO(hace15),
+    desde: fechaLocalISO(hace30),
     hasta: fechaLocalISO(hoy),
     sucursalId: '',
     supervisorUid: '',
@@ -294,7 +349,9 @@ export function filtrarVisitas(visitas: VisitaSupervisorDoc[], f: FiltrosVisitas
       const matchMotivo = v.motivo?.toLowerCase().includes(busqueda);
       const matchNovedad = v.novedadRelevante?.descripcion?.toLowerCase().includes(busqueda);
       const matchObservacion = v.observaciones?.texto?.toLowerCase().includes(busqueda);
-      if (!matchSucursal && !matchSupervisor && !matchGuardias && !matchMotivo && !matchNovedad && !matchObservacion) {
+      const matchLibroAsist = v.libroAsistencia?.observacion?.toLowerCase().includes(busqueda);
+      const matchLibroNov = v.libroNovedades?.observacion?.toLowerCase().includes(busqueda);
+      if (!matchSucursal && !matchSupervisor && !matchGuardias && !matchMotivo && !matchNovedad && !matchObservacion && !matchLibroAsist && !matchLibroNov) {
         return false;
       }
     }

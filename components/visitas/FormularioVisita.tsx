@@ -32,7 +32,7 @@ import {
   ErrorValidacion,
 } from '../../lib/visitasSupervisor/visitasLogic';
 import { obtenerUbicacionVisita, procesarFotoVisita } from '../../lib/visitasSupervisor/visitasService';
-import { ResultadoBadge, SiNoButtons, formatearHora } from './visitasUi';
+import { ResultadoBadge, SiNoButtons, EstadoObservacionButtons, formatearHora } from './visitasUi';
 
 type DraftUpdater = (fn: (d: VisitaDraft) => VisitaDraft) => void;
 
@@ -214,6 +214,8 @@ const FormularioVisita: React.FC<Props> = ({ draft, supervisorNombre, updateDraf
   const fotosObs = draft.fotos.filter(f => f.ambito === 'observacion');
   const errSec = (s: ErrorValidacion['seccion']) => errores.some(e => e.seccion === s);
   const e = draft.entrevista;
+  const la = draft.libroAsistencia ?? { revisado: null, estado: null, observacion: '' };
+  const ln = draft.libroNovedades ?? { estado: null, observacion: '', dejoConstancia: null };
 
   const BotonFoto: React.FC<{ ambito: AmbitoFoto; texto: string; principal?: boolean }> = ({ ambito, texto, principal }) => (
     <div className="space-y-2">
@@ -398,7 +400,7 @@ const FormularioVisita: React.FC<Props> = ({ draft, supervisorNombre, updateDraf
                       est === 'ok'
                         ? 'bg-emerald-600 border-emerald-800'
                         : est === 'observacion'
-                        ? 'bg-amber-500 border-amber-700'
+                        ? 'bg-yellow-400 border-yellow-600'
                         : 'bg-red-600 border-red-800';
                     return (
                       <button
@@ -409,7 +411,7 @@ const FormularioVisita: React.FC<Props> = ({ draft, supervisorNombre, updateDraf
                         id={`cargo-${item.id}-${est}`}
                         onClick={() => setEstado(item.id, est)}
                         className={`min-h-[72px] rounded-2xl border-4 px-1 flex flex-col items-center justify-center gap-0.5 text-[13px] sm:text-sm font-black leading-tight active:scale-95 transition-all ${
-                          activo ? `${colores} text-white shadow-lg` : 'bg-white border-slate-300 text-slate-700'
+                          activo ? `${colores} ${est === 'observacion' ? 'text-yellow-950' : 'text-white'} shadow-lg` : 'bg-white border-slate-300 text-slate-700'
                         }`}
                       >
                         <span className="text-2xl" aria-hidden>{ESTADO_CARGO_EMOJI[est]}</span>
@@ -456,8 +458,113 @@ const FormularioVisita: React.FC<Props> = ({ draft, supervisorNombre, updateDraf
           </div>
         </Card>
 
-        {/* 4. Mandante */}
-        <Card n={4} title="Entrevista con mandante" id="sec-mandante" error={errSec('mandante')}>
+        {/* 4. Libro de Asistencia */}
+        <Card n={4} title="Libro de Asistencia" id="sec-libro-asistencia" error={errSec('libroAsistencia')}>
+          <Pregunta>¿Se revisó libro Asistencia?</Pregunta>
+          <SiNoButtons
+            idPrefix="libro-asist-rev"
+            value={la.revisado}
+            labelSi="SÍ, SE REVISÓ"
+            labelNo="NO SE REVISÓ"
+            onChange={v => updateDraft(d => ({
+              ...d,
+              libroAsistencia: {
+                ...(d.libroAsistencia ?? { revisado: null, estado: null, observacion: '' }),
+                revisado: v,
+                ...(v === false ? { estado: null, observacion: '' } : {})
+              }
+            }))}
+          />
+          {la.revisado === true && (
+            <div className="space-y-4 animate-in fade-in duration-200">
+              <Pregunta>Estado del libro de asistencia</Pregunta>
+              <EstadoObservacionButtons
+                idPrefix="libro-asist-est"
+                value={la.estado}
+                onChange={v => updateDraft(d => ({
+                  ...d,
+                  libroAsistencia: {
+                    ...(d.libroAsistencia ?? { revisado: true, estado: null, observacion: '' }),
+                    estado: v,
+                    ...(v === 'ok' ? { observacion: '' } : {})
+                  }
+                }))}
+              />
+              {la.estado === 'con_observacion' && (
+                <div className="space-y-2 animate-in fade-in duration-200">
+                  <Campo label="Observación del libro de asistencia">
+                    <textarea
+                      rows={3}
+                      placeholder="Escriba la observación..."
+                      value={la.observacion}
+                      onChange={ev => updateDraft(d => ({
+                        ...d,
+                        libroAsistencia: {
+                          ...(d.libroAsistencia ?? { revisado: true, estado: 'con_observacion', observacion: '' }),
+                          observacion: ev.target.value
+                        }
+                      }))}
+                      className={inputClass}
+                    />
+                  </Campo>
+                </div>
+              )}
+            </div>
+          )}
+        </Card>
+
+        {/* 5. Libro de Novedades */}
+        <Card n={5} title="Libro de Novedades" id="sec-libro-novedades" error={errSec('libroNovedades')}>
+          <Pregunta>Estado del libro de novedades</Pregunta>
+          <EstadoObservacionButtons
+            idPrefix="libro-nov-est"
+            value={ln.estado}
+            onChange={v => updateDraft(d => ({
+              ...d,
+              libroNovedades: {
+                ...(d.libroNovedades ?? { estado: null, observacion: '', dejoConstancia: null }),
+                estado: v,
+                ...(v === 'ok' ? { observacion: '' } : {})
+              }
+            }))}
+          />
+          {ln.estado === 'con_observacion' && (
+            <div className="space-y-2 animate-in fade-in duration-200">
+              <Campo label="Observación del libro de novedades">
+                <textarea
+                  rows={3}
+                  placeholder="Escriba la observación..."
+                  value={ln.observacion}
+                  onChange={ev => updateDraft(d => ({
+                    ...d,
+                    libroNovedades: {
+                      ...(d.libroNovedades ?? { estado: 'con_observacion', observacion: '', dejoConstancia: null }),
+                      observacion: ev.target.value
+                    }
+                  }))}
+                  className={inputClass}
+                />
+              </Campo>
+            </div>
+          )}
+          <div className="space-y-2 pt-2 border-t-2 border-slate-100">
+            <Pregunta>¿Se dejó constancia?</Pregunta>
+            <SiNoButtons
+              idPrefix="libro-nov-const"
+              value={ln.dejoConstancia}
+              onChange={v => updateDraft(d => ({
+                ...d,
+                libroNovedades: {
+                  ...(d.libroNovedades ?? { estado: null, observacion: '', dejoConstancia: null }),
+                  dejoConstancia: v
+                }
+              }))}
+            />
+          </div>
+        </Card>
+
+        {/* 6. Mandante */}
+        <Card n={6} title="Entrevista con mandante" id="sec-mandante" error={errSec('mandante')}>
           <Pregunta>¿Se entrevistó con el mandante?</Pregunta>
           <SiNoButtons
             idPrefix="mandante"
@@ -505,8 +612,8 @@ const FormularioVisita: React.FC<Props> = ({ draft, supervisorNombre, updateDraf
           )}
         </Card>
 
-        {/* 5. Observaciones */}
-        <Card n={5} title="Observaciones" id="sec-observaciones" error={errSec('observaciones')}>
+        {/* 7. Observaciones */}
+        <Card n={7} title="Observaciones" id="sec-observaciones" error={errSec('observaciones')}>
           <Pregunta>¿Hay observaciones?</Pregunta>
           <SiNoButtons
             idPrefix="obs"
@@ -530,8 +637,8 @@ const FormularioVisita: React.FC<Props> = ({ draft, supervisorNombre, updateDraf
           )}
         </Card>
 
-        {/* 6. Novedad relevante */}
-        <Card n={6} title="Novedad relevante" id="sec-novedad" error={errSec('novedad')}>
+        {/* 8. Novedad relevante */}
+        <Card n={8} title="Novedad relevante" id="sec-novedad" error={errSec('novedad')}>
           <Pregunta>¿Existe una novedad relevante que mencionar?</Pregunta>
           <SiNoButtons
             idPrefix="novedad"
@@ -556,7 +663,7 @@ const FormularioVisita: React.FC<Props> = ({ draft, supervisorNombre, updateDraf
                     p === 'informativa'
                       ? { emoji: '🔵', on: 'bg-blue-600 border-blue-800' }
                       : p === 'requiere_atencion'
-                      ? { emoji: '🟠', on: 'bg-amber-500 border-amber-700' }
+                      ? { emoji: '🟡', on: 'bg-yellow-400 border-yellow-600' }
                       : { emoji: '🔴', on: 'bg-red-600 border-red-800' };
                   return (
                     <button
@@ -567,7 +674,7 @@ const FormularioVisita: React.FC<Props> = ({ draft, supervisorNombre, updateDraf
                       id={`prioridad-${p}`}
                       onClick={() => updateDraft(d => ({ ...d, novedad: { ...d.novedad, prioridad: p } }))}
                       className={`min-h-[64px] rounded-2xl border-4 px-4 flex items-center gap-3 text-lg font-black active:scale-95 transition-all ${
-                        activo ? `${cfg.on} text-white shadow-lg` : 'bg-white border-slate-300 text-slate-700'
+                        activo ? `${cfg.on} ${p === 'requiere_atencion' ? 'text-yellow-950' : 'text-white'} shadow-lg` : 'bg-white border-slate-300 text-slate-700'
                       }`}
                     >
                       <span className="text-2xl" aria-hidden>{cfg.emoji}</span>
@@ -581,8 +688,8 @@ const FormularioVisita: React.FC<Props> = ({ draft, supervisorNombre, updateDraf
           )}
         </Card>
 
-        {/* 7. Resumen Ejecutivo de Visita */}
-        <Card n={7} title="Resumen Ejecutivo de Visita" id="sec-nota" error={errSec('nota' as any)}>
+        {/* 9. Resumen Ejecutivo de Visita */}
+        <Card n={9} title="Resumen Ejecutivo de Visita" id="sec-nota" error={errSec('nota' as any)}>
           <Campo label="Obligatorio">
             <textarea
               rows={4}
@@ -629,6 +736,8 @@ const FormularioVisita: React.FC<Props> = ({ draft, supervisorNombre, updateDraf
                 ['EPP completo', draft.epp.completo ? 'Sí' : 'No'],
                 ['Fotografías', `${draft.fotos.length} fotografías`],
                 ['Cargos fijos', `${cargos.ok} OK / ${cargos.observacion} con observación / ${cargos.faltante} faltantes`],
+                ['Libro de Asistencia', la.revisado === null ? '—' : la.revisado ? (la.estado === 'con_observacion' ? `Con observación${la.observacion ? `: ${la.observacion}` : ''}` : 'Revisado (OK)') : 'No revisado'],
+                ['Libro de Novedades', `${ln.estado === 'con_observacion' ? `Con observación${ln.observacion ? `: ${ln.observacion}` : ''}` : ln.estado === 'ok' ? 'OK' : '—'} · Constancia: ${ln.dejoConstancia === null ? '—' : ln.dejoConstancia ? 'Sí' : 'No'}`],
                 ['Entrevista con mandante', e.realizada ? 'Sí' : 'No'],
                 ['Observaciones', draft.observaciones.hay ? 'Sí' : 'No'],
                 ['Novedad relevante', draft.novedad.hay ? 'Sí' : 'No'],

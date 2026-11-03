@@ -29,7 +29,7 @@ const SiNo: React.FC<{ v: boolean }> = ({ v }) => (
 
 const PRIORIDAD_STYLE: Record<string, string> = {
   informativa: 'bg-blue-100 text-blue-900 border-blue-300',
-  requiere_atencion: 'bg-amber-100 text-amber-900 border-amber-300',
+  requiere_atencion: 'bg-yellow-100 text-yellow-900 border-yellow-300',
   urgente: 'bg-red-100 text-red-900 border-red-300',
 };
 
@@ -214,6 +214,64 @@ const VisitaDetalleModal: React.FC<Props> = ({ visita: v, onClose, openSeguimien
               ))}
             </ul>
           </Section>
+
+          {v.libroAsistencia && (
+            <Section title="Libro de Asistencia">
+              <div className="space-y-3">
+                <div>
+                  <span className="text-xs font-bold text-slate-500 uppercase">¿Se revisó libro Asistencia?</span>
+                  <div className="mt-1"><SiNo v={v.libroAsistencia.revisado} /></div>
+                </div>
+                {v.libroAsistencia.revisado && (
+                  <div>
+                    <span className="text-xs font-bold text-slate-500 uppercase">Estado</span>
+                    <div className="mt-1">
+                      {v.libroAsistencia.estado === 'ok' ? (
+                        <span className="inline-block px-3 py-0.5 rounded-full border-2 bg-emerald-100 border-emerald-300 text-emerald-900 text-sm font-black">
+                          🟢 OK
+                        </span>
+                      ) : (
+                        <span className="inline-block px-3 py-0.5 rounded-full border-2 bg-yellow-100 border-yellow-300 text-yellow-900 text-sm font-black">
+                          🟡 CON OBSERVACIÓN
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                )}
+                {v.libroAsistencia.observacion && (
+                  <Row label="Observación" value={v.libroAsistencia.observacion} />
+                )}
+              </div>
+            </Section>
+          )}
+
+          {v.libroNovedades && (
+            <Section title="Libro de Novedades">
+              <div className="space-y-3">
+                <div>
+                  <span className="text-xs font-bold text-slate-500 uppercase">Estado</span>
+                  <div className="mt-1">
+                    {v.libroNovedades.estado === 'ok' ? (
+                      <span className="inline-block px-3 py-0.5 rounded-full border-2 bg-emerald-100 border-emerald-300 text-emerald-900 text-sm font-black">
+                        🟢 OK
+                      </span>
+                    ) : (
+                      <span className="inline-block px-3 py-0.5 rounded-full border-2 bg-yellow-100 border-yellow-300 text-yellow-900 text-sm font-black">
+                        🟡 CON OBSERVACIÓN
+                      </span>
+                    )}
+                  </div>
+                </div>
+                {v.libroNovedades.observacion && (
+                  <Row label="Observación" value={v.libroNovedades.observacion} />
+                )}
+                <div>
+                  <span className="text-xs font-bold text-slate-500 uppercase">¿Se dejó constancia?</span>
+                  <div className="mt-1"><SiNo v={v.libroNovedades.dejoConstancia} /></div>
+                </div>
+              </div>
+            </Section>
+          )}
 
           <Section title="Entrevista con mandante">
             <div className="mb-1"><SiNo v={!!v.entrevistaMandante?.realizada} /></div>

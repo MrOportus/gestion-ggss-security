@@ -1,6 +1,6 @@
 import React from 'react';
 import { CheckCircle2, AlertTriangle, XCircle, Check, X } from 'lucide-react';
-import { ResultadoVisita, EstadoCargo, PrioridadNovedad } from '../../lib/visitasSupervisor/visitasTypes';
+import { ResultadoVisita, EstadoCargo, PrioridadNovedad, EstadoLibro } from '../../lib/visitasSupervisor/visitasTypes';
 import { RESULTADO_LABEL, RESULTADO_EMOJI, ESTADO_CARGO_LABEL, ESTADO_CARGO_EMOJI } from '../../lib/visitasSupervisor/visitasLogic';
 
 /**
@@ -11,7 +11,7 @@ import { RESULTADO_LABEL, RESULTADO_EMOJI, ESTADO_CARGO_LABEL, ESTADO_CARGO_EMOJ
 // ─── Insignia de resultado ───────────────────────────────────────────────────
 const RESULTADO_STYLE: Record<ResultadoVisita, string> = {
   sin_novedades: 'bg-emerald-100 text-emerald-900 border-emerald-300',
-  con_observaciones: 'bg-amber-100 text-amber-900 border-amber-300',
+  con_observaciones: 'bg-yellow-100 text-yellow-900 border-yellow-300',
   con_novedad: 'bg-red-100 text-red-900 border-red-300',
 };
 
@@ -51,7 +51,7 @@ export const ResultadoBadge: React.FC<{ resultado: ResultadoVisita; prioridadNov
 // ─── Insignia de cargo ───────────────────────────────────────────────────────
 const CARGO_STYLE: Record<EstadoCargo, string> = {
   ok: 'bg-emerald-100 text-emerald-900 border-emerald-300',
-  observacion: 'bg-amber-100 text-amber-900 border-amber-300',
+  observacion: 'bg-yellow-100 text-yellow-900 border-yellow-300',
   faltante: 'bg-red-100 text-red-900 border-red-300',
 };
 
@@ -111,12 +111,54 @@ export const SiNoButtons: React.FC<SiNoProps> = ({ value, onChange, labelSi = 'S
   </div>
 );
 
+// ─── Botones Estado OK / Con Observación ──────────────────────────────────────
+interface EstadoObsProps {
+  value: EstadoLibro | null;
+  onChange: (v: EstadoLibro) => void;
+  idPrefix: string;
+}
+
+export const EstadoObservacionButtons: React.FC<EstadoObsProps> = ({ value, onChange, idPrefix }) => (
+  <div className="grid grid-cols-2 gap-3" role="radiogroup">
+    <button
+      type="button"
+      id={`${idPrefix}-ok`}
+      role="radio"
+      aria-checked={value === 'ok'}
+      onClick={() => onChange('ok')}
+      className={`min-h-[68px] rounded-2xl border-4 px-3 flex items-center justify-center gap-2 text-lg font-black leading-tight active:scale-95 transition-all ${
+        value === 'ok'
+          ? 'bg-emerald-600 border-emerald-800 text-white shadow-lg'
+          : 'bg-white border-slate-300 text-slate-700'
+      }`}
+    >
+      <Check size={28} strokeWidth={4} aria-hidden />
+      <span>OK</span>
+    </button>
+    <button
+      type="button"
+      id={`${idPrefix}-obs`}
+      role="radio"
+      aria-checked={value === 'con_observacion'}
+      onClick={() => onChange('con_observacion')}
+      className={`min-h-[68px] rounded-2xl border-4 px-3 flex items-center justify-center gap-2 text-lg font-black leading-tight active:scale-95 transition-all ${
+        value === 'con_observacion'
+          ? 'bg-yellow-400 border-yellow-600 text-yellow-950 shadow-lg'
+          : 'bg-white border-slate-300 text-slate-700'
+      }`}
+    >
+      <AlertTriangle size={26} aria-hidden />
+      <span>CON OBSERVACIÓN</span>
+    </button>
+  </div>
+);
+
 // ─── Iconos de estado reutilizables ──────────────────────────────────────────
 export const IconoCargo: React.FC<{ estado: EstadoCargo; size?: number }> = ({ estado, size = 22 }) =>
   estado === 'ok' ? (
     <CheckCircle2 size={size} className="text-emerald-600" aria-hidden />
   ) : estado === 'observacion' ? (
-    <AlertTriangle size={size} className="text-amber-600" aria-hidden />
+    <AlertTriangle size={size} className="text-yellow-600" aria-hidden />
   ) : (
     <XCircle size={size} className="text-red-600" aria-hidden />
   );

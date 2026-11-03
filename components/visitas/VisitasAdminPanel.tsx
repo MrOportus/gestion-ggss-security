@@ -78,7 +78,7 @@ const VisitasAdminPanel: React.FC = () => {
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [totalHistorico, setTotalHistorico] = useState<number | null>(null);
-  // Inicialmente siempre en los últimos 15 días
+  // Inicialmente siempre en los últimos 30 días
   const [filtros, setFiltros] = useState<FiltrosVisitas>(() => filtrosInicialesVisitas());
   // Cargar desde ventana amplia inicial (2024-01-01) para tener el historial completo disponible
   const [desdeCargado, setDesdeCargado] = useState<string>('2024-01-01');
@@ -326,9 +326,9 @@ const VisitasAdminPanel: React.FC = () => {
                 type="button"
                 onClick={() => setFiltros(filtrosInicialesVisitas())}
                 className="inline-flex items-center gap-1 text-xs font-black text-blue-600 hover:text-blue-800 uppercase tracking-wider"
-                title="Volver al período por defecto de los últimos 15 días"
+                title="Volver al período por defecto de los últimos 30 días"
               >
-                Últimos 15 días
+                Últimos 30 días
               </button>
               <span className="text-slate-300">·</span>
               <button
@@ -394,11 +394,11 @@ const VisitasAdminPanel: React.FC = () => {
             onClick={() => set('resultado', filtros.resultado === 'con_observaciones' ? '' : 'con_observaciones')}
             className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-black uppercase transition-all ${
               filtros.resultado === 'con_observaciones'
-                ? 'bg-amber-600 text-white shadow-sm'
-                : 'bg-amber-50 text-amber-900 border border-amber-200 hover:bg-amber-100'
+                ? 'bg-yellow-500 text-yellow-950 shadow-sm'
+                : 'bg-yellow-50 text-yellow-900 border border-yellow-200 hover:bg-yellow-100'
             }`}
           >
-            🟠 Con observaciones ({statsGenerales.visitasConObservacion})
+            🟡 Con observaciones ({statsGenerales.visitasConObservacion})
           </button>
           <button
             type="button"
@@ -471,7 +471,7 @@ const VisitasAdminPanel: React.FC = () => {
             >
               <option value="">Todos</option>
               <option value="sin_novedades">🟢 Sin novedades</option>
-              <option value="con_observaciones">🟠 Con observaciones</option>
+              <option value="con_observaciones">🟡 Con observaciones</option>
               <option value="con_novedad">🔴 Con novedad relevante</option>
             </select>
           </label>
@@ -545,7 +545,7 @@ const VisitasAdminPanel: React.FC = () => {
                   onClick={() => setFiltros(filtrosInicialesVisitas())}
                   className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-blue-600 text-white font-bold text-sm hover:bg-blue-700 active:scale-95 transition-all shadow-md shadow-blue-600/20"
                 >
-                  Restablecer a últimos 15 días
+                  Restablecer a últimos 30 días
                 </button>
                 <button
                   type="button"
