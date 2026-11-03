@@ -9,6 +9,8 @@ node_modules/
 
 # Build output
 dist/
+# Android build artifacts
+*.apk
 dist.zip
 .firebase/
 .tmp/

@@ -4,7 +4,7 @@ import { Employee } from '../types';
 import { useAppStore } from '../store/useAppStore';
 import { functions, auth } from '../lib/firebase';
 import { httpsCallable } from 'firebase/functions';
-import { KeyRound, Copy, Check, RefreshCw, AlertTriangle } from 'lucide-react';
+import { KeyRound, Copy, Check, RefreshCw, AlertTriangle, Eye, EyeOff } from 'lucide-react';
 
 interface GeneratePasswordButtonProps {
   employee: Employee;
@@ -33,6 +33,7 @@ const GeneratePasswordButton: React.FC<GeneratePasswordButtonProps> = ({ employe
   const [generatedPassword, setGeneratedPassword] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   const handleGenerate = async () => {
     setIsLoading(true);
@@ -130,10 +131,19 @@ const GeneratePasswordButton: React.FC<GeneratePasswordButtonProps> = ({ employe
       <div className="flex items-center gap-2 animate-in fade-in duration-200">
         <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-1.5">
           <KeyRound size={14} className="text-emerald-600 shrink-0" />
-          <span className="font-mono font-black text-emerald-800 text-sm tracking-widest">
-            {generatedPassword}
+          <span className="font-mono font-black text-emerald-800 text-sm tracking-widest select-none">
+            {showPassword ? generatedPassword : '******'}
           </span>
           <button
+            type="button"
+            onClick={() => setShowPassword(prev => !prev)}
+            className="p-1 rounded-lg hover:bg-emerald-100 transition text-emerald-600"
+            title={showPassword ? 'Ocultar contraseña' : 'Ver contraseña'}
+          >
+            {showPassword ? <EyeOff size={14} /> : <Eye size={14} />}
+          </button>
+          <button
+            type="button"
             onClick={() => handleCopy(generatedPassword)}
             className="p-1 rounded-lg hover:bg-emerald-100 transition"
             title="Copiar contraseña"
@@ -146,6 +156,7 @@ const GeneratePasswordButton: React.FC<GeneratePasswordButtonProps> = ({ employe
           </button>
         </div>
         <button
+          type="button"
           onClick={() => setShowConfirm(true)}
           className="p-1.5 rounded-lg hover:bg-slate-100 transition text-slate-400 hover:text-slate-600"
           title="Generar otra contraseña"
@@ -162,10 +173,19 @@ const GeneratePasswordButton: React.FC<GeneratePasswordButtonProps> = ({ employe
       <div className="flex items-center gap-2">
         <div className="flex items-center gap-2 bg-yellow-50 border border-yellow-200 rounded-xl px-3 py-1.5">
           <KeyRound size={14} className="text-yellow-600 shrink-0" />
-          <span className="font-mono font-bold text-yellow-800 text-xs tracking-wider">
-            {employee.tempPasswordLog}
+          <span className="font-mono font-bold text-yellow-800 text-xs tracking-wider select-none">
+            {showPassword ? employee.tempPasswordLog : '******'}
           </span>
           <button
+            type="button"
+            onClick={() => setShowPassword(prev => !prev)}
+            className="p-1 rounded-lg hover:bg-yellow-100 transition text-yellow-700"
+            title={showPassword ? 'Ocultar contraseña' : 'Ver contraseña'}
+          >
+            {showPassword ? <EyeOff size={14} /> : <Eye size={14} />}
+          </button>
+          <button
+            type="button"
             onClick={() => handleCopy(employee.tempPasswordLog!)}
             className="p-1 rounded-lg hover:bg-yellow-100 transition"
             title="Copiar contraseña"
@@ -178,6 +198,7 @@ const GeneratePasswordButton: React.FC<GeneratePasswordButtonProps> = ({ employe
           </button>
         </div>
         <button
+          type="button"
           onClick={() => setShowConfirm(true)}
           className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-200 text-slate-600 rounded-xl hover:bg-slate-50 transition shadow-sm text-[11px] font-bold"
           title="Generar nueva contraseña"
