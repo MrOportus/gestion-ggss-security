@@ -10,7 +10,7 @@
 const OUTPUT_FORMAT = 'image/jpeg';
 
 export const compressImage = (
-    file: File, 
+    file: File | Blob, 
     quality = 0.6, 
     maxWidth = 1024, 
     watermarkData?: { 

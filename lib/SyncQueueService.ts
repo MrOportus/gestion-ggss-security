@@ -112,6 +112,32 @@ export const SyncQueueService = {
         console.log(`[SyncQueue] Limpiados ${idsToRemove.length} errores permanentes.`);
     },
 
+    /**
+     * Purges only permanent errors (status === 'ERROR' and retryCount >= MAX_RETRIES)
+     * strictly older than cutoffIso (e.g. 15 days).
+     * Never deletes PENDING, SYNCING, needs_recovery_review, or items without valid old timestamp.
+     */
+    async clearPermanentErrorsOlderThan(cutoffIso: string): Promise<number> {
+        const cutoffTime = new Date(cutoffIso).getTime();
+        const idsToRemove: string[] = [];
+        
+        await syncQueue.iterate((value: QueueItem, key: string) => {
+            if (value.status === 'ERROR' && value.retryCount >= MAX_RETRIES) {
+                const itemTime = value.timestamp ? new Date(value.timestamp).getTime() : NaN;
+                if (!isNaN(itemTime) && itemTime < cutoffTime) {
+                    idsToRemove.push(key);
+                }
+            }
+        });
+        
+        for (const id of idsToRemove) {
+            await syncQueue.removeItem(id);
+        }
+        
+        console.log(`[SyncQueue] Limpiados ${idsToRemove.length} errores permanentes mayores a 15 días.`);
+        return idsToRemove.length;
+    },
+
     async markCompleted(id: string): Promise<void> {
         await syncQueue.removeItem(id);
         console.log(`[SyncQueue] Marked completed and removed: ${id}`);

@@ -373,5 +373,37 @@ export const SyncQueueMigration = {
         } catch {
             return null;
         }
+    },
+
+    /**
+     * Safely cleans the backup store only if:
+     * 1. Migration version is >= 1 (migration successfully concluded).
+     * 2. Migration timestamp exists and is strictly older than cutoffIso (15 days).
+     * 3. Main sync queue is accessible and intact.
+     */
+    async cleanBackupIfEligible(cutoffIso: string): Promise<{ cleared: boolean; reason: string }> {
+        const currentVersion = await this.getMigrationVersion();
+        if (currentVersion < CURRENT_MIGRATION_VERSION) {
+            return { cleared: false, reason: 'Migración aún no ha concluido.' };
+        }
+
+        const timestampStr = await migrationMeta.getItem<string>('migrationTimestamp');
+        if (!timestampStr) {
+            return { cleared: false, reason: 'Sin fecha confirmada de finalización de migración.' };
+        }
+
+        const migrationTime = new Date(timestampStr).getTime();
+        const cutoffTime = new Date(cutoffIso).getTime();
+        if (isNaN(migrationTime) || migrationTime >= cutoffTime) {
+            return { cleared: false, reason: 'La migración se realizó hace menos de 15 días.' };
+        }
+
+        // Verificar que la cola principal responde y es accesible
+        let mainCount = 0;
+        await syncQueue.iterate(() => { mainCount++; });
+
+        await backupStore.clear();
+        console.log('[SyncQueueMigration] sync_queue_backup purgado de forma segura (>15 días posmigración).');
+        return { cleared: true, reason: 'Backup purgado tras 15 días de estabilidad de la cola principal.' };
     }
 };

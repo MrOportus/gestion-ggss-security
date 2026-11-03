@@ -120,5 +120,38 @@ export const roundsDB = {
             };
             req.onerror = () => reject(req.error);
         });
+    },
+
+    /**
+     * Delete orphan evidences strictly older than cutoffIso without touching the active round.
+     * Retains any evidence with unknown date or less than 15 days old.
+     */
+    async clearOrphanEvidencesOlderThan(cutoffIso: string, excludeRoundId?: string | null): Promise<number> {
+        const db = await this.open();
+        return new Promise<number>((resolve, reject) => {
+            const tx = db.transaction(this.evidenceStore, 'readwrite');
+            const store = tx.objectStore(this.evidenceStore);
+            const req = store.openCursor();
+            const cutoffTime = new Date(cutoffIso).getTime();
+            let deletedCount = 0;
+
+            req.onsuccess = (e: any) => {
+                const cursor: IDBCursorWithValue | null = e.target.result;
+                if (cursor) {
+                    const val = cursor.value as PendingEvidence;
+                    const itemTime = val.timestamp ? new Date(val.timestamp).getTime() : NaN;
+
+                    // Condición estricta: timestamp válido Y anterior a cutoff Y no pertenece a la ronda activa
+                    if (!isNaN(itemTime) && itemTime < cutoffTime && (!excludeRoundId || val.roundId !== excludeRoundId)) {
+                        cursor.delete();
+                        deletedCount++;
+                    }
+                    cursor.continue();
+                }
+            };
+
+            tx.oncomplete = () => resolve(deletedCount);
+            tx.onerror = () => reject(tx.error);
+        });
     }
 };

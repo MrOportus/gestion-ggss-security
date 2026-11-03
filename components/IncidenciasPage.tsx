@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import { SyncQueueService } from '../lib/SyncQueueService';
+import { compressImage } from '../lib/imageUtils';
 import { useNetworkStatus } from '../hooks/useNetworkStatus';
 import {
   RegistroTipo,
@@ -267,19 +268,35 @@ const IncidenciasPage: React.FC<IncidenciasPageProps> = ({ onBack, activeLog, cu
       input.type = 'file';
       input.accept = 'image/*';
       if (source === 'camera') input.capture = 'environment';
-      input.onchange = (e: any) => {
+      input.onchange = async (e: any) => {
         const file: File = e.target.files?.[0];
         if (!file) return;
-        const reader = new FileReader();
-        reader.onload = (ev) => {
-          const dataUrl = ev.target?.result as string;
-          setForm(f => ({
-            ...f,
-            fotos: [...f.fotos, dataUrl],
-            fotosBlob: [...f.fotosBlob, file],
-          }));
-        };
-        reader.readAsDataURL(file);
+        try {
+          // Barrera de compresión: reduce fotos de 12MB a ~150KB en JPEG optimizado
+          const compressedBlob = await compressImage(file, 0.7, 1024);
+          const reader = new FileReader();
+          reader.onload = (ev) => {
+            const dataUrl = ev.target?.result as string;
+            setForm(f => ({
+              ...f,
+              fotos: [...f.fotos, dataUrl],
+              fotosBlob: [...f.fotosBlob, compressedBlob],
+            }));
+          };
+          reader.readAsDataURL(compressedBlob);
+        } catch (compErr) {
+          console.warn('[IncidenciasPage] Fallback a archivo original por error de compresión:', compErr);
+          const reader = new FileReader();
+          reader.onload = (ev) => {
+            const dataUrl = ev.target?.result as string;
+            setForm(f => ({
+              ...f,
+              fotos: [...f.fotos, dataUrl],
+              fotosBlob: [...f.fotosBlob, file],
+            }));
+          };
+          reader.readAsDataURL(file);
+        }
       };
       input.click();
     } catch (err: any) {

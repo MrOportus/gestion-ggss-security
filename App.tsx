@@ -5,6 +5,7 @@ import { useNetworkStatus } from './hooks/useNetworkStatus';
 import { SyncQueueService } from './lib/SyncQueueService';
 import { SyncManager } from './lib/SyncManager';
 import { SyncQueueMigration } from './lib/SyncQueueMigration';
+import { StorageCleanupService } from './lib/storage/StorageCleanupService';
 import Login from './components/Login';
 import AuthActionHandler from './components/AuthActionHandler';
 import AdminDashboard from './pages/AdminDashboard';
@@ -101,6 +102,16 @@ const App: React.FC = () => {
     return () => {
       cleanup();
     };
+  }, []);
+
+  // Limpieza automática no bloqueante de almacenamiento local Android (retención 15 días)
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      StorageCleanupService.runDailyCleanup().catch(err => {
+        console.warn('[App] Error no crítico en limpieza de almacenamiento:', err);
+      });
+    }, 15000); // Diferido 15s para no competir con login, red o render inicial
+    return () => clearTimeout(timer);
   }, []);
 
   // Trigger sync queue when network is restored

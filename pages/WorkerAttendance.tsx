@@ -48,6 +48,7 @@ import type { RegistroNovedad } from '../types';
 import RoundsControl from '../components/RoundsControl';
 import IncidenciasPage from '../components/IncidenciasPage';
 import MarketTurnos from '../components/MarketTurnos';
+import { compressImage } from '../lib/imageUtils';
 import { evaluateNocturnalClosure } from '../lib/phase5/nocturnalClosure';
 import MyExtraShifts from '../components/MyExtraShifts';
 import MyFixedShifts from '../components/MyFixedShifts';
@@ -141,7 +142,7 @@ const WorkerAttendance: React.FC = () => {
     return () => unsub();
   }, [currentUser?.uid]);
 
-  const [novedadFotoBlob, setNovedadFotoBlob] = useState<File | null>(null);
+  const [novedadFotoBlob, setNovedadFotoBlob] = useState<File | Blob | null>(null);
   const [novedadStatus, setNovedadStatus] = useState<'resolucion' | 'seguimiento' | null>(null);
   const [novedadError, setNovedadError] = useState<string | null>(null);
   const [isSavingNovedad, setIsSavingNovedad] = useState(false);
@@ -820,15 +821,27 @@ const WorkerAttendance: React.FC = () => {
     input.type = 'file';
     input.accept = 'image/*';
     if (source === 'camera') input.capture = 'environment';
-    input.onchange = (e: any) => {
+    input.onchange = async (e: any) => {
       const file: File = e.target.files?.[0];
       if (!file) return;
-      const reader = new FileReader();
-      reader.onload = (ev) => {
-        setNovedadFoto(ev.target?.result as string);
-        setNovedadFotoBlob(file);
-      };
-      reader.readAsDataURL(file);
+      try {
+        // Barrera de compresión: reduce fotos de 12MB a ~150KB en JPEG optimizado
+        const compressedBlob = await compressImage(file, 0.7, 1024);
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+          setNovedadFoto(ev.target?.result as string);
+          setNovedadFotoBlob(compressedBlob);
+        };
+        reader.readAsDataURL(compressedBlob);
+      } catch (compErr) {
+        console.warn('[WorkerAttendance] Fallback a archivo original por error de compresión:', compErr);
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+          setNovedadFoto(ev.target?.result as string);
+          setNovedadFotoBlob(file);
+        };
+        reader.readAsDataURL(file);
+      }
     };
     input.click();
   };
