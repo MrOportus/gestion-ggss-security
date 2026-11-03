@@ -19,6 +19,7 @@ import {
     Users,
     Plus,
     UserMinus,
+    GripVertical,
     Circle,
     AlertTriangle,
     AlertCircle,
@@ -118,6 +119,11 @@ const ShiftManagement: React.FC = () => {
     const siteSearchRef = useRef<HTMLDivElement>(null);
     const [isEditMode, setIsEditMode] = useState(false);
     const [isManageStaffOpen, setIsManageStaffOpen] = useState(false);
+
+    // Orden manual del personal (borrador local hasta pulsar GUARDAR CAMBIOS)
+    const [orderDraft, setOrderDraft] = useState<string[] | null>(null);
+    const [rowDragId, setRowDragId] = useState<string | null>(null);
+    const [rowDragOverId, setRowDragOverId] = useState<string | null>(null);
 
     // Click and Drag State
     const [isDragging, setIsDragging] = useState(false);
@@ -580,6 +586,8 @@ const ShiftManagement: React.FC = () => {
     };
 
     const saveChanges = async (overrideConflicts: boolean = false) => {
+        // El orden del personal es independiente de los turnos: se guarda primero y no altera la programación
+        await persistStaffOrder();
         setConflictError(null);
 
         // ------------------------------------------------------------------
@@ -746,6 +754,7 @@ const ShiftManagement: React.FC = () => {
     };
 
     const discardChanges = () => {
+        setOrderDraft(null);
         setPendingChanges({});
         setIsEditMode(false);
         setSavedTokens({});
@@ -803,9 +812,71 @@ const ShiftManagement: React.FC = () => {
         }
     });
 
-    const finalVisibleEmployees = employees.filter(emp => {
+    const baseVisibleEmployees = employees.filter(emp => {
         return (emp.currentSiteId == selectedSiteId) || extraEmployeeIds.has(emp.id);
     });
+
+    // Orden efectivo: borrador (modo edición) > orden guardado en la sucursal > orden base.
+    // Los colaboradores sin posición guardada (nuevos) quedan al final conservando su orden original.
+    // El orden es solo visual: los turnos se indexan por siteId_employeeId_fecha, por lo que
+    // reordenar filas nunca altera programación, asistencia ni notas.
+    const effectiveOrder: string[] | null = orderDraft ?? currentSelectedSite?.ordenPersonal ?? null;
+    const finalVisibleEmployees = useMemo(() => {
+        if (!effectiveOrder || effectiveOrder.length === 0) return baseVisibleEmployees;
+        const position = new Map<string, number>();
+        effectiveOrder.forEach((id, idx) => position.set(id, idx));
+        return baseVisibleEmployees
+            .map((emp, originalIdx) => ({ emp, originalIdx }))
+            .sort((a, b) => {
+                const pa = position.has(a.emp.id) ? position.get(a.emp.id)! : Number.MAX_SAFE_INTEGER;
+                const pb = position.has(b.emp.id) ? position.get(b.emp.id)! : Number.MAX_SAFE_INTEGER;
+                return pa !== pb ? pa - pb : a.originalIdx - b.originalIdx;
+            })
+            .map(x => x.emp);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [employees, selectedSiteId, programmingMap, effectiveOrder]);
+
+    const moveEmployeeInOrder = (fromId: string, toId: string) => {
+        if (fromId === toId) return;
+        const ids = finalVisibleEmployees.map(e => e.id);
+        const fromIdx = ids.indexOf(fromId);
+        const toIdx = ids.indexOf(toId);
+        if (fromIdx < 0 || toIdx < 0) return;
+        ids.splice(fromIdx, 1);
+        ids.splice(toIdx, 0, fromId);
+        setOrderDraft(ids);
+    };
+
+    const shiftEmployeeOrder = (empId: string, delta: -1 | 1) => {
+        const ids = finalVisibleEmployees.map(e => e.id);
+        const idx = ids.indexOf(empId);
+        const target = idx + delta;
+        if (idx < 0 || target < 0 || target >= ids.length) return;
+        [ids[idx], ids[target]] = [ids[target], ids[idx]];
+        setOrderDraft(ids);
+    };
+
+    // Persiste el nuevo orden en Sucursales/{id}.ordenPersonal (campo opcional, retrocompatible)
+    const persistStaffOrder = async (): Promise<boolean> => {
+        if (!orderDraft || !selectedSiteId) return true;
+        try {
+            await updateDoc(doc(db, 'Sucursales', String(selectedSiteId)), { ordenPersonal: orderDraft });
+            useAppStore.setState(state => ({
+                sites: state.sites.map(s => String(s.id) === String(selectedSiteId) ? { ...s, ordenPersonal: orderDraft } : s)
+            }));
+            setOrderDraft(null);
+            return true;
+        } catch (e) {
+            console.error('Error guardando orden del personal:', e);
+            useAppStore.getState().showNotification('No se pudo guardar el nuevo orden del personal. Verifique sus permisos e intente nuevamente.', 'error');
+            return false;
+        }
+    };
+
+    // El borrador de orden pertenece a una sucursal: se descarta al cambiar de sucursal
+    useEffect(() => {
+        setOrderDraft(null);
+    }, [selectedSiteId]);
 
     const shadowEmployeeIds = useMemo(() => finalVisibleEmployees.map(e => e.id), [finalVisibleEmployees]);
     
@@ -1270,13 +1341,101 @@ const ShiftManagement: React.FC = () => {
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
-                            {finalVisibleEmployees.map(emp => (
-                                <tr key={emp.id} className="hover:bg-slate-50 transition-colors">
-                                    <td className="sticky left-0 z-20 bg-white border-r border-slate-100 p-3 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]">
+                            {finalVisibleEmployees.map((emp, empIdx) => (
+                                <tr
+                                    key={emp.id}
+                                    onDragOver={(e) => {
+                                        if (isEditMode && rowDragId) {
+                                            e.preventDefault();
+                                            e.dataTransfer.dropEffect = 'move';
+                                            if (rowDragOverId !== emp.id) {
+                                                setRowDragOverId(emp.id);
+                                            }
+                                        }
+                                    }}
+                                    onDragLeave={(e) => {
+                                        if (e.currentTarget.contains(e.relatedTarget as Node)) return;
+                                        if (rowDragOverId === emp.id) {
+                                            setRowDragOverId(null);
+                                        }
+                                    }}
+                                    onDrop={(e) => {
+                                        if (isEditMode && rowDragId) {
+                                            e.preventDefault();
+                                            if (rowDragId !== emp.id) {
+                                                moveEmployeeInOrder(rowDragId, emp.id);
+                                            }
+                                            setRowDragId(null);
+                                            setRowDragOverId(null);
+                                        }
+                                    }}
+                                    className={`hover:bg-slate-50 transition-colors ${
+                                        isEditMode && rowDragId === emp.id ? 'opacity-40 bg-blue-50/40' : ''
+                                    } ${
+                                        isEditMode && rowDragOverId === emp.id && rowDragId !== emp.id ? 'bg-blue-50/30' : ''
+                                    }`}
+                                >
+                                    <td
+                                        className={`sticky left-0 z-20 border-r border-slate-100 p-3 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)] transition-colors ${
+                                            isEditMode && rowDragOverId === emp.id && rowDragId !== emp.id
+                                                ? 'bg-blue-50/90 border-t-2 border-t-blue-500'
+                                                : isEditMode && rowDragId === emp.id
+                                                    ? 'bg-slate-100/90'
+                                                    : 'bg-white'
+                                        }`}
+                                    >
                                         <div className="flex items-center justify-between gap-2 group">
-                                            <div className="flex flex-col min-w-0">
-                                                <span className="text-sm font-bold text-slate-800 truncate">{emp.firstName} {emp.lastNamePaterno}</span>
-                                                <span className="text-[10px] font-mono text-slate-400">{emp.rut}</span>
+                                            <div className="flex items-center gap-2 min-w-0">
+                                                {isEditMode && (
+                                                    <div className="flex items-center gap-0.5 shrink-0 bg-slate-50 border border-slate-200/80 rounded-md p-0.5 shadow-sm">
+                                                        <div
+                                                            draggable
+                                                            onDragStart={(e) => {
+                                                                setRowDragId(emp.id);
+                                                                e.dataTransfer.effectAllowed = 'move';
+                                                                e.dataTransfer.setData('text/plain', emp.id);
+                                                            }}
+                                                            onDragEnd={() => {
+                                                                setRowDragId(null);
+                                                                setRowDragOverId(null);
+                                                            }}
+                                                            className="text-slate-400 hover:text-slate-700 cursor-grab active:cursor-grabbing p-1 rounded hover:bg-slate-200/60 transition select-none"
+                                                            title="Arrastra para reordenar"
+                                                        >
+                                                            <GripVertical size={14} />
+                                                        </div>
+                                                        <div className="flex flex-col -space-y-1">
+                                                            <button
+                                                                type="button"
+                                                                disabled={empIdx === 0}
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    shiftEmployeeOrder(emp.id, -1);
+                                                                }}
+                                                                className="p-0.5 text-slate-400 hover:text-blue-600 disabled:opacity-20 disabled:hover:text-slate-400 transition rounded"
+                                                                title="Mover arriba"
+                                                            >
+                                                                <ChevronUp size={12} />
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                disabled={empIdx === finalVisibleEmployees.length - 1}
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    shiftEmployeeOrder(emp.id, 1);
+                                                                }}
+                                                                className="p-0.5 text-slate-400 hover:text-blue-600 disabled:opacity-20 disabled:hover:text-slate-400 transition rounded"
+                                                                title="Mover abajo"
+                                                            >
+                                                                <ChevronDown size={12} />
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                )}
+                                                <div className="flex flex-col min-w-0">
+                                                    <span className="text-sm font-bold text-slate-800 truncate">{emp.firstName} {emp.lastNamePaterno}</span>
+                                                    <span className="text-[10px] font-mono text-slate-400">{emp.rut}</span>
+                                                </div>
                                             </div>
                                             <div className="flex flex-col items-end gap-1 shrink-0">
                                                 {isEditMode && (

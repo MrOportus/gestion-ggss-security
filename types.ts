@@ -28,6 +28,7 @@ export interface Site {
   rondasEnabled?: boolean; // Contextual Feature Toggle for Guard Rounds
   cargosFijos?: string[]; // Listado de cargos fijos / equipamiento base de la sucursal (ej: ['Chaleco Anticorte'])
   horario?: HorarioFuncionamiento; // Horario de funcionamiento de la sucursal (por defecto: 07:30 a 19:30)
+  ordenPersonal?: string[]; // IDs de colaboradores en el orden visual elegido en Gestión de Turnos (opcional, retrocompatible)
 }
 
 export interface Employee {
