@@ -57,6 +57,27 @@ const RoundsAdminPage: React.FC = () => {
     const [selectedSiteId, setSelectedSiteId] = useState<string | 'all'>('all');
     const [selectedRound, setSelectedRound] = useState<any | null>(null);
 
+    const isSupervisor = currentUser?.role === 'supervisor';
+
+    // Sucursales asignadas al supervisor (si aplica)
+    const supervisorAssignedSiteIds = React.useMemo(() => {
+        if (!isSupervisor) return null;
+        const emp = employees.find(
+            e => e.id === currentUser?.uid || (currentUser?.email && e.email?.toLowerCase() === currentUser.email.toLowerCase())
+        );
+        return new Set((emp?.assignedSites || []).map(id => String(id)));
+    }, [isSupervisor, employees, currentUser?.uid, currentUser?.email]);
+
+    const visibleSites = React.useMemo(() => {
+        return sites.filter(s => {
+            if (s.active === false) return false;
+            if (isSupervisor) {
+                return supervisorAssignedSiteIds?.has(String(s.id)) ?? false;
+            }
+            return true;
+        });
+    }, [sites, isSupervisor, supervisorAssignedSiteIds]);
+
     // Pagination state
     const [currentPage, setCurrentPage] = useState(1);
     const [itemsPerPage, setItemsPerPage] = useState(20);
@@ -155,6 +176,12 @@ const RoundsAdminPage: React.FC = () => {
 
     // Filter logic
     const filteredRounds = guardRounds.filter(round => {
+        if (isSupervisor) {
+            if (!supervisorAssignedSiteIds || !supervisorAssignedSiteIds.has(String(round.siteId))) {
+                return false;
+            }
+        }
+
         const matchesSearch =
             round.workerName.toLowerCase().includes(searchTerm.toLowerCase()) ||
             round.siteName.toLowerCase().includes(searchTerm.toLowerCase());
@@ -184,50 +211,60 @@ const RoundsAdminPage: React.FC = () => {
     return (
         <div className="flex flex-col h-full bg-slate-50 min-h-screen relative">
             {/* HEADER */}
-            <header className="bg-white border-b border-slate-200 px-4 md:px-6 py-6 sticky top-0 z-30">
-                <div className="max-w-7xl mx-auto flex flex-col lg:flex-row lg:items-center justify-between gap-6">
+            <header className="bg-white border-b border-slate-200 px-3 sm:px-4 md:px-6 py-4 md:py-6 lg:sticky lg:top-0 z-20">
+                <div className="max-w-7xl mx-auto flex flex-col lg:flex-row lg:items-center justify-between gap-4 lg:gap-6">
                     <div>
-                        <div className="flex flex-wrap items-center gap-3">
-                            <h2 className="text-2xl md:text-3xl font-black text-slate-800 tracking-tighter">Monitoreo de Rondas</h2>
-                            <button
-                                onClick={() => setShowTestModal(true)}
-                                className="px-3 py-1 bg-amber-50 hover:bg-amber-100 text-amber-700 text-[10px] font-black uppercase tracking-widest rounded-full transition-all border border-amber-200"
-                            >
-                                Uso exclusivo para pruebas
-                            </button>
+                        <div className="flex flex-wrap items-center gap-2.5 sm:gap-3">
+                            <h2 className="text-xl sm:text-2xl md:text-3xl font-black text-slate-800 tracking-tighter">Monitoreo de Rondas</h2>
+                            {isSupervisor && (
+                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-100 text-[10px] font-bold">
+                                    <MapPin size={11} />
+                                    {visibleSites.length} {visibleSites.length === 1 ? 'sede asignada' : 'sedes asignadas'}
+                                </span>
+                            )}
+                            {currentUser?.role === 'admin' && (
+                                <button
+                                    onClick={() => setShowTestModal(true)}
+                                    className="px-3 py-1 bg-amber-50 hover:bg-amber-100 text-amber-700 text-[10px] font-black uppercase tracking-widest rounded-full transition-all border border-amber-200"
+                                >
+                                    Uso exclusivo para pruebas
+                                </button>
+                            )}
                         </div>
-                        <p className="text-[10px] md:text-sm text-slate-500 font-bold uppercase tracking-widest mt-1 opacity-70">Seguimiento GPS de vigilancia por sucursal</p>
+                        <p className="text-[10px] md:text-sm text-slate-500 font-bold uppercase tracking-widest mt-1 opacity-70">
+                            {isSupervisor ? 'Seguimiento GPS de rondas en tus sucursales asignadas' : 'Seguimiento GPS de vigilancia por sucursal'}
+                        </p>
                     </div>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:flex items-center gap-3 w-full lg:w-auto">
+                    <div className="grid grid-cols-2 lg:flex items-center gap-2.5 sm:gap-3 w-full lg:w-auto">
                         <div className="relative w-full">
-                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
                             <input
                                 type="text"
                                 placeholder="Buscar guardia..."
-                                className="pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none w-full lg:w-44"
+                                className="pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm focus:ring-2 focus:ring-blue-500 outline-none w-full lg:w-44"
                                 value={searchTerm}
                                 onChange={(e) => setSearchTerm(e.target.value)}
                             />
                         </div>
 
                         <div className="relative w-full">
-                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
                             <input
                                 type="text"
                                 placeholder="Buscar en notas..."
-                                className="pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none w-full lg:w-44"
+                                className="pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm focus:ring-2 focus:ring-blue-500 outline-none w-full lg:w-44"
                                 value={notesSearch}
                                 onChange={(e) => setNotesSearch(e.target.value)}
                             />
                         </div>
 
-                        <div className="flex items-center gap-2 w-full lg:w-auto">
+                        <div className="col-span-2 sm:col-span-2 lg:col-span-1 flex items-center gap-2 w-full lg:w-auto">
                             <div className="relative w-full">
-                                <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                                <Calendar className="absolute left-2.5 sm:left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={14} />
                                 <input
                                     type="date"
-                                    className="pl-9 pr-2 py-2 bg-slate-50 border border-slate-200 rounded-xl text-[10px] md:text-sm focus:ring-2 focus:ring-blue-500 outline-none text-slate-700 font-bold w-full"
+                                    className="pl-8 sm:pl-9 pr-2 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs md:text-sm focus:ring-2 focus:ring-blue-500 outline-none text-slate-700 font-bold w-full"
                                     value={startDateFilter}
                                     onChange={(e) => setStartDateFilter(e.target.value)}
                                     title="Fecha Desde"
@@ -236,7 +273,7 @@ const RoundsAdminPage: React.FC = () => {
                             <div className="relative w-full">
                                 <input
                                     type="date"
-                                    className="px-2 py-2 bg-slate-50 border border-slate-200 rounded-xl text-[10px] md:text-sm focus:ring-2 focus:ring-blue-500 outline-none text-slate-700 font-bold w-full"
+                                    className="px-2 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs md:text-sm focus:ring-2 focus:ring-blue-500 outline-none text-slate-700 font-bold w-full"
                                     value={endDateFilter}
                                     onChange={(e) => setEndDateFilter(e.target.value)}
                                     title="Fecha Hasta"
@@ -268,7 +305,7 @@ const RoundsAdminPage: React.FC = () => {
                         </div>
 
                         <select
-                            className="px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none font-bold text-slate-700 w-full lg:w-44"
+                            className="px-3 sm:px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm focus:ring-2 focus:ring-blue-500 outline-none font-bold text-slate-700 w-full lg:w-44"
                             value={resultFilter}
                             onChange={(e) => setResultFilter(e.target.value as any)}
                         >
@@ -279,43 +316,56 @@ const RoundsAdminPage: React.FC = () => {
                         </select>
 
                         <select
-                            className="px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none font-bold text-slate-700 w-full sm:col-span-2 lg:col-span-1 lg:w-44"
+                            className="px-3 sm:px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm focus:ring-2 focus:ring-blue-500 outline-none font-bold text-slate-700 w-full lg:w-44"
                             value={selectedSiteId}
                             onChange={(e) => setSelectedSiteId(e.target.value)}
                         >
-                            <option value="all">Todas las sedes</option>
-                            {sites.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                            <option value="all">{isSupervisor ? 'Mis sedes asignadas' : 'Todas las sedes'}</option>
+                            {visibleSites.map(s => <option key={s.id} value={String(s.id)}>{s.name}</option>)}
                         </select>
                     </div>
                 </div>
             </header>
 
             {/* CONTENT */}
-            <main className="flex-1 p-4 md:p-6 max-w-7xl mx-auto w-full">
+            <main className="flex-1 p-3 sm:p-4 md:p-6 max-w-7xl mx-auto w-full">
+                {isSupervisor && supervisorAssignedSiteIds && supervisorAssignedSiteIds.size === 0 && (
+                    <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex items-start gap-3 mb-4">
+                        <AlertCircle size={18} className="text-amber-600 shrink-0 mt-0.5" />
+                        <p className="text-xs sm:text-sm font-bold text-amber-800">
+                            No tienes sucursales asignadas actualmente. Solicita al administrador la asignación de sucursales para monitorear sus rondas.
+                        </p>
+                    </div>
+                )}
+
                 {filteredRounds.length === 0 ? (
-                    <div className="bg-white rounded-[2.5rem] p-8 md:p-16 text-center shadow-sm border border-slate-100 mt-10">
+                    <div className="bg-white rounded-3xl sm:rounded-[2.5rem] p-8 md:p-16 text-center shadow-sm border border-slate-100 mt-4 sm:mt-10">
                         <Navigation size={48} className="text-slate-200 mx-auto mb-4" />
-                        <h3 className="text-xl font-bold text-slate-800">No se encontraron rondas</h3>
-                        <p className="text-slate-400">Ajusta los filtros para ver otros resultados.</p>
+                        <h3 className="text-lg sm:text-xl font-bold text-slate-800">No se encontraron rondas</h3>
+                        <p className="text-xs sm:text-sm text-slate-400">
+                            {isSupervisor && visibleSites.length === 0
+                                ? 'No tienes sucursales asignadas para visualizar rondas.'
+                                : 'Ajusta los filtros para ver otros resultados.'}
+                        </p>
                     </div>
                 ) : (
-                    <div className="grid grid-cols-1 gap-4">
+                    <div className="grid grid-cols-1 gap-3 sm:gap-4">
                         {paginatedRounds.map((round) => {
                             const duration = round.endTime
                                 ? Math.floor((new Date(round.endTime).getTime() - new Date(round.startTime).getTime()) / 60000)
                                 : null;
 
                             return (
-                                <div key={round.id} className="bg-white rounded-[2rem] p-5 md:p-6 shadow-sm border border-slate-100 hover:shadow-md transition-all group overflow-hidden">
-                                    <div className="flex flex-col lg:flex-row lg:items-center gap-6 flex-1">
+                                <div key={round.id} className="bg-white rounded-2xl sm:rounded-[2rem] p-4 sm:p-5 md:p-6 shadow-sm border border-slate-100 hover:shadow-md transition-all group overflow-hidden">
+                                    <div className="flex flex-col lg:flex-row lg:items-center gap-4 lg:gap-6 flex-1">
                                         {/* Worker Info & Result Tag */}
-                                        <div className="flex items-start gap-4 flex-1">
-                                            <div className="w-12 h-12 bg-slate-50 rounded-2xl flex items-center justify-center text-slate-400 shrink-0 border border-slate-100">
-                                                <Navigation size={24} />
+                                        <div className="flex items-start gap-3 sm:gap-4 flex-1">
+                                            <div className="w-10 h-10 sm:w-12 sm:h-12 bg-slate-50 rounded-2xl flex items-center justify-center text-slate-400 shrink-0 border border-slate-100">
+                                                <Navigation className="w-5 h-5 sm:w-6 sm:h-6" />
                                             </div>
-                                            <div className="min-w-0">
+                                            <div className="min-w-0 flex-1">
                                                 <div className="flex items-center gap-2 flex-wrap">
-                                                    <h3 className="font-black text-slate-800 text-base truncate">{round.workerName}</h3>
+                                                    <h3 className="font-black text-slate-800 text-sm sm:text-base truncate">{round.workerName}</h3>
                                                     {round.result && (
                                                         <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[9px] font-black uppercase ring-1 ring-inset ${round.result === 'SIN_NOVEDAD' ? 'bg-emerald-50 text-emerald-700 ring-emerald-600/20' :
                                                             round.result === 'CON_NOVEDAD' ? 'bg-rose-50 text-rose-700 ring-rose-600/20' :
@@ -329,8 +379,8 @@ const RoundsAdminPage: React.FC = () => {
                                                     )}
                                                 </div>
                                                 <div className="flex items-center gap-1.5 text-slate-400 font-bold text-[10px] uppercase tracking-wider mt-0.5">
-                                                    <MapPin size={12} className="text-blue-500" />
-                                                    {round.siteName}
+                                                    <MapPin size={12} className="text-blue-500 shrink-0" />
+                                                    <span className="truncate">{round.siteName}</span>
                                                 </div>
                                             </div>
                                         </div>
@@ -366,22 +416,22 @@ const RoundsAdminPage: React.FC = () => {
                                         )}
 
                                         {/* Time Info - Swapped to right-middle */}
-                                        <div className="grid grid-cols-2 lg:flex items-center gap-4 sm:gap-6 bg-slate-50/50 lg:bg-transparent p-4 lg:p-0 rounded-2xl shrink-0">
-                                            <div className="space-y-1">
+                                        <div className="grid grid-cols-2 lg:flex items-center gap-3 sm:gap-6 bg-slate-50/70 lg:bg-transparent p-3 sm:p-4 lg:p-0 rounded-2xl shrink-0">
+                                            <div className="space-y-0.5 sm:space-y-1">
                                                 <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Inicio</p>
-                                                <div className="flex items-center gap-2 text-slate-700 font-bold text-sm">
-                                                    <Clock size={14} className="text-slate-300" />
+                                                <div className="flex items-center gap-1.5 sm:gap-2 text-slate-700 font-bold text-xs sm:text-sm">
+                                                    <Clock size={14} className="text-slate-300 shrink-0" />
                                                     {new Date(round.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                                                 </div>
                                                 <p className="text-[10px] text-slate-400 font-medium">{new Date(round.startTime).toLocaleDateString()}</p>
                                             </div>
 
-                                            <div className="space-y-1">
+                                            <div className="space-y-0.5 sm:space-y-1">
                                                 <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Fin / Duración</p>
-                                                <div className="flex items-center gap-2 text-slate-700 font-bold text-sm">
+                                                <div className="flex items-center gap-1.5 sm:gap-2 text-slate-700 font-bold text-xs sm:text-sm">
                                                     {round.endTime ? (
                                                         <div className="flex flex-wrap items-center gap-1 sm:gap-2">
-                                                            <CheckCircle size={14} className="text-emerald-500" />
+                                                            <CheckCircle size={14} className="text-emerald-500 shrink-0" />
                                                             <span>{new Date(round.endTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                                                             <span className="text-[10px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded-full">
                                                                 {duration} min
@@ -398,41 +448,43 @@ const RoundsAdminPage: React.FC = () => {
                                         </div>
 
                                         {/* Actions */}
-                                        <div className="flex flex-row items-center gap-3 w-full lg:w-auto shrink-0 pr-2">
-                                            {!round.endTime && (
+                                        <div className="flex flex-wrap sm:flex-nowrap items-center justify-between gap-2.5 sm:gap-3 w-full lg:w-auto shrink-0">
+                                            <div className="flex items-center gap-2 flex-1 sm:flex-initial">
+                                                {!round.endTime && (
+                                                    <button
+                                                        onClick={() => handleManualCloseRound(round.id)}
+                                                        className="flex-1 lg:flex-none inline-flex items-center justify-center gap-1.5 px-3.5 py-3 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-2xl text-[10px] md:text-xs font-black uppercase tracking-widest transition-all active:scale-95 shadow-sm border border-rose-200 shrink-0"
+                                                        title="Cerrar ronda atascada"
+                                                    >
+                                                        <ShieldAlert size={14} /> Cerrar
+                                                    </button>
+                                                )}
                                                 <button
-                                                    onClick={() => handleManualCloseRound(round.id)}
-                                                    className="flex-1 lg:flex-none inline-flex items-center justify-center gap-2 px-4 py-4 lg:py-3 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-2xl text-[10px] md:text-xs font-black uppercase tracking-widest transition-all active:scale-95 shadow-sm border border-rose-200 shrink-0"
-                                                    title="Cerrar ronda atascada"
+                                                    onClick={() => setSelectedRound(round)}
+                                                    className="flex-1 lg:flex-none inline-flex items-center justify-center gap-2 px-4 sm:px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl text-[10px] md:text-xs font-black uppercase tracking-widest transition-all active:scale-95 shadow-lg shadow-blue-100 shrink-0"
                                                 >
-                                                    <ShieldAlert size={14} /> Cerrar
+                                                    <ExternalLink size={14} /> Ver Recorrido
                                                 </button>
-                                            )}
-                                            <button
-                                                onClick={() => setSelectedRound(round)}
-                                                className="flex-1 lg:flex-none inline-flex items-center justify-center gap-2 px-6 py-4 lg:py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl text-[10px] md:text-xs font-black uppercase tracking-widest transition-all active:scale-95 shadow-lg shadow-blue-100 shrink-0"
-                                            >
-                                                <ExternalLink size={14} /> Ver Recorrido
-                                            </button>
 
-                                            {currentUser?.role === 'admin' && (
-                                                <button
-                                                    onClick={() => handleDeleteRound(round.id)}
-                                                    className="inline-flex items-center justify-center p-3 lg:p-2 bg-red-50 hover:bg-red-100 text-red-500 rounded-2xl lg:rounded-xl transition-all active:scale-95 shrink-0"
-                                                    title="Eliminar ronda"
-                                                >
-                                                    <Trash2 size={16} />
-                                                </button>
-                                            )}
+                                                {currentUser?.role === 'admin' && (
+                                                    <button
+                                                        onClick={() => handleDeleteRound(round.id)}
+                                                        className="inline-flex items-center justify-center p-3 lg:p-2 bg-red-50 hover:bg-red-100 text-red-500 rounded-2xl lg:rounded-xl transition-all active:scale-95 shrink-0"
+                                                        title="Eliminar ronda"
+                                                    >
+                                                        <Trash2 size={16} />
+                                                    </button>
+                                                )}
+                                            </div>
 
                                             <div className="hidden xl:block h-10 w-px bg-slate-100 mx-1"></div>
 
-                                            <div className="flex gap-4 shrink-0">
-                                                <div className="flex flex-col items-end min-w-[35px]">
+                                            <div className="flex gap-3 sm:gap-4 shrink-0 pl-1">
+                                                <div className="flex flex-col items-end min-w-[32px]">
                                                     <p className="text-[10px] font-black text-slate-300 uppercase">GPS</p>
                                                     <p className="text-sm md:text-base font-black text-slate-800 leading-none">{(round.path?.length || 0)}</p>
                                                 </div>
-                                                <div className="flex flex-col items-end min-w-[45px]">
+                                                <div className="flex flex-col items-end min-w-[40px]">
                                                     <p className="text-[10px] font-black text-slate-300 uppercase">Fotos</p>
                                                     <div className="flex items-center gap-1">
                                                         <Camera size={14} className={(round.evidences?.length || 0) > 0 ? "text-amber-500" : "text-slate-300"} />

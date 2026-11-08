@@ -276,18 +276,18 @@ const RouteMapModal: React.FC<RouteMapModalProps> = ({ round, onClose }) => {
     };
 
     return (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-300">
-            <div className="bg-white w-full max-w-6xl rounded-[2.5rem] shadow-2xl overflow-hidden flex flex-col h-[90vh] animate-in zoom-in-95 duration-300">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-1.5 sm:p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-300">
+            <div className="bg-white w-full max-w-6xl rounded-2xl sm:rounded-[2.5rem] shadow-2xl overflow-hidden flex flex-col h-[92dvh] sm:h-[90vh] animate-in zoom-in-95 duration-300">
 
                 {/* Header Section */}
-                <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-white relative z-10">
-                    <div className="flex items-center gap-4">
-                        <div className="border-4 border-slate-50 w-14 h-14 bg-blue-600 rounded-2xl flex items-center justify-center text-white shadow-xl">
-                            <Navigation size={28} />
+                <div className="p-3.5 sm:p-6 border-b border-slate-100 flex items-center justify-between bg-white relative z-10 gap-2">
+                    <div className="flex items-center gap-3 sm:gap-4 min-w-0">
+                        <div className="border-2 sm:border-4 border-slate-50 w-10 h-10 sm:w-14 sm:h-14 bg-blue-600 rounded-xl sm:rounded-2xl flex items-center justify-center text-white shadow-xl shrink-0">
+                            <Navigation className="w-5 h-5 sm:w-7 sm:h-7" />
                         </div>
-                        <div>
-                            <h3 className="text-xl font-black text-slate-800 tracking-tight leading-none mb-1">Detalle de Ronda</h3>
-                            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest leading-none">{round.workerName} • {round.siteName}</p>
+                        <div className="min-w-0">
+                            <h3 className="text-base sm:text-xl font-black text-slate-800 tracking-tight leading-none mb-1 truncate">Detalle de Ronda</h3>
+                            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider sm:tracking-widest leading-tight truncate">{round.workerName} • {round.siteName}</p>
                         </div>
                     </div>
 
@@ -311,14 +311,31 @@ const RouteMapModal: React.FC<RouteMapModalProps> = ({ round, onClose }) => {
                         </div>
                     </div>
 
-                    <button onClick={onClose} className="p-3 hover:bg-slate-100 rounded-2xl text-slate-400 transition-all active:scale-90">
-                        <X size={24} />
+                    <button onClick={onClose} className="p-2.5 sm:p-3 hover:bg-slate-100 rounded-xl sm:rounded-2xl text-slate-400 transition-all active:scale-90 shrink-0">
+                        <X className="w-5 h-5 sm:w-6 sm:h-6" />
                     </button>
                 </div>
 
-                <div className="flex-1 flex flex-col md:flex-row overflow-hidden relative">
+                {/* Resumen compacto visible en móvil/tablet */}
+                <div className="flex lg:hidden items-center justify-around gap-2 px-3 py-2 bg-slate-50/90 border-b border-slate-100 text-[11px] shrink-0">
+                    <div className="flex items-center gap-1.5">
+                        <span className="font-black text-slate-400 uppercase text-[9px]">Duración:</span>
+                        <span className="font-bold text-slate-700">{duration || '--'} min</span>
+                    </div>
+                    <div className="w-px h-3.5 bg-slate-200" />
+                    <div className="flex items-center gap-1 font-bold text-amber-600">
+                        <Camera size={12} />
+                        <span>{round.evidences?.length || 0} fotos</span>
+                    </div>
+                    <div className="w-px h-3.5 bg-slate-200" />
+                    <span className={`font-black text-[10px] uppercase ${round.status === 'COMPLETED' ? 'text-emerald-600' : 'text-rose-600'}`}>
+                        {round.status === 'COMPLETED' ? 'Completada' : 'En Curso'}
+                    </span>
+                </div>
+
+                <div className="flex-1 flex flex-col md:flex-row overflow-hidden relative min-h-0">
                     {/* Map Area */}
-                    <div className="flex-1 relative bg-slate-50 min-h-[300px]">
+                    <div className="flex-1 relative bg-slate-50 min-h-[240px]">
                         {hasPoints && (
                             <MapContainer
                                 center={defaultCenter}
@@ -464,28 +481,28 @@ const RouteMapModal: React.FC<RouteMapModalProps> = ({ round, onClose }) => {
                     </div>
 
                     {/* Evidence Sidebar / Right Gallery */}
-                    <div className="w-full md:w-80 bg-slate-50 border-l border-slate-100 flex flex-col p-6 overflow-y-auto">
-                        <div className="flex items-center justify-between mb-6">
-                            <h4 className="font-black text-slate-800 flex items-center gap-2">
-                                <Image size={20} className="text-blue-600" />
+                    <div className="w-full md:w-80 max-h-[40%] md:max-h-none bg-slate-50 border-t md:border-t-0 md:border-l border-slate-100 flex flex-col p-3.5 sm:p-6 overflow-y-auto shrink-0">
+                        <div className="flex items-center justify-between mb-3 sm:mb-6">
+                            <h4 className="font-black text-slate-800 text-sm sm:text-base flex items-center gap-2">
+                                <Image size={18} className="text-blue-600" />
                                 Galería de Evidencias
                             </h4>
-                            <span className="bg-blue-100 text-blue-700 px-2 py-1 rounded-lg text-[10px] font-black">
+                            <span className="bg-blue-100 text-blue-700 px-2 py-0.5 sm:py-1 rounded-lg text-[10px] font-black">
                                 {round.evidences?.length || 0}
                             </span>
                         </div>
 
                         {(!round.evidences || round.evidences.length === 0) ? (
-                            <div className="flex-1 flex flex-col items-center justify-center text-center p-8 bg-white rounded-3xl border border-dashed border-slate-200">
-                                <Camera size={32} className="text-slate-200 mb-2" />
+                            <div className="flex-1 flex flex-col items-center justify-center text-center p-4 sm:p-8 bg-white rounded-2xl sm:rounded-3xl border border-dashed border-slate-200">
+                                <Camera size={28} className="text-slate-200 mb-1.5" />
                                 <p className="text-xs text-slate-400 font-medium italic">No se registraron imágenes en esta ronda.</p>
                             </div>
                         ) : (
-                            <div className="grid grid-cols-2 gap-2">
+                            <div className="grid grid-cols-3 sm:grid-cols-2 gap-2">
                                 {round.evidences.map((evidence: any, idx: number) => (
                                     <div
                                         key={idx}
-                                        className="group relative bg-white rounded-2xl overflow-hidden shadow-sm hover:shadow-md transition-all cursor-pointer border border-slate-100"
+                                        className="group relative bg-white rounded-xl sm:rounded-2xl overflow-hidden shadow-sm hover:shadow-md transition-all cursor-pointer border border-slate-100"
                                         onClick={() => setSelectedPhotoIndex(idx)}
                                     >
                                         <div className="aspect-[4/3] relative bg-slate-100 flex items-center justify-center">
@@ -494,13 +511,13 @@ const RouteMapModal: React.FC<RouteMapModalProps> = ({ round, onClose }) => {
                                                 className="w-full h-full object-cover transition-transform group-hover:scale-105"
                                                 alt={`Evidencia ${idx}`}
                                             />
-                                            <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
-                                            <div className="absolute bottom-2 left-2 right-2 flex items-center justify-between text-white opacity-0 group-hover:opacity-100 transition-opacity">
+                                            <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity"></div>
+                                            <div className="absolute bottom-1.5 left-1.5 right-1.5 flex items-center justify-between text-white opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
                                                 <div className="flex items-center gap-1">
-                                                    <ClockIcon size={10} />
+                                                    <ClockIcon size={9} />
                                                     <span className="text-[9px] font-bold">{new Date(evidence.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                                                 </div>
-                                                <MapPin size={10} />
+                                                <MapPin size={9} />
                                             </div>
                                         </div>
                                     </div>
@@ -508,9 +525,9 @@ const RouteMapModal: React.FC<RouteMapModalProps> = ({ round, onClose }) => {
                             </div>
                         )}
 
-                        <div className="mt-8 p-4 bg-blue-600 rounded-3xl text-white">
-                            <h5 className="text-[10px] font-black uppercase tracking-widest opacity-70 mb-2">Resumen de Seguimiento</h5>
-                            <div className="space-y-2">
+                        <div className="mt-4 sm:mt-8 p-3 sm:p-4 bg-blue-600 rounded-2xl sm:rounded-3xl text-white">
+                            <h5 className="text-[10px] font-black uppercase tracking-widest opacity-70 mb-1.5 sm:mb-2">Resumen de Seguimiento</h5>
+                            <div className="space-y-1.5 sm:space-y-2">
                                 <div className="flex justify-between items-center">
                                     <span className="text-xs font-medium">Distancia estim.</span>
                                     <span className="text-xs font-black">~{distanceLabel}</span>
@@ -527,31 +544,31 @@ const RouteMapModal: React.FC<RouteMapModalProps> = ({ round, onClose }) => {
                 {/* Lightbox Photo View */}
                 {selectedPhotoIndex !== null && evidences.length > 0 && (
                     <div
-                        className="fixed inset-0 z-[9999] bg-slate-900/98 flex items-center justify-center p-4 md:p-10 animate-in fade-in duration-200 backdrop-blur-xl"
+                        className="fixed inset-0 z-[9999] bg-slate-900/98 flex items-center justify-center p-3 md:p-10 animate-in fade-in duration-200 backdrop-blur-xl"
                         onClick={() => setSelectedPhotoIndex(null)}
                     >
                         {/* Close Button */}
                         <button
-                            className="absolute top-6 right-6 p-4 bg-white/10 text-white rounded-full hover:bg-white/20 transition-all z-[10000] active:scale-90"
+                            className="absolute top-4 right-4 sm:top-6 sm:right-6 p-3 sm:p-4 bg-white/10 text-white rounded-full hover:bg-white/20 transition-all z-[10000] active:scale-90"
                             onClick={() => setSelectedPhotoIndex(null)}
                         >
-                            <X size={32} />
+                            <X className="w-6 h-6 sm:w-8 sm:h-8" />
                         </button>
 
                         {/* Navigation Buttons */}
                         {evidences.length > 1 && (
                             <>
                                 <button
-                                    className="absolute left-6 top-1/2 -translate-y-1/2 p-5 bg-white/10 text-white rounded-3xl hover:bg-white/20 transition-all z-[10000] active:scale-95 group"
+                                    className="absolute left-2 sm:left-6 top-1/2 -translate-y-1/2 p-2.5 sm:p-5 bg-white/10 text-white rounded-2xl sm:rounded-3xl hover:bg-white/20 transition-all z-[10000] active:scale-95 group"
                                     onClick={(e) => { e.stopPropagation(); handlePrevPhoto(); }}
                                 >
-                                    <ChevronLeft size={48} className="group-hover:-translate-x-1 transition-transform" />
+                                    <ChevronLeft className="w-7 h-7 sm:w-12 sm:h-12 group-hover:-translate-x-1 transition-transform" />
                                 </button>
                                 <button
-                                    className="absolute right-6 top-1/2 -translate-y-1/2 p-5 bg-white/10 text-white rounded-3xl hover:bg-white/20 transition-all z-[10000] active:scale-95 group"
+                                    className="absolute right-2 sm:right-6 top-1/2 -translate-y-1/2 p-2.5 sm:p-5 bg-white/10 text-white rounded-2xl sm:rounded-3xl hover:bg-white/20 transition-all z-[10000] active:scale-95 group"
                                     onClick={(e) => { e.stopPropagation(); handleNextPhoto(); }}
                                 >
-                                    <ChevronRight size={48} className="group-hover:translate-x-1 transition-transform" />
+                                    <ChevronRight className="w-7 h-7 sm:w-12 sm:h-12 group-hover:translate-x-1 transition-transform" />
                                 </button>
                             </>
                         )}

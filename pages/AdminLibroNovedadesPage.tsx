@@ -30,21 +30,38 @@ const ResultBadge = ({ result }: { result: string }) => {
     );
 };
 
-// ─── Página Admin: Libro de Novedades ─────────────────────────────────────────
+// ─── Página Admin / Supervisor: Libro de Novedades ────────────────────────────
 const AdminLibroNovedadesPage: React.FC = () => {
-    const { sites, guardRounds, novedades, currentUser, employees } = useAppStore();
+    const { sites, guardRounds, novedades, currentUser, employees, fetchGuardRounds } = useAppStore();
     const [activeTab, setActiveTab] = useState<'historial' | 'seguimiento'>('historial');
     const [novedadToInit, setNovedadToInit] = useState<any>(null);
     const [novedadAbierta, setNovedadAbierta] = useState<any>(null);
 
+    const isSupervisor = currentUser?.role === 'supervisor';
+
+    const supervisorAssignedSiteIds = useMemo(() => {
+        if (!isSupervisor) return null;
+        const emp = employees.find(
+            e => e.id === currentUser?.uid || (currentUser?.email && e.email?.toLowerCase() === currentUser.email.toLowerCase())
+        );
+        return new Set((emp?.assignedSites || []).map(id => String(id)));
+    }, [isSupervisor, employees, currentUser?.uid, currentUser?.email]);
+
     const adminUser = useMemo(() => {
-        const emp = employees.find(e => e.id === currentUser?.uid);
+        const emp = employees.find(
+            e => e.id === currentUser?.uid || (currentUser?.email && e.email?.toLowerCase() === currentUser.email.toLowerCase())
+        );
+        const fallbackName = isSupervisor ? 'Supervisor' : 'Administrador';
         return {
             uid: currentUser?.uid || '',
-            nombre: emp ? `${emp.firstName} ${emp.lastNamePaterno}` : 'Administrador',
+            nombre: emp ? `${emp.firstName} ${emp.lastNamePaterno}` : fallbackName,
             rol: currentUser?.role || 'admin'
         };
-    }, [currentUser, employees]);
+    }, [currentUser, employees, isSupervisor]);
+
+    useEffect(() => {
+        fetchGuardRounds();
+    }, [fetchGuardRounds]);
 
     // ── Filtros ──────────────────────────────────────────────────────────────
     const [startDate, setStartDate] = useState(() => {
@@ -67,9 +84,9 @@ const AdminLibroNovedadesPage: React.FC = () => {
     const [includeFalabella, setIncludeFalabella] = useState(false);
     const siteSearchRef = useRef<HTMLDivElement>(null);
 
-    // Cerrar dropdown al hacer clic fuera
+    // Cerrar dropdown al hacer clic/toque fuera
     useEffect(() => {
-        const handleClickOutside = (e: MouseEvent) => {
+        const handleClickOutside = (e: PointerEvent) => {
             if (siteSearchRef.current && !siteSearchRef.current.contains(e.target as Node)) {
                 setShowSiteList(false);
                 // Si el input quedó vacío o no coincide con ninguna sucursal, restaurar a "Todas"
@@ -78,8 +95,8 @@ const AdminLibroNovedadesPage: React.FC = () => {
                 }
             }
         };
-        document.addEventListener('mousedown', handleClickOutside);
-        return () => document.removeEventListener('mousedown', handleClickOutside);
+        document.addEventListener('pointerdown', handleClickOutside);
+        return () => document.removeEventListener('pointerdown', handleClickOutside);
     }, [siteInputValue]);
 
     // IDs de sucursales Falabella — igual que ShiftManagement: detecta por empresa (cliente) o nombre
@@ -91,14 +108,19 @@ const AdminLibroNovedadesPage: React.FC = () => {
         new Set(sites.filter((s: any) => s.active !== false && isFalabellaSite(s)).map((s: any) => String(s.id)))
     , [sites]);
 
-    // Sucursales visibles en el dropdown: solo activas, por defecto sin Falabella; con check, incluye Falabella
+    // Sucursales visibles en el dropdown:
+    // - Supervisor: exclusivamente las sucursales asignadas por el administrador
+    // - Admin: solo activas, por defecto sin Falabella; con check, incluye Falabella
     const sitesForSelector = useMemo(() => {
         return sites.filter((s: any) => {
             if (s.active === false) return false; // excluir inactivas
+            if (isSupervisor) {
+                return supervisorAssignedSiteIds?.has(String(s.id)) ?? false;
+            }
             const isFalabella = isFalabellaSite(s);
             return includeFalabella ? true : !isFalabella;
         });
-    }, [sites, includeFalabella]);
+    }, [sites, includeFalabella, isSupervisor, supervisorAssignedSiteIds]);
 
     // Sucursales mostradas en el dropdown (búsqueda por texto)
     const siteDropdownOptions = useMemo(() => {
@@ -179,12 +201,18 @@ const AdminLibroNovedadesPage: React.FC = () => {
     }, [guardRounds, localNovedades]);
 
     const filtered = timelineItems.filter((item: any) => {
-        const dateStr = item.timestamp.substring(0, 10);
-        const matchDate = dateStr >= startDate && dateStr <= endDate;
+        if (isSupervisor) {
+            if (!supervisorAssignedSiteIds || !supervisorAssignedSiteIds.has(String(item.siteId))) {
+                return false;
+            }
+        } else {
+            // Excluir Falabella del contenido si el check no está activo (solo admin)
+            const isFalabellaItem = falabellaSiteIds.has(item.siteId);
+            if (!includeFalabella && isFalabellaItem) return false;
+        }
+        const dateStr = (item.timestamp || '').substring(0, 10);
+        const matchDate = (!startDate || dateStr >= startDate) && (!endDate || dateStr <= endDate);
         const matchTipo = tipoFilter === 'all' || item.tipo === tipoFilter;
-        // Excluir Falabella del contenido si el check no está activo
-        const isFalabellaItem = falabellaSiteIds.has(item.siteId);
-        if (!includeFalabella && isFalabellaItem) return false;
         const matchSite = siteFilter === 'all' || item.siteId === siteFilter;
         const matchPrioridad = prioridadFilter === 'all' || item.prioridad === prioridadFilter;
         const q = searchText.trim().toLowerCase();
@@ -216,18 +244,39 @@ const AdminLibroNovedadesPage: React.FC = () => {
         : '';
 
     return (
-        <div className="p-6 max-w-7xl mx-auto space-y-5">
+        <div className="p-3 sm:p-6 max-w-7xl mx-auto space-y-4 sm:space-y-5">
             {/* Encabezado */}
-            <div>
-                <h3 className="text-xl font-black text-slate-800">Libro de Novedades</h3>
-                <p className="text-sm text-slate-400 mt-0.5">Gestión de novedades operacionales y seguimiento de instalaciones</p>
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                <div>
+                    <h3 className="text-lg sm:text-xl font-black text-slate-800">Libro de Novedades</h3>
+                    <p className="text-xs sm:text-sm text-slate-400 mt-0.5">
+                        {isSupervisor
+                            ? 'Novedades operacionales y seguimiento de tus sucursales asignadas'
+                            : 'Gestión de novedades operacionales y seguimiento de instalaciones'}
+                    </p>
+                </div>
+                {isSupervisor && (
+                    <span className="self-start sm:self-auto inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-50 text-blue-700 border border-blue-100 text-[11px] font-bold">
+                        <MapPin size={12} />
+                        {sitesForSelector.length} {sitesForSelector.length === 1 ? 'sucursal asignada' : 'sucursales asignadas'}
+                    </span>
+                )}
             </div>
 
+            {isSupervisor && supervisorAssignedSiteIds && supervisorAssignedSiteIds.size === 0 && (
+                <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex items-start gap-3">
+                    <AlertCircle size={18} className="text-amber-600 shrink-0 mt-0.5" />
+                    <p className="text-xs sm:text-sm font-bold text-amber-800">
+                        No tienes sucursales asignadas actualmente. Solicita al administrador la asignación de sucursales para consultar sus novedades.
+                    </p>
+                </div>
+            )}
+
             {/* TABS */}
-            <div className="flex gap-4 border-b border-slate-200">
+            <div className="flex gap-2 sm:gap-4 border-b border-slate-200 overflow-x-auto scrollbar-none">
                 <button
                     onClick={() => setActiveTab('historial')}
-                    className={`pb-3 font-bold text-sm px-2 border-b-2 transition-all flex items-center gap-2 ${
+                    className={`pb-3 font-bold text-xs sm:text-sm px-2 border-b-2 transition-all flex items-center gap-1.5 sm:gap-2 whitespace-nowrap ${
                         activeTab === 'historial' 
                         ? 'border-blue-600 text-blue-600' 
                         : 'border-transparent text-slate-400 hover:text-slate-600'
@@ -237,7 +286,7 @@ const AdminLibroNovedadesPage: React.FC = () => {
                 </button>
                 <button
                     onClick={() => setActiveTab('seguimiento')}
-                    className={`pb-3 font-bold text-sm px-2 border-b-2 transition-all flex items-center gap-2 ${
+                    className={`pb-3 font-bold text-xs sm:text-sm px-2 border-b-2 transition-all flex items-center gap-1.5 sm:gap-2 whitespace-nowrap ${
                         activeTab === 'seguimiento' 
                         ? 'border-blue-600 text-blue-600' 
                         : 'border-transparent text-slate-400 hover:text-slate-600'
@@ -250,7 +299,7 @@ const AdminLibroNovedadesPage: React.FC = () => {
             {activeTab === 'historial' ? (
               <>
             {/* Panel de filtros */}
-            <div className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm flex flex-col gap-3">
+            <div className="bg-white border border-slate-100 rounded-2xl p-3 sm:p-4 shadow-sm flex flex-col gap-3">
                 {/* Búsqueda de texto libre */}
                 <div className="relative">
                     <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
@@ -273,24 +322,24 @@ const AdminLibroNovedadesPage: React.FC = () => {
                 </div>
 
                 {/* Filtros secundarios */}
-                <div className="flex flex-wrap gap-3 items-end">
+                <div className="grid grid-cols-2 sm:flex sm:flex-wrap gap-2.5 sm:gap-3 items-end">
                     {/* Fechas */}
-                    <div>
+                    <div className="w-full sm:w-auto">
                         <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Desde</label>
                         <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)}
-                            className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-700 focus:ring-2 focus:ring-blue-500 outline-none" />
+                            className="w-full px-2.5 sm:px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm font-semibold text-slate-700 focus:ring-2 focus:ring-blue-500 outline-none" />
                     </div>
-                    <div>
+                    <div className="w-full sm:w-auto">
                         <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Hasta</label>
                         <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)}
-                            className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-700 focus:ring-2 focus:ring-blue-500 outline-none" />
+                            className="w-full px-2.5 sm:px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm font-semibold text-slate-700 focus:ring-2 focus:ring-blue-500 outline-none" />
                     </div>
 
                     {/* Tipo */}
-                    <div>
+                    <div className="w-full sm:w-auto">
                         <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Tipo</label>
                         <select value={tipoFilter} onChange={e => setTipoFilter(e.target.value)}
-                            className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-700 focus:ring-2 focus:ring-blue-500 outline-none">
+                            className="w-full px-2.5 sm:px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm font-semibold text-slate-700 focus:ring-2 focus:ring-blue-500 outline-none">
                             <option value="all">Todos los tipos</option>
                             <option value="ronda">Ronda</option>
                             <option value="incidente">Incidente</option>
@@ -301,10 +350,10 @@ const AdminLibroNovedadesPage: React.FC = () => {
                     </div>
 
                     {/* Prioridad */}
-                    <div>
+                    <div className="w-full sm:w-auto">
                         <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Prioridad</label>
                         <select value={prioridadFilter} onChange={e => setPrioridadFilter(e.target.value)}
-                            className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-700 focus:ring-2 focus:ring-blue-500 outline-none">
+                            className="w-full px-2.5 sm:px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm font-semibold text-slate-700 focus:ring-2 focus:ring-blue-500 outline-none">
                             <option value="all">Todas</option>
                             <option value="informativa">Informativa</option>
                             <option value="media">Media</option>
@@ -314,7 +363,7 @@ const AdminLibroNovedadesPage: React.FC = () => {
                     </div>
 
                     {/* ── Selector de Instalación con buscador ─────────────────── */}
-                    <div className="flex flex-col gap-1.5">
+                    <div className="col-span-2 sm:col-span-1 flex flex-col gap-1.5 w-full sm:w-auto">
                         <label className="text-[10px] font-bold text-slate-400 uppercase block">Instalación</label>
 
                         {/* Combobox */}
@@ -322,8 +371,8 @@ const AdminLibroNovedadesPage: React.FC = () => {
                             <MapPin size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 z-10 pointer-events-none" />
                             <input
                                 type="text"
-                                placeholder="Buscar sucursal..."
-                                className="pl-8 pr-8 py-2 border border-slate-200 rounded-xl text-sm w-64 focus:ring-2 focus:ring-blue-500 outline-none bg-slate-50 text-slate-800 font-medium"
+                                placeholder={isSupervisor ? "Filtrar mis sucursales..." : "Buscar sucursal..."}
+                                className="pl-8 pr-8 py-2 border border-slate-200 rounded-xl text-sm w-full sm:w-64 focus:ring-2 focus:ring-blue-500 outline-none bg-slate-50 text-slate-800 font-medium"
                                 value={siteInputValue}
                                 onFocus={() => {
                                     setSiteInputValue('');
@@ -354,7 +403,17 @@ const AdminLibroNovedadesPage: React.FC = () => {
 
                             {/* Dropdown de opciones */}
                             {showSiteList && (
-                                <div className="absolute top-full left-0 w-full mt-1 bg-white border border-slate-200 rounded-xl shadow-2xl max-h-[500px] overflow-y-auto z-[120]">
+                                <div className="absolute top-full left-0 w-full mt-1 bg-white border border-slate-200 rounded-xl shadow-2xl max-h-64 sm:max-h-[400px] overflow-y-auto z-[120]">
+                                    <div
+                                        className={`px-4 py-2.5 hover:bg-blue-50 cursor-pointer border-b border-slate-100 text-xs font-black uppercase tracking-wider text-blue-600 ${siteFilter === 'all' ? 'bg-blue-50/60' : ''}`}
+                                        onClick={() => {
+                                            setSiteFilter('all');
+                                            setSiteInputValue('');
+                                            setShowSiteList(false);
+                                        }}
+                                    >
+                                        {isSupervisor ? 'Todas mis sucursales asignadas' : 'Todas las instalaciones'}
+                                    </div>
                                     {/* Lista filtrada */}
                                     {siteDropdownOptions.map((site: any) => (
                                         <div
@@ -382,32 +441,35 @@ const AdminLibroNovedadesPage: React.FC = () => {
                             )}
                         </div>
 
-                        {/* Checkbox Falabella */}
-                        <div className="flex items-center gap-2 px-1 text-xs text-slate-600 font-medium">
-                            <label className="flex items-center gap-1.5 cursor-pointer hover:text-blue-600 transition-colors select-none">
-                                <input
-                                    type="checkbox"
-                                    className="rounded text-blue-600 focus:ring-blue-500 accent-blue-600"
-                                    checked={includeFalabella}
-                                    onChange={(e) => {
-                                        setIncludeFalabella(e.target.checked);
-                                        // Si se desmarca, resetear si la selección activa era Falabella
-                                        if (!e.target.checked && siteFilter !== 'all' && falabellaSiteIds.has(siteFilter)) {
-                                            setSiteFilter('all');
-                                            setSiteInputValue('');
-                                        }
-                                    }}
-                                />
-                                Incluir Falabella
-                            </label>
-                        </div>
+                        {/* Checkbox Falabella (solo admin) */}
+                        {!isSupervisor && (
+                            <div className="flex items-center gap-2 px-1 text-xs text-slate-600 font-medium">
+                                <label className="flex items-center gap-1.5 cursor-pointer hover:text-blue-600 transition-colors select-none">
+                                    <input
+                                        type="checkbox"
+                                        className="rounded text-blue-600 focus:ring-blue-500 accent-blue-600"
+                                        checked={includeFalabella}
+                                        onChange={(e) => {
+                                            setIncludeFalabella(e.target.checked);
+                                            // Si se desmarca, resetear si la selección activa era Falabella
+                                            if (!e.target.checked && siteFilter !== 'all' && falabellaSiteIds.has(siteFilter)) {
+                                                setSiteFilter('all');
+                                                setSiteInputValue('');
+                                            }
+                                        }}
+                                    />
+                                    Incluir Falabella
+                                </label>
+                            </div>
+                        )}
                     </div>
 
                     {/* Contador de resultados */}
-                    <div className="ml-auto flex items-center gap-2 self-end pb-0.5">
+                    <div className="col-span-2 sm:col-span-1 sm:ml-auto flex flex-wrap items-center justify-end gap-2 self-end pb-0.5">
                         {selectedSiteName && (
-                            <span className="text-[10px] font-black text-blue-600 bg-blue-50 px-2 py-1 rounded-lg flex items-center gap-1">
-                                <MapPin size={9} />{selectedSiteName}
+                            <span className="text-[10px] font-black text-blue-600 bg-blue-50 px-2 py-1 rounded-lg flex items-center gap-1 max-w-full truncate">
+                                <MapPin size={9} className="shrink-0" />
+                                <span className="truncate">{selectedSiteName}</span>
                             </span>
                         )}
                         {searchText && (
@@ -422,9 +484,9 @@ const AdminLibroNovedadesPage: React.FC = () => {
 
             {/* Timeline */}
             {filtered.length === 0 ? (
-                <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-16 text-center">
+                <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-10 sm:p-16 text-center">
                     <BookOpen size={40} className="text-slate-200 mx-auto mb-3" />
-                    <p className="font-bold text-slate-400">Sin registros en el período seleccionado</p>
+                    <p className="font-bold text-slate-400 text-sm sm:text-base">Sin registros en el período seleccionado</p>
                 </div>
             ) : (
                 <div className="space-y-2">
@@ -444,21 +506,21 @@ const AdminLibroNovedadesPage: React.FC = () => {
                                 {showSep && (
                                     <div className="flex items-center gap-3 py-2">
                                         <div className="flex-1 h-px bg-slate-100" />
-                                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">
                                             {new Date(currDate + 'T12:00:00').toLocaleDateString('es-CL', { weekday: 'long', day: '2-digit', month: 'long' })}
                                         </span>
                                         <div className="flex-1 h-px bg-slate-100" />
                                     </div>
                                 )}
-                                <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4 hover:shadow-md transition-all flex items-start gap-4">
-                                    <div className="text-right shrink-0 w-14">
-                                        <p className="text-sm font-black text-slate-800">{fmtTime(item.timestamp)}</p>
+                                <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-3 sm:p-4 hover:shadow-md transition-all flex items-start gap-2.5 sm:gap-4">
+                                    <div className="text-right shrink-0 w-11 sm:w-14">
+                                        <p className="text-xs sm:text-sm font-black text-slate-800">{fmtTime(item.timestamp)}</p>
                                     </div>
                                     <div className="flex flex-col items-center shrink-0 pt-1.5">
-                                        <div className={`w-3 h-3 rounded-full border-2 ${dotColor}`} />
+                                        <div className={`w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-full border-2 ${dotColor}`} />
                                     </div>
                                     <div className="flex-1 min-w-0 relative">
-                                        <div className="flex items-center gap-2 flex-wrap">
+                                        <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
                                             <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[9px] font-black uppercase ${tipoColor[item.tipo] || tipoColor.otro}`}>
                                                 {tipoIcon[item.tipo] || tipoIcon.otro}{item.tipo}
                                             </span>
@@ -479,7 +541,7 @@ const AdminLibroNovedadesPage: React.FC = () => {
                                                 <MapPin size={9} />{item.sucursalName}
                                             </span>
                                         </div>
-                                        <p className="text-sm text-slate-600 mt-1 leading-relaxed">{item.descripcion}</p>
+                                        <p className="text-xs sm:text-sm text-slate-600 mt-1 leading-relaxed break-words">{item.descripcion}</p>
                                         {item.evidencias && item.evidencias.length > 0 && (
                                             <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
                                                 {item.evidencias.map((url: string, eIdx: number) => (
@@ -493,7 +555,7 @@ const AdminLibroNovedadesPage: React.FC = () => {
                                         {esEsquemaNuevo(item) && (
                                             <div className="mt-3 flex justify-end">
                                                 {item.requiereSeguimiento === true || item.estado === 'resuelta' ? (
-                                                    <div className="flex items-center gap-2">
+                                                    <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
                                                         {item.unreadAdminCount ? (
                                                             <div className="bg-red-500 text-white text-[10px] font-black rounded-full min-w-[20px] h-5 px-1.5 flex items-center justify-center shadow-sm animate-bounce">
                                                                 {item.unreadAdminCount}
@@ -528,19 +590,19 @@ const AdminLibroNovedadesPage: React.FC = () => {
 
             {/* Paginación */}
             {totalPages > 1 && (
-                <div className="flex justify-between items-center bg-white p-4 rounded-2xl border border-slate-100 shadow-sm mt-4">
+                <div className="flex justify-between items-center bg-white p-3 sm:p-4 rounded-2xl border border-slate-100 shadow-sm mt-4">
                     <button
                         onClick={() => setPage(p => Math.max(1, p - 1))}
                         disabled={page === 1}
-                        className="px-4 py-2 bg-slate-50 text-slate-600 rounded-xl disabled:opacity-50 font-bold text-sm hover:bg-slate-100 transition-colors"
+                        className="px-3 sm:px-4 py-2 bg-slate-50 text-slate-600 rounded-xl disabled:opacity-50 font-bold text-xs sm:text-sm hover:bg-slate-100 transition-colors"
                     >
                         Anterior
                     </button>
-                    <span className="text-sm font-bold text-slate-500">Página {page} de {totalPages}</span>
+                    <span className="text-xs sm:text-sm font-bold text-slate-500">Página {page} de {totalPages}</span>
                     <button
                         onClick={() => setPage(p => Math.min(totalPages, p + 1))}
                         disabled={page === totalPages}
-                        className="px-4 py-2 bg-slate-50 text-slate-600 rounded-xl disabled:opacity-50 font-bold text-sm hover:bg-slate-100 transition-colors"
+                        className="px-3 sm:px-4 py-2 bg-slate-50 text-slate-600 rounded-xl disabled:opacity-50 font-bold text-xs sm:text-sm hover:bg-slate-100 transition-colors"
                     >
                         Siguiente
                     </button>
@@ -549,12 +611,12 @@ const AdminLibroNovedadesPage: React.FC = () => {
 
             {/* Lightbox de evidencias */}
             {selectedImage && (
-                <div className="fixed inset-0 z-[100] bg-slate-900/90 backdrop-blur-sm flex items-center justify-center p-4">
-                    <div className="relative max-w-4xl max-h-[90vh] w-full flex items-center justify-center">
-                        <button onClick={() => setSelectedImage(null)} className="absolute -top-12 right-0 text-white hover:text-slate-200 text-3xl font-bold leading-none">
-                            &times;
-                        </button>
-                        <ThumbnailImage photoUrl={selectedImage} alt="Fullscreen Evidence" className="max-w-full max-h-[90vh] object-contain rounded-xl" />
+                <div className="fixed inset-0 z-[100] bg-slate-900/90 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setSelectedImage(null)}>
+                    <button onClick={() => setSelectedImage(null)} className="fixed top-4 right-4 z-[110] w-10 h-10 bg-white/10 hover:bg-white/20 rounded-full text-white flex items-center justify-center text-2xl font-bold leading-none">
+                        &times;
+                    </button>
+                    <div className="relative max-w-4xl max-h-[85vh] w-full flex items-center justify-center" onClick={(e) => e.stopPropagation()}>
+                        <ThumbnailImage photoUrl={selectedImage} alt="Fullscreen Evidence" className="max-w-full max-h-[85vh] object-contain rounded-xl" />
                     </div>
                 </div>
             )}

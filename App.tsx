@@ -701,14 +701,14 @@ const App: React.FC = () => {
             </button>
           )}
 
-          {currentUser.role === 'admin' && (
+          {(currentUser.role === 'admin' || currentUser.role === 'supervisor') && (
             <button onClick={() => setCurrentView('libro_novedades')} className={navItemClass('libro_novedades')}>
               <BookOpen size={20} />
               <span className="font-medium">Libro de Novedades</span>
             </button>
           )}
 
-          {currentUser.role === 'admin' && (
+          {(currentUser.role === 'admin' || currentUser.role === 'supervisor') && (
             <button onClick={() => setCurrentView('rounds')} className={navItemClass('rounds')}>
               <Navigation size={20} />
               <span className="font-medium">Monitoreo Rondas</span>
@@ -942,14 +942,14 @@ const App: React.FC = () => {
                 </button>
               )}
 
-              {currentUser.role === 'admin' && (
+              {(currentUser.role === 'admin' || currentUser.role === 'supervisor') && (
                 <button onClick={() => handleNavChange('libro_novedades')} className={mobileNavItemClass('libro_novedades')}>
                   <div className="flex items-center gap-3"><BookOpen size={20} /> Libro de Novedades</div>
                   <ChevronRight size={16} className="text-slate-300" />
                 </button>
               )}
 
-              {currentUser.role === 'admin' && (
+              {(currentUser.role === 'admin' || currentUser.role === 'supervisor') && (
                 <button onClick={() => handleNavChange('rounds')} className={mobileNavItemClass('rounds')}>
                   <div className="flex items-center gap-3"><Navigation size={20} /> Monitoreo Rondas</div>
                   <ChevronRight size={16} className="text-slate-300" />
@@ -1005,7 +1005,7 @@ const App: React.FC = () => {
 
         {/* CONTENIDO SCROLLABLE */}
         <div className="flex-1 overflow-y-auto">
-          <div className={`animate-fade-in ${currentUser.role === 'supervisor' ? 'pb-24' : 'pb-4'} ${!viewportMode.isCompactShell && currentView === 'shift_management' ? 'h-full pb-0' : 'md:pb-0'}`}>
+          <div className={`animate-fade-in ${currentUser.role === 'supervisor' && viewportMode.isCompactShell ? 'pb-24' : 'pb-4'} ${!viewportMode.isCompactShell && currentView === 'shift_management' ? 'h-full pb-0' : !viewportMode.isCompactShell ? 'pb-0' : ''}`}>
             {currentView === 'dashboard' && currentUser.role !== 'supervisor' && <AdminDashboard />}
             {(currentView === 'visitas_supervisor' || (currentView === 'dashboard' && currentUser.role === 'supervisor')) && (currentUser.role === 'admin' || currentUser.role === 'supervisor') && <VisitasSupervisorPage />}
             {currentView === 'employees' && currentUser.role === 'admin' && <EmployeesPage />}
@@ -1018,8 +1018,8 @@ const App: React.FC = () => {
             )}
             {currentView === 'notes' && <NotesPage />}
             {currentView === 'attendance' && currentUser.role !== 'supervisor' && <AttendancePage />}
-            {currentView === 'libro_novedades' && currentUser.role === 'admin' && <AdminLibroNovedadesPage />}
-            {currentView === 'rounds' && currentUser.role === 'admin' && <RoundsAdminPage />}
+            {currentView === 'libro_novedades' && (currentUser.role === 'admin' || currentUser.role === 'supervisor') && <AdminLibroNovedadesPage />}
+            {currentView === 'rounds' && (currentUser.role === 'admin' || currentUser.role === 'supervisor') && <RoundsAdminPage />}
             {currentView === 'supervisor_mgmt' && currentUser.role === 'admin' && <SupervisorManagement />}
             {currentView === 'mandante_mgmt' && currentUser.role === 'admin' && <MandanteManagement />}
             {currentView === 'shift_management' && currentUser.role !== 'supervisor' && <ShiftManagement />}
@@ -1045,26 +1045,19 @@ const App: React.FC = () => {
           </div>
         </div>
         </div>
-        {/* BOTTOM NAVIGATION PARA SUPERVISOR (CELULAR): Documentos, Visitas (destacado al centro), Notas */}
-        {currentUser.role === 'supervisor' && (
-          <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-md border-t border-slate-200/80 z-30 px-6 py-2 shadow-2xl safe-area-bottom">
+        {/* BOTTOM NAVIGATION PARA SUPERVISOR (CELULAR): Novedades (izquierda), Visitas (centro), Rondas (derecha) */}
+        {currentUser.role === 'supervisor' && viewportMode.isCompactShell && (
+          <nav className="fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-md border-t border-slate-200/80 z-30 px-6 py-2 shadow-2xl safe-area-bottom">
             <div className="flex items-center justify-between max-w-md mx-auto relative">
-              {/* 1. DOCUMENTOS (Izquierda) */}
+              {/* 1. LIBRO DE NOVEDADES (Izquierda) */}
               <button
-                onClick={() => handleNavChange('documents')}
-                className={`flex flex-col items-center justify-center flex-1 py-1 relative transition-all active:scale-95 ${
-                  currentView === 'documents' ? 'text-blue-600 font-black' : 'text-slate-400 hover:text-slate-600 font-bold'
+                onClick={() => handleNavChange('libro_novedades')}
+                className={`flex flex-col items-center justify-center flex-1 py-1 transition-all active:scale-95 ${
+                  currentView === 'libro_novedades' ? 'text-blue-600 font-black' : 'text-slate-400 hover:text-slate-600 font-bold'
                 }`}
               >
-                <div className="relative">
-                  <ShieldCheck size={24} className={currentView === 'documents' ? 'stroke-[2.5]' : ''} />
-                  {pendingDocsCount > 0 && (
-                    <span className="absolute -top-1 -right-2.5 min-w-[18px] h-[18px] bg-rose-500 text-white rounded-full text-[10px] font-black flex items-center justify-center px-1 animate-pulse shadow-md border-2 border-white">
-                      {pendingDocsCount}
-                    </span>
-                  )}
-                </div>
-                <span className="text-[11px] tracking-tight mt-1">Documentos</span>
+                <BookOpen size={24} className={currentView === 'libro_novedades' ? 'stroke-[2.5]' : ''} />
+                <span className="text-[11px] tracking-tight mt-1">Novedades</span>
               </button>
 
               {/* 2. VISITAS (Centro destacado y más grande) */}
@@ -1092,15 +1085,15 @@ const App: React.FC = () => {
                 </button>
               </div>
 
-              {/* 3. NOTAS (Derecha) */}
+              {/* 3. MONITOREO DE RONDAS (Derecha) */}
               <button
-                onClick={() => handleNavChange('notes')}
+                onClick={() => handleNavChange('rounds')}
                 className={`flex flex-col items-center justify-center flex-1 py-1 transition-all active:scale-95 ${
-                  currentView === 'notes' ? 'text-blue-600 font-black' : 'text-slate-400 hover:text-slate-600 font-bold'
+                  currentView === 'rounds' ? 'text-blue-600 font-black' : 'text-slate-400 hover:text-slate-600 font-bold'
                 }`}
               >
-                <StickyNote size={24} className={currentView === 'notes' ? 'stroke-[2.5]' : ''} />
-                <span className="text-[11px] tracking-tight mt-1">Notas</span>
+                <Navigation size={24} className={currentView === 'rounds' ? 'stroke-[2.5]' : ''} />
+                <span className="text-[11px] tracking-tight mt-1">Rondas</span>
               </button>
             </div>
           </nav>

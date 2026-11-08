@@ -30,16 +30,38 @@ export const AdminNovedadesSeguimiento: React.FC = () => {
   // Modal de seguimiento
   const [novedadAbierta, setNovedadAbierta] = useState<RegistroNovedad | null>(null);
 
-  // Obtener nombre del admin
+  // Rol y sucursales asignadas del supervisor
+  const isSupervisor = currentUser?.role === 'supervisor';
+
+  // Obtener nombre y sucursales asignadas del admin/supervisor
   const adminEmployee = useMemo(() => {
-    return employees.find(e => e.id === currentUser?.uid);
-  }, [employees, currentUser]);
+    return employees.find(
+      e => e.id === currentUser?.uid || (currentUser?.email && e.email?.toLowerCase() === currentUser.email.toLowerCase())
+    );
+  }, [employees, currentUser?.uid, currentUser?.email]);
+
+  const supervisorAssignedSiteIds = useMemo(() => {
+    if (!isSupervisor) return null;
+    return new Set((adminEmployee?.assignedSites || []).map(id => String(id)));
+  }, [isSupervisor, adminEmployee]);
+
+  const visibleSites = useMemo(() => {
+    return sites.filter(s => {
+      if (s.active === false) return false;
+      if (isSupervisor) {
+        return supervisorAssignedSiteIds?.has(String(s.id)) ?? false;
+      }
+      return true;
+    });
+  }, [sites, isSupervisor, supervisorAssignedSiteIds]);
 
   const adminUser = useMemo(() => ({
     uid: currentUser?.uid || '',
-    nombre: adminEmployee ? `${adminEmployee.firstName} ${adminEmployee.lastNamePaterno}` : 'Administrador',
+    nombre: adminEmployee
+      ? `${adminEmployee.firstName} ${adminEmployee.lastNamePaterno}`
+      : (isSupervisor ? 'Supervisor' : 'Administrador'),
     rol: currentUser?.role || 'admin'
-  }), [currentUser, adminEmployee]);
+  }), [currentUser, adminEmployee, isSupervisor]);
 
   // Cargar novedades que requieren seguimiento
   useEffect(() => {
@@ -83,7 +105,13 @@ export const AdminNovedadesSeguimiento: React.FC = () => {
   // Filtrar en memoria
   const filtered = useMemo(() => {
     return pendientes.filter(item => {
-      const matchSite = siteFilter === 'all' || String(item.sucursalId) === siteFilter;
+      const itemSiteId = String(item.sucursalId ?? (item as any).siteId ?? '');
+      if (isSupervisor) {
+        if (!supervisorAssignedSiteIds || !supervisorAssignedSiteIds.has(itemSiteId)) {
+          return false;
+        }
+      }
+      const matchSite = siteFilter === 'all' || itemSiteId === siteFilter;
       const matchPrioridad = prioridadFilter === 'all' || item.prioridad === prioridadFilter;
       const matchEstado = estadoFilter === 'all'
         ? true
@@ -101,7 +129,7 @@ export const AdminNovedadesSeguimiento: React.FC = () => {
 
       return matchSite && matchPrioridad && matchEstado && matchSearch;
     });
-  }, [pendientes, siteFilter, prioridadFilter, estadoFilter, searchText]);
+  }, [pendientes, siteFilter, prioridadFilter, estadoFilter, searchText, isSupervisor, supervisorAssignedSiteIds]);
 
   const handleCerrarModal = () => {
     setNovedadAbierta(null);
@@ -109,8 +137,17 @@ export const AdminNovedadesSeguimiento: React.FC = () => {
 
   return (
     <div className="space-y-4">
+      {isSupervisor && supervisorAssignedSiteIds && supervisorAssignedSiteIds.size === 0 && (
+        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex items-start gap-3">
+          <AlertCircle size={18} className="text-amber-600 shrink-0 mt-0.5" />
+          <p className="text-xs sm:text-sm font-bold text-amber-800">
+            No tienes sucursales asignadas actualmente. Solicita al administrador la asignación de sucursales para ver sus seguimientos.
+          </p>
+        </div>
+      )}
+
       {/* Panel de Filtros */}
-      <div className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm flex flex-col gap-3">
+      <div className="bg-white border border-slate-100 rounded-2xl p-3 sm:p-4 shadow-sm flex flex-col gap-3">
         <div className="relative">
           <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
           <input
@@ -118,22 +155,22 @@ export const AdminNovedadesSeguimiento: React.FC = () => {
             placeholder="Buscar por descripción, sucursal, guardia o nota..."
             value={searchText}
             onChange={e => setSearchText(e.target.value)}
-            className="w-full pl-9 pr-10 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none transition-all"
+            className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none transition-all"
           />
         </div>
         
-        <div className="flex flex-wrap gap-3">
-          <div className="flex-1 min-w-[150px]">
+        <div className="grid grid-cols-2 sm:flex sm:flex-wrap gap-2.5 sm:gap-3">
+          <div className="col-span-2 sm:flex-1 sm:min-w-[180px]">
             <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Sucursal</label>
             <select value={siteFilter} onChange={e => setSiteFilter(e.target.value)} className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none">
-              <option value="all">Todas las sucursales</option>
-              {sites.filter(s => s.active !== false).map(s => (
-                <option key={s.id} value={s.id}>{s.name}</option>
+              <option value="all">{isSupervisor ? 'Mis sucursales asignadas' : 'Todas las sucursales'}</option>
+              {visibleSites.map(s => (
+                <option key={s.id} value={String(s.id)}>{s.name}</option>
               ))}
             </select>
           </div>
           
-          <div className="w-32">
+          <div className="w-full sm:w-32">
             <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Prioridad</label>
             <select value={prioridadFilter} onChange={e => setPrioridadFilter(e.target.value)} className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none">
               <option value="all">Todas</option>
@@ -144,7 +181,7 @@ export const AdminNovedadesSeguimiento: React.FC = () => {
             </select>
           </div>
 
-          <div className="w-36">
+          <div className="w-full sm:w-36">
             <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Estado</label>
             <select value={estadoFilter} onChange={e => setEstadoFilter(e.target.value)} className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none">
               <option value="activos">Todos (activos)</option>
@@ -159,7 +196,7 @@ export const AdminNovedadesSeguimiento: React.FC = () => {
 
       {/* Stats/Header */}
       <div className="flex items-center justify-between px-2">
-        <h4 className="text-sm font-black text-slate-700 uppercase tracking-widest">
+        <h4 className="text-xs sm:text-sm font-black text-slate-700 uppercase tracking-widest">
           {filtered.length} novedades pendientes
         </h4>
       </div>
@@ -170,7 +207,7 @@ export const AdminNovedadesSeguimiento: React.FC = () => {
       ) : error ? (
         <div className="bg-red-50 text-red-600 p-4 rounded-xl text-sm font-bold text-center border border-red-200">{error}</div>
       ) : filtered.length === 0 ? (
-        <div className="bg-emerald-50 text-emerald-700 p-10 rounded-2xl border border-emerald-100 flex flex-col items-center justify-center gap-3">
+        <div className="bg-emerald-50 text-emerald-700 p-8 sm:p-10 rounded-2xl border border-emerald-100 flex flex-col items-center justify-center gap-3">
           <CheckCircle2 size={40} className="text-emerald-500" />
           <div className="text-center">
             <p className="font-black text-lg">Todo al día</p>
@@ -178,7 +215,7 @@ export const AdminNovedadesSeguimiento: React.FC = () => {
           </div>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
           {filtered.map(nov => {
             const prio = PRIORIDAD_BADGE[nov.prioridad] ?? PRIORIDAD_BADGE.informativa;
             const count = nov.cantidadSeguimientos ?? 0;
@@ -193,11 +230,11 @@ export const AdminNovedadesSeguimiento: React.FC = () => {
               <button
                 key={nov.id}
                 onClick={() => setNovedadAbierta(nov)}
-                className="text-left bg-white border border-slate-200 rounded-2xl p-5 shadow-sm hover:shadow-md hover:border-blue-300 transition-all active:scale-[0.99] flex flex-col h-full"
+                className="text-left bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 shadow-sm hover:shadow-md hover:border-blue-300 transition-all active:scale-[0.99] flex flex-col h-full relative"
               >
                 <div className="flex items-center justify-between mb-3 relative">
                   {nov.unreadAdminCount ? (
-                    <div className="absolute -top-7 -right-7 bg-red-500 text-white text-[11px] font-black rounded-full min-w-[24px] h-6 px-1.5 flex items-center justify-center shadow-lg border-2 border-white z-10 animate-bounce">
+                    <div className="absolute -top-6 -right-3 bg-red-500 text-white text-[11px] font-black rounded-full min-w-[24px] h-6 px-1.5 flex items-center justify-center shadow-lg border-2 border-white z-10 animate-bounce">
                       {nov.unreadAdminCount}
                     </div>
                   ) : null}
