@@ -92,6 +92,28 @@ const App: React.FC = () => {
   });
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [showSupervisorSigModal, setShowSupervisorSigModal] = useState(false);
+  const [viewportMode, setViewportMode] = useState<{ isCompactShell: boolean; isShortLandscape: boolean }>(() => {
+    if (typeof window === 'undefined') return { isCompactShell: false, isShortLandscape: false };
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    const isShort = h <= 540 && w > h;
+    return { isCompactShell: w < 768 || isShort, isShortLandscape: isShort };
+  });
+
+  useEffect(() => {
+    const updateViewport = () => {
+      const w = window.innerWidth;
+      const h = window.innerHeight;
+      const isShort = h <= 540 && w > h;
+      setViewportMode({ isCompactShell: w < 768 || isShort, isShortLandscape: isShort });
+    };
+    window.addEventListener('resize', updateViewport);
+    window.addEventListener('orientationchange', updateViewport);
+    return () => {
+      window.removeEventListener('resize', updateViewport);
+      window.removeEventListener('orientationchange', updateViewport);
+    };
+  }, []);
   const appVersion = useAppVersion();
 
   const supervisorEmp = employees.find(e => e.id === currentUser?.uid);
@@ -560,7 +582,8 @@ const App: React.FC = () => {
   return (
     <div className="h-screen w-full bg-slate-50 flex font-sans overflow-hidden">
       {/* SIDEBAR DESKTOP */}
-      <aside className="w-64 bg-white hidden md:flex flex-col shadow-xl z-20 border-r border-slate-200 shrink-0">
+      {!viewportMode.isCompactShell && (
+      <aside className="w-64 bg-white flex flex-col shadow-xl z-20 border-r border-slate-200 shrink-0">
         <div className="p-6 border-b border-slate-100 flex items-center gap-3">
           <img src="/logo-transparencia.png" alt="Sistema Aspro" className="w-[72px] h-[72px] object-contain" />
           <div>
@@ -759,17 +782,27 @@ const App: React.FC = () => {
           </p>
         </div>
       </aside>
+      )}
 
       {/* MAIN CONTENT */}
       <main className="flex-1 flex flex-col min-w-0 relative bg-slate-50 h-full overflow-hidden">
 
         {/* HEADER MÓVIL */}
-        <header className="md:hidden bg-white text-slate-800 p-4 flex justify-between items-center shadow-sm border-b border-slate-200 z-30 shrink-0">
+        {viewportMode.isCompactShell && (
+        <header className={`bg-white text-slate-800 flex justify-between items-center shadow-sm border-b border-slate-200 z-30 shrink-0 ${viewportMode.isShortLandscape ? 'px-4 py-1.5' : 'p-4'}`}>
           <div className="flex items-center gap-2 overflow-hidden">
-            <img src="/logo-transparencia.png" alt="Sistema Aspro" className="w-[58px] h-[58px] object-contain shrink-0" />
+            <img src="/logo-transparencia.png" alt="Sistema Aspro" className={`${viewportMode.isShortLandscape ? 'w-9 h-9' : 'w-[58px] h-[58px]'} object-contain shrink-0`} />
             <div className="flex flex-col min-w-0">
-              <span className="font-black text-slate-900 text-base leading-none tracking-tight">Sistema</span>
-              <span className="font-black text-blue-600 text-base leading-none tracking-tight mt-0.5">Aspro</span>
+              {viewportMode.isShortLandscape ? (
+                <span className="font-black text-slate-900 text-sm leading-none tracking-tight truncate">
+                  Sistema <span className="text-blue-600">Aspro</span>
+                </span>
+              ) : (
+                <>
+                  <span className="font-black text-slate-900 text-base leading-none tracking-tight">Sistema</span>
+                  <span className="font-black text-blue-600 text-base leading-none tracking-tight mt-0.5">Aspro</span>
+                </>
+              )}
               <span className="text-[10px] text-slate-400 font-bold uppercase tracking-widest leading-none mt-1 truncate">
                 {currentView === 'dashboard' ? 'Panel General' :
                   currentView === 'employees' ? 'Empleados' :
@@ -801,10 +834,12 @@ const App: React.FC = () => {
             </button>
           </div>
         </header>
+        )}
 
+        <div className="flex-1 relative min-h-0 flex flex-col overflow-hidden">
         {/* MENÚ DESPLEGABLE MÓVIL */}
-        {isMobileMenuOpen && (
-          <div className="md:hidden absolute top-[88px] left-0 right-0 bottom-0 bg-white/95 backdrop-blur-sm z-40 animate-in slide-in-from-top-5 duration-200 flex flex-col">
+        {viewportMode.isCompactShell && isMobileMenuOpen && (
+          <div className="absolute inset-0 bg-white/95 backdrop-blur-sm z-40 animate-in slide-in-from-top-5 duration-200 flex flex-col">
             <nav className="flex-1 overflow-y-auto pt-4 pb-28">
               {(currentUser.role === 'admin' || currentUser.role === 'supervisor') && (
                 <button onClick={() => handleNavChange('visitas_supervisor')} className={mobileNavItemClass('visitas_supervisor')}>
@@ -970,7 +1005,7 @@ const App: React.FC = () => {
 
         {/* CONTENIDO SCROLLABLE */}
         <div className="flex-1 overflow-y-auto">
-          <div className="animate-fade-in pb-24 md:pb-0">
+          <div className={`animate-fade-in ${currentUser.role === 'supervisor' ? 'pb-24' : 'pb-4'} ${!viewportMode.isCompactShell && currentView === 'shift_management' ? 'h-full pb-0' : 'md:pb-0'}`}>
             {currentView === 'dashboard' && currentUser.role !== 'supervisor' && <AdminDashboard />}
             {(currentView === 'visitas_supervisor' || (currentView === 'dashboard' && currentUser.role === 'supervisor')) && (currentUser.role === 'admin' || currentUser.role === 'supervisor') && <VisitasSupervisorPage />}
             {currentView === 'employees' && currentUser.role === 'admin' && <EmployeesPage />}
@@ -1008,6 +1043,7 @@ const App: React.FC = () => {
 
 
           </div>
+        </div>
         </div>
         {/* BOTTOM NAVIGATION PARA SUPERVISOR (CELULAR): Documentos, Visitas (destacado al centro), Notas */}
         {currentUser.role === 'supervisor' && (

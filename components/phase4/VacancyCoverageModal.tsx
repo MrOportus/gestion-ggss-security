@@ -75,7 +75,7 @@ const VacancyCoverageModal: React.FC<VacancyCoverageModalProps> = ({
       <Dialog as="div" className="relative z-50" onClose={() => !loading && onClose()}>
         <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm" />
         <div className="fixed inset-0 flex items-center justify-center p-4">
-          <Dialog.Panel className="mx-auto max-w-md w-full bg-white rounded-xl shadow-xl overflow-hidden">
+          <Dialog.Panel className="mx-auto max-w-md w-full bg-white rounded-xl shadow-xl overflow-y-auto max-h-[92vh]">
             <div className="flex items-center justify-between p-4 border-b border-slate-200">
               <Dialog.Title className="text-lg font-bold text-slate-800">
                 Asignar Reemplazo a Vacante

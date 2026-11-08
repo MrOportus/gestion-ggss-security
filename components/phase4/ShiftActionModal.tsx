@@ -32,7 +32,7 @@ const ShiftActionModal: React.FC<ShiftActionModalProps> = ({
       <Dialog as="div" className="relative z-50" onClose={onClose}>
         <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm" aria-hidden="true" />
         <div className="fixed inset-0 flex items-center justify-center p-4">
-          <Dialog.Panel className="mx-auto max-w-sm w-full bg-white rounded-xl shadow-xl overflow-hidden">
+          <Dialog.Panel className="mx-auto max-w-sm w-full bg-white rounded-xl shadow-xl overflow-y-auto max-h-[92vh]">
             <div className="flex items-center justify-between p-4 border-b border-slate-200">
               <Dialog.Title className="text-lg font-bold text-slate-800">
                 Acciones del Turno

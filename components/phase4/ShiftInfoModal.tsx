@@ -150,7 +150,7 @@ const ShiftInfoModal: React.FC<ShiftInfoModalProps> = ({
             leaveFrom="opacity-100 scale-100"
             leaveTo="opacity-0 scale-95"
           >
-            <Dialog.Panel className="mx-auto max-w-sm w-full bg-white rounded-2xl shadow-2xl overflow-hidden">
+            <Dialog.Panel className="mx-auto max-w-sm w-full bg-white rounded-2xl shadow-2xl overflow-y-auto max-h-[92vh]">
 
               {/* Header con avatar */}
               <div className={`${cfg.color} p-6 relative flex flex-col items-center text-white`}>

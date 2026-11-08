@@ -68,9 +68,9 @@ const ManageStaffModal: React.FC<ManageStaffModalProps> = ({ isOpen, onClose, cu
     if (!isOpen) return null;
 
     return (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[85vh]">
-                <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm p-3 sm:p-4 animate-in fade-in duration-200">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[92vh] sm:max-h-[85vh]">
+                <div className="p-4 sm:p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50 shrink-0">
                     <div>
                         <h2 className="text-lg font-bold text-slate-900">Gestionar Dotación</h2>
                         <p className="text-sm text-slate-500">Selecciona el personal fijo para {currentSiteName}.</p>
@@ -80,7 +80,7 @@ const ManageStaffModal: React.FC<ManageStaffModalProps> = ({ isOpen, onClose, cu
                     </button>
                 </div>
 
-                <div className="p-4 border-b border-slate-100 bg-white">
+                <div className="p-3 sm:p-4 border-b border-slate-100 bg-white shrink-0">
                     <div className="relative">
                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
                         <input
@@ -129,7 +129,7 @@ const ManageStaffModal: React.FC<ManageStaffModalProps> = ({ isOpen, onClose, cu
                     </div>
                 </div>
 
-                <div className="p-4 border-t border-slate-100 bg-slate-50/50 flex justify-between items-center">
+                <div className="p-3 sm:p-4 border-t border-slate-100 bg-slate-50/50 flex justify-between items-center gap-2 flex-wrap shrink-0">
                     <span className="text-xs font-bold text-slate-500">
                         {selectedIds.size} seleccionados
                     </span>

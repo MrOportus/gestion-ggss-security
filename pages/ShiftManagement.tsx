@@ -38,7 +38,7 @@ import ShiftActionModal from '../components/phase4/ShiftActionModal';
 import AdditionalShiftModal from '../components/phase4/AdditionalShiftModal';
 import VacancyCoverageModal from '../components/phase4/VacancyCoverageModal';
 import ShiftInfoModal from '../components/phase4/ShiftInfoModal';
-import { ArrowRightLeft } from 'lucide-react';
+import { ArrowRightLeft, LayoutGrid, CalendarDays } from 'lucide-react';
 
 // --- Types ---
 
@@ -119,6 +119,40 @@ const ShiftManagement: React.FC = () => {
     const siteSearchRef = useRef<HTMLDivElement>(null);
     const [isEditMode, setIsEditMode] = useState(false);
     const [isManageStaffOpen, setIsManageStaffOpen] = useState(false);
+
+    // Soporte responsivo móvil (vertical y horizontal): evita colapso de altura y habilita vista calendario táctil
+    const [isMobileViewport, setIsMobileViewport] = useState(() => {
+        if (typeof window === 'undefined') return false;
+        const w = window.innerWidth;
+        const h = window.innerHeight;
+        return w < 768 || (h <= 540 && w > h);
+    });
+    const [mobileViewMode, setMobileViewMode] = useState<'cards' | 'grid'>(() => {
+        if (typeof window === 'undefined') return 'grid';
+        return window.innerWidth < 768 ? 'cards' : 'grid';
+    });
+    const hasManualMobileViewRef = useRef(false);
+    const [collapsedEmpIds, setCollapsedEmpIds] = useState<Set<string>>(new Set());
+    const lastPointerTypeRef = useRef<string>('mouse');
+
+    useEffect(() => {
+        const updateResponsiveLayout = () => {
+            const w = window.innerWidth;
+            const h = window.innerHeight;
+            const isShortLandscape = h <= 540 && w > h;
+            const compact = w < 768 || isShortLandscape;
+            setIsMobileViewport(compact);
+            if (!hasManualMobileViewRef.current) {
+                setMobileViewMode(w < 768 ? 'cards' : 'grid');
+            }
+        };
+        window.addEventListener('resize', updateResponsiveLayout);
+        window.addEventListener('orientationchange', updateResponsiveLayout);
+        return () => {
+            window.removeEventListener('resize', updateResponsiveLayout);
+            window.removeEventListener('orientationchange', updateResponsiveLayout);
+        };
+    }, []);
 
     // Orden manual del personal (borrador local hasta pulsar GUARDAR CAMBIOS)
     const [orderDraft, setOrderDraft] = useState<string[] | null>(null);
@@ -214,7 +248,7 @@ const ShiftManagement: React.FC = () => {
     }, [selectedSiteId, sites]);
 
     useEffect(() => {
-        const handleClickOutside = (event: MouseEvent) => {
+        const handleClickOutside = (event: MouseEvent | PointerEvent) => {
             if (siteSearchRef.current && !siteSearchRef.current.contains(event.target as Node)) {
                 setShowSiteList(false);
                 if (selectedSiteId) {
@@ -223,8 +257,8 @@ const ShiftManagement: React.FC = () => {
                 }
             }
         };
-        document.addEventListener('mousedown', handleClickOutside);
-        return () => document.removeEventListener('mousedown', handleClickOutside);
+        document.addEventListener('pointerdown', handleClickOutside);
+        return () => document.removeEventListener('pointerdown', handleClickOutside);
     }, [selectedSiteId, filteredSitesForUser]);
 
     // --- Global Mouse Up Listener for Dragging ---
@@ -426,8 +460,8 @@ const ShiftManagement: React.FC = () => {
         }));
     }, [selectedSiteId, activeTool]);
 
-    const handleCellMouseDown = (empId: string, day: Date, currentStatus: string) => {
-        if (!isEditMode) return;
+    const applyEditCellAction = (empId: string, day: Date, currentStatus: string): boolean => {
+        if (!isEditMode) return false;
         const key = getCellKey(empId, day);
 
         if (activeTool === 'nota') {
@@ -440,14 +474,10 @@ const ShiftManagement: React.FC = () => {
                 id: existingNota ? existingNota.id : undefined,
                 key
             });
-            return;
+            return false;
         }
 
-        setIsDragging(true);
-        setDragEmployeeId(empId);
-
-        // Initial Cycle logic on first click
-
+        // Initial Cycle / Toggle logic on click/tap
         let nextState: ShiftStatus = 'programado';
 
         if (activeTool === 'eraser') {
@@ -467,7 +497,7 @@ const ShiftManagement: React.FC = () => {
             // Add step for manual attendance
             if (activeTool === 'asistio_manual' && nextState !== null) {
                 setManualEntryPrompt({ empId, day, key });
-                return;
+                return false;
             }
         }
 
@@ -475,6 +505,16 @@ const ShiftManagement: React.FC = () => {
             ...prev,
             [key]: nextState
         }));
+        return true;
+    };
+
+    const handleCellMouseDown = (empId: string, day: Date, currentStatus: string) => {
+        if (!isEditMode) return;
+        const startedPaint = applyEditCellAction(empId, day, currentStatus);
+        if (startedPaint) {
+            setIsDragging(true);
+            setDragEmployeeId(empId);
+        }
     };
 
     const handleCellMouseEnter = (empId: string, day: Date) => {
@@ -1027,8 +1067,31 @@ const ShiftManagement: React.FC = () => {
         }
     };
 
+    const TOOL_LABELS: Record<typeof activeTool, string> = {
+        programado: 'Turno Día (X)',
+        noche: 'Turno Noche (N)',
+        descanso: 'Descanso (D)',
+        asistio_manual: 'Asistió Manual (✓)',
+        ausente: 'Ausente (A)',
+        eraser: 'Borrar Casilla',
+        nota: 'Añadir / Ver Nota'
+    };
+
+    const WEEKDAYS_MON_FIRST = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
+    const firstWeekdayOffset = days.length > 0 ? (days[0].getDay() + 6) % 7 : 0;
+    const pendingCount = Object.keys(pendingChanges).length + (orderDraft ? 1 : 0);
+
+    const toggleEmpCardCollapse = (empId: string) => {
+        setCollapsedEmpIds(prev => {
+            const next = new Set(prev);
+            if (next.has(empId)) next.delete(empId);
+            else next.add(empId);
+            return next;
+        });
+    };
+
     return (
-        <div className="p-6 max-w-[100vw] overflow-x-hidden space-y-6 h-screen flex flex-col bg-slate-50 select-none">
+        <div className={`max-w-[100vw] overflow-x-clip flex flex-col bg-slate-50 select-none ${isMobileViewport ? 'p-2.5 sm:p-4 min-h-full space-y-3 pb-8' : 'p-6 h-full space-y-6'}`}>
             
             {isSaving && (
                 <div className="fixed inset-0 bg-slate-900/20 backdrop-blur-sm z-[100] flex items-center justify-center pointer-events-none">
@@ -1041,6 +1104,7 @@ const ShiftManagement: React.FC = () => {
             )}
 
             {/* Header & Controls */}
+            {!isMobileViewport ? (
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-4 rounded-xl shadow-sm border border-slate-200 shrink-0">
                 <div className="flex items-start gap-4">
                     <div>
@@ -1301,6 +1365,230 @@ const ShiftManagement: React.FC = () => {
                     </div>
                 </div>
             </div>
+            ) : (
+            <div className="bg-white p-3 sm:p-4 rounded-xl shadow-sm border border-slate-200 space-y-3 shrink-0">
+                {/* Título + Toggle de vista móvil */}
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div className="min-w-0 flex-1">
+                        <h1 className="text-lg sm:text-xl font-black text-slate-900 flex items-center gap-2 leading-tight">
+                            <CalendarIcon size={18} className="text-yellow-400 shrink-0" />
+                            <span>GESTIÓN DE TURNOS</span>
+                        </h1>
+                        <div className="flex items-center gap-2 mt-1 flex-wrap">
+                            <p className="text-slate-600 text-xs sm:text-sm font-semibold truncate max-w-full">
+                                {currentSelectedSite?.name || 'Cargando sucursal...'}
+                            </p>
+                            {currentSelectedSite && (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-blue-50 text-blue-700 border border-blue-200/80">
+                                    <Clock size={11} className="text-blue-500 shrink-0" />
+                                    {currentSelectedSite.horario?.inicio || '07:30'}–{currentSelectedSite.horario?.termino || '19:30'}
+                                </span>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* Toggle Calendario / Grilla */}
+                    <div className="flex bg-slate-100 p-0.5 rounded-lg border border-slate-200 shrink-0" role="group" aria-label="Modo de visualización">
+                        <button
+                            type="button"
+                            onClick={() => {
+                                hasManualMobileViewRef.current = true;
+                                setMobileViewMode('cards');
+                            }}
+                            className={`flex items-center gap-1 px-2.5 py-1.5 rounded-md text-xs font-bold transition ${
+                                mobileViewMode === 'cards' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500'
+                            }`}
+                        >
+                            <CalendarDays size={14} />
+                            <span>Calendario</span>
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => {
+                                hasManualMobileViewRef.current = true;
+                                setMobileViewMode('grid');
+                            }}
+                            className={`flex items-center gap-1 px-2.5 py-1.5 rounded-md text-xs font-bold transition ${
+                                mobileViewMode === 'grid' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500'
+                            }`}
+                        >
+                            <LayoutGrid size={14} />
+                            <span>Grilla</span>
+                        </button>
+                    </div>
+                </div>
+
+                {/* Conflictos en móvil */}
+                {activeConflictWarnings.length > 0 && (
+                    <div className="bg-red-50 text-red-700 px-3 py-2 rounded-lg border border-red-200 text-xs font-bold flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-1.5">
+                            <AlertTriangle size={14} className="text-red-500 animate-pulse shrink-0" />
+                            <span>{activeConflictWarnings.reduce((acc, w) => acc + w.totalConflictos, 0)} Conflictos de turno</span>
+                        </div>
+                        <button
+                            type="button"
+                            onClick={() => setSummaryModalState({
+                                isOpen: true,
+                                result: {
+                                    success: 0,
+                                    conflicts: activeConflictWarnings.flatMap(w => {
+                                        const emp = employees.find(e => e.id === w.colaboradorId);
+                                        const name = emp ? `${emp.firstName} ${emp.lastNamePaterno}` : 'Colaborador';
+                                        return w.conflictos.map((c: any) => `Conflicto: ${name} en: ${c.sucursalNombreA} y ${c.sucursalNombreB} (${c.fecha})`);
+                                    }),
+                                    technicalErrors: [],
+                                    newTokens: {},
+                                    failedColabIds: [],
+                                    conflictCheckPending: false
+                                }
+                            })}
+                            className="text-xs text-red-700 underline shrink-0"
+                        >
+                            Ver detalles
+                        </button>
+                    </div>
+                )}
+
+                {/* Controles de Sucursal y Mes */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    <div className="space-y-1.5">
+                        <div className="flex items-center gap-1.5">
+                            <div className="flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200 shrink-0">
+                                <button
+                                    type="button"
+                                    onClick={handlePrevSite}
+                                    className="p-1.5 hover:bg-white hover:text-blue-600 rounded text-slate-600 transition"
+                                    title="Sucursal Anterior"
+                                >
+                                    <ChevronUp size={16} />
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={handleNextSite}
+                                    className="p-1.5 hover:bg-white hover:text-blue-600 rounded text-slate-600 transition"
+                                    title="Sucursal Siguiente"
+                                >
+                                    <ChevronDown size={16} />
+                                </button>
+                            </div>
+
+                            <div className="relative flex-1 min-w-0" ref={siteSearchRef}>
+                                <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4 z-10 pointer-events-none" />
+                                <input
+                                    type="text"
+                                    className="w-full pl-9 pr-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none bg-white text-slate-800 font-medium"
+                                    placeholder="Buscar sucursal..."
+                                    value={siteInputValue}
+                                    onFocus={() => {
+                                        setSiteInputValue('');
+                                        setShowSiteList(true);
+                                    }}
+                                    onChange={(e) => {
+                                        setSiteInputValue(e.target.value);
+                                        setShowSiteList(true);
+                                        const selectedSite = filteredSitesForUser.find(s => s.name === e.target.value);
+                                        if (selectedSite) {
+                                            setSelectedSiteId(selectedSite.id);
+                                        }
+                                    }}
+                                />
+                                {showSiteList && (
+                                    <div className="absolute top-full left-0 w-full mt-1 bg-white border border-slate-200 rounded-lg shadow-2xl max-h-[45vh] overflow-y-auto z-[120]">
+                                        {filteredSitesForUser
+                                            .filter(s => normalizeText(s.name).includes(normalizeText(siteInputValue)))
+                                            .map(site => (
+                                            <div
+                                                key={site.id}
+                                                className="px-3.5 py-2.5 hover:bg-blue-50 active:bg-blue-100 cursor-pointer border-b border-slate-50 last:border-0"
+                                                onClick={() => {
+                                                    setSelectedSiteId(site.id);
+                                                    setSiteInputValue(site.name);
+                                                    setShowSiteList(false);
+                                                }}
+                                            >
+                                                <div className="text-sm font-bold text-slate-700">{site.name}</div>
+                                                <div className="text-[10px] text-slate-400">{site.address}</div>
+                                            </div>
+                                        ))}
+                                        {filteredSitesForUser.filter(s => normalizeText(s.name).includes(normalizeText(siteInputValue))).length === 0 && (
+                                            <div className="p-4 text-xs text-slate-400 italic text-center">
+                                                No hay sucursales que coincidan
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-0.5 text-xs text-slate-600 font-medium">
+                            <label className="flex items-center gap-1.5 cursor-pointer">
+                                <input
+                                    type="checkbox"
+                                    className="rounded text-blue-600 focus:ring-blue-500"
+                                    checked={includeFalabella}
+                                    onChange={(e) => {
+                                        setIncludeFalabella(e.target.checked);
+                                        if (!e.target.checked) setOnlyFalabella(false);
+                                    }}
+                                />
+                                Incluir Falabella
+                            </label>
+                            <label className="flex items-center gap-1.5 cursor-pointer">
+                                <input
+                                    type="checkbox"
+                                    className="rounded text-blue-600 focus:ring-blue-500"
+                                    checked={onlyFalabella}
+                                    onChange={(e) => {
+                                        setOnlyFalabella(e.target.checked);
+                                        if (e.target.checked) setIncludeFalabella(true);
+                                    }}
+                                />
+                                Solo Falabella
+                            </label>
+                        </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 flex-wrap">
+                        <div className="flex items-center justify-between bg-white border border-slate-200 rounded-lg p-1 flex-1 min-w-[165px]">
+                            <button type="button" onClick={handlePrevMonth} className="p-1.5 hover:bg-slate-100 rounded text-slate-500">
+                                <ChevronLeft size={18} />
+                            </button>
+                            <span className="px-2 text-xs sm:text-sm font-bold text-slate-800 text-center uppercase truncate">
+                                {currentDate.toLocaleDateString('es-CL', { month: 'long', year: 'numeric' })}
+                            </span>
+                            <button type="button" onClick={handleNextMonth} className="p-1.5 hover:bg-slate-100 rounded text-slate-500">
+                                <ChevronRight size={18} />
+                            </button>
+                        </div>
+
+                        <button
+                            type="button"
+                            onClick={() => setIsManageStaffOpen(true)}
+                            className="flex items-center gap-1.5 px-3 py-2 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-lg text-xs font-bold transition shrink-0"
+                            title="Gestionar Dotación"
+                        >
+                            <Users size={15} />
+                            <span>Dotación</span>
+                        </button>
+
+                        {!isEditMode ? (
+                            <button
+                                type="button"
+                                onClick={() => setIsEditMode(true)}
+                                className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 px-4 py-2 bg-yellow-400 hover:bg-yellow-500 active:scale-[0.99] text-yellow-950 rounded-lg shadow-sm font-black text-xs transition"
+                            >
+                                <Edit3 size={15} />
+                                <span>PROGRAMAR / EDITAR</span>
+                            </button>
+                        ) : (
+                            <span className="inline-flex items-center gap-1.5 px-3 py-2 bg-blue-600 text-white rounded-lg text-xs font-black">
+                                <Edit3 size={13} /> Editando
+                            </span>
+                        )}
+                    </div>
+                </div>
+            </div>
+            )}
 
             {/* Fase 3: Resumen Mensual */}
             <MonthContractSummary
@@ -1310,19 +1598,363 @@ const ShiftManagement: React.FC = () => {
                 multiples={monthSummary.multiples}
             />
 
-            {/* Main Table */}
-            <div className="flex-1 overflow-hidden bg-white rounded-xl shadow-sm border border-slate-200 flex flex-col">
+            {/* Barra adhesiva de edición en móvil (siempre accesible al desplazarse) */}
+            {isMobileViewport && isEditMode && (
+                <div className="sticky top-0 z-40 bg-white/95 backdrop-blur-md p-2.5 rounded-xl shadow-md border-2 border-blue-200 space-y-2">
+                    <div className="grid grid-cols-7 gap-1 bg-slate-100 p-1 rounded-xl border border-slate-200">
+                        <button
+                            type="button"
+                            onClick={() => setActiveTool('programado')}
+                            className={`py-2 rounded-lg text-xs font-black flex items-center justify-center transition ${activeTool === 'programado' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-200'}`}
+                            title="Turno Día (X)"
+                        >
+                            X
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setActiveTool('noche')}
+                            className={`py-2 rounded-lg text-xs font-black flex items-center justify-center transition ${activeTool === 'noche' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-200'}`}
+                            title="Turno Noche (N)"
+                        >
+                            N
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setActiveTool('descanso')}
+                            className={`py-2 rounded-lg text-xs font-black flex items-center justify-center transition ${activeTool === 'descanso' ? 'bg-emerald-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-200'}`}
+                            title="Descanso (D)"
+                        >
+                            D
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setActiveTool('asistio_manual')}
+                            className={`py-2 rounded-lg text-xs font-black flex items-center justify-center transition ${activeTool === 'asistio_manual' ? 'bg-green-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-200'}`}
+                            title="Asistencia Manual (✓)"
+                        >
+                            ✓
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setActiveTool('ausente')}
+                            className={`py-2 rounded-lg text-xs font-black flex items-center justify-center transition ${activeTool === 'ausente' ? 'bg-rose-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-200'}`}
+                            title="Ausente (A)"
+                        >
+                            A
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setActiveTool('eraser')}
+                            className={`py-2 rounded-lg text-xs font-black flex items-center justify-center transition ${activeTool === 'eraser' ? 'bg-red-500 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-200'}`}
+                            title="Borrar casilla"
+                        >
+                            <Eraser size={15} />
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setActiveTool('nota')}
+                            className={`py-2 rounded-lg text-xs font-black flex items-center justify-center transition ${activeTool === 'nota' ? 'bg-amber-500 text-white shadow-sm' : 'text-amber-600 hover:bg-amber-100'}`}
+                            title="Añadir Nota"
+                        >
+                            <StickyNote size={15} />
+                        </button>
+                    </div>
+
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                        <div className="flex items-center gap-1.5 text-[11px] font-bold text-slate-600 min-w-0">
+                            <span className="text-slate-400">Herramienta:</span>
+                            <span className="text-blue-700 font-black truncate">{TOOL_LABELS[activeTool]}</span>
+                            {pendingCount > 0 && (
+                                <span className="px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-800 text-[10px] font-black shrink-0">
+                                    {pendingCount} pendiente{pendingCount > 1 ? 's' : ''}
+                                </span>
+                            )}
+                        </div>
+
+                        <div className="flex items-center gap-2 ml-auto shrink-0">
+                            <button
+                                type="button"
+                                onClick={discardChanges}
+                                className="flex items-center gap-1 px-3 py-1.5 text-xs text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg font-bold transition"
+                            >
+                                <XCircle size={15} />
+                                <span>Cancelar</span>
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => saveChanges(false)}
+                                disabled={isSaving}
+                                className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-black transition ${
+                                    isSaving
+                                        ? 'bg-slate-300 text-slate-500 cursor-not-allowed'
+                                        : 'bg-green-500 hover:bg-green-600 text-white shadow-sm'
+                                }`}
+                            >
+                                {isSaving ? (
+                                    <>
+                                        <div className="w-3.5 h-3.5 border-2 border-slate-500 border-t-transparent rounded-full animate-spin"></div>
+                                        <span>GUARDANDO...</span>
+                                    </>
+                                ) : (
+                                    <>
+                                        <Save size={15} />
+                                        <span>GUARDAR</span>
+                                    </>
+                                )}
+                            </button>
+                        </div>
+                    </div>
+
+                    {conflictError && (
+                        <div className="px-3 py-2 bg-red-50 border border-red-300 text-red-700 rounded-lg text-xs font-medium flex items-start gap-2">
+                            <XCircle size={14} className="mt-0.5 shrink-0 text-red-500" />
+                            <span>{conflictError}</span>
+                        </div>
+                    )}
+                </div>
+            )}
+
+            {/* Vista Móvil por Tarjetas / Calendario Mensual (sin scroll horizontal) */}
+            {isMobileViewport && mobileViewMode === 'cards' ? (
+                <div className="space-y-3">
+                    {finalVisibleEmployees.length === 0 ? (
+                        <div className="bg-white rounded-xl border border-slate-200 p-6 text-center space-y-3 shadow-sm">
+                            <Users size={28} className="mx-auto text-slate-300" />
+                            <p className="text-sm font-bold text-slate-600">No hay colaboradores asignados a esta sucursal.</p>
+                            {selectedSiteId && (
+                                <button
+                                    type="button"
+                                    onClick={() => setIsManageStaffOpen(true)}
+                                    className="inline-flex items-center gap-1.5 px-4 py-2 bg-blue-600 text-white rounded-lg text-xs font-black shadow-sm"
+                                >
+                                    <Plus size={14} /> Gestionar Dotación
+                                </button>
+                            )}
+                        </div>
+                    ) : (
+                        finalVisibleEmployees.map((emp, empIdx) => {
+                            const isCollapsed = collapsedEmpIds.has(emp.id);
+                            let shiftCount = 0;
+                            let restCount = 0;
+                            let hasUnsaved = false;
+
+                            days.forEach(d => {
+                                const st = getCellStatus(emp.id, d);
+                                if (st.type === 'programado' || st.type === 'noche' || st.type === 'digital' || st.type === 'manual_present') {
+                                    shiftCount++;
+                                } else if (st.type === 'descanso') {
+                                    restCount++;
+                                }
+                                if (pendingChanges[getCellKey(emp.id, d)] !== undefined) {
+                                    hasUnsaved = true;
+                                }
+                            });
+
+                            return (
+                                <div key={emp.id} className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                                    {/* Cabecera tarjeta colaborador */}
+                                    <div className="p-3 bg-slate-50/70 border-b border-slate-100 flex items-center justify-between gap-2">
+                                        <button
+                                            type="button"
+                                            onClick={() => toggleEmpCardCollapse(emp.id)}
+                                            className="flex-1 min-w-0 text-left space-y-1"
+                                        >
+                                            <div className="flex items-center gap-2 min-w-0 flex-wrap">
+                                                <span className="text-sm font-black text-slate-800 truncate">
+                                                    {emp.firstName} {emp.lastNamePaterno}
+                                                </span>
+                                                <span className="text-[11px] font-mono text-slate-400">{emp.rut}</span>
+                                                {hasUnsaved && (
+                                                    <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 text-[10px] font-bold">
+                                                        Sin guardar
+                                                    </span>
+                                                )}
+                                            </div>
+                                            <div className="flex items-center gap-2 flex-wrap">
+                                                <span className="text-[11px] font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded border border-blue-100">
+                                                    {shiftCount} turno{shiftCount === 1 ? '' : 's'}
+                                                </span>
+                                                {restCount > 0 && (
+                                                    <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-100">
+                                                        {restCount} desc.
+                                                    </span>
+                                                )}
+                                                <ContractStatusBadge
+                                                    estado={getEmployeeWorstContractState(emp.id)}
+                                                    contrato={getEmployeeActiveContrato(emp.id)}
+                                                />
+                                            </div>
+                                        </button>
+
+                                        <div className="flex items-center gap-1 shrink-0">
+                                            {isEditMode && (
+                                                <>
+                                                    <button
+                                                        type="button"
+                                                        disabled={empIdx === 0}
+                                                        onClick={() => shiftEmployeeOrder(emp.id, -1)}
+                                                        className="p-1.5 rounded-lg border border-slate-200 bg-white text-slate-500 hover:text-blue-600 disabled:opacity-30"
+                                                        title="Mover arriba"
+                                                    >
+                                                        <ChevronUp size={15} />
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        disabled={empIdx === finalVisibleEmployees.length - 1}
+                                                        onClick={() => shiftEmployeeOrder(emp.id, 1)}
+                                                        className="p-1.5 rounded-lg border border-slate-200 bg-white text-slate-500 hover:text-blue-600 disabled:opacity-30"
+                                                        title="Mover abajo"
+                                                    >
+                                                        <ChevronDown size={15} />
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => handleRemoveEmployeeFromSite(emp.id)}
+                                                        className="p-1.5 rounded-lg text-red-500 hover:bg-red-50 transition"
+                                                        title="Quitar de esta sucursal"
+                                                    >
+                                                        <UserMinus size={16} />
+                                                    </button>
+                                                </>
+                                            )}
+                                            <button
+                                                type="button"
+                                                onClick={() => toggleEmpCardCollapse(emp.id)}
+                                                className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-200/60 hover:text-slate-700 transition"
+                                                aria-label={isCollapsed ? 'Expandir calendario' : 'Contraer calendario'}
+                                            >
+                                                {isCollapsed ? <ChevronDown size={18} /> : <ChevronUp size={18} />}
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    {/* Calendario mensual 7 columnas */}
+                                    {!isCollapsed && (
+                                        <div className="p-2.5 sm:p-3">
+                                            {isEditMode && (
+                                                <p className="text-[11px] font-semibold text-blue-600 mb-2">
+                                                    Toca un día para aplicar: <span className="font-black">{TOOL_LABELS[activeTool]}</span>
+                                                </p>
+                                            )}
+                                            <div className="grid grid-cols-7 gap-1 text-center mb-1">
+                                                {WEEKDAYS_MON_FIRST.map((wd, idx) => (
+                                                    <div
+                                                        key={wd}
+                                                        className={`text-[10px] font-black uppercase py-0.5 ${idx >= 5 ? 'text-rose-500' : 'text-slate-400'}`}
+                                                    >
+                                                        {wd}
+                                                    </div>
+                                                ))}
+                                            </div>
+                                            <div className="grid grid-cols-7 gap-1">
+                                                {Array.from({ length: firstWeekdayOffset }).map((_, emptyIdx) => (
+                                                    <div key={`pad-${emp.id}-${emptyIdx}`} className="h-12" />
+                                                ))}
+                                                {days.map(day => {
+                                                    const status = getCellStatus(emp.id, day);
+                                                    const dateStr = formatDateKey(day);
+                                                    const cellKey = getCellKey(emp.id, day);
+                                                    const isConflict = conflictingCells.has(`${emp.id}_${dateStr}`);
+                                                    const isWeekend = day.getDay() === 0 || day.getDay() === 6;
+                                                    const notaForCell = notasMap[cellKey];
+                                                    const isPending = pendingChanges[cellKey] !== undefined;
+
+                                                    let tileBg = isWeekend ? 'bg-rose-50/40 border-slate-100' : 'bg-slate-50/50 border-slate-100';
+                                                    if (status.type === 'programado') tileBg = 'bg-blue-50 border-blue-200';
+                                                    else if (status.type === 'noche') tileBg = 'bg-indigo-50 border-indigo-200';
+                                                    else if (status.type === 'descanso') tileBg = 'bg-emerald-50 border-emerald-200';
+                                                    else if (status.type === 'trasladado') tileBg = 'bg-orange-50 border-orange-200';
+                                                    else if (status.type === 'digital' || status.type === 'manual_present') {
+                                                        tileBg = status.programmedStatus === 'noche'
+                                                            ? 'bg-blue-600 border-blue-700 text-white'
+                                                            : 'bg-green-50 border-green-300';
+                                                    } else if (status.type === 'manual_absent') tileBg = 'bg-rose-50 border-rose-200';
+
+                                                    const isDarkTile = (status.type === 'digital' || status.type === 'manual_present') && status.programmedStatus === 'noche';
+
+                                                    return (
+                                                        <button
+                                                            key={day.toISOString()}
+                                                            type="button"
+                                                            onClick={() => {
+                                                                if (isEditMode) {
+                                                                    applyEditCellAction(emp.id, day, status.type);
+                                                                } else {
+                                                                    handleCellClick(emp.id, day);
+                                                                }
+                                                            }}
+                                                            className={`h-12 w-full rounded-lg border flex flex-col items-center justify-center relative transition active:scale-95 ${tileBg} ${
+                                                                isConflict ? 'ring-2 ring-red-500' : isPending ? 'ring-2 ring-amber-400' : ''
+                                                            }`}
+                                                        >
+                                                            {notaForCell && (
+                                                                <span className="absolute top-0.5 right-0.5 w-0 h-0 border-t-[7px] border-t-amber-500 border-l-[7px] border-l-transparent" />
+                                                            )}
+                                                            {isConflict && (
+                                                                <AlertTriangle size={10} className="absolute top-0.5 left-0.5 text-red-600" />
+                                                            )}
+
+                                                            <span
+                                                                className={`text-[10px] font-bold leading-none mb-0.5 ${
+                                                                    isDarkTile ? 'text-blue-100' : isWeekend ? 'text-rose-500' : 'text-slate-400'
+                                                                }`}
+                                                            >
+                                                                {day.getDate()}
+                                                            </span>
+
+                                                            {status.type === 'programado' && <span className="text-sm font-black text-blue-700 leading-none">X</span>}
+                                                            {status.type === 'noche' && <span className="text-sm font-black text-indigo-700 leading-none">N</span>}
+                                                            {status.type === 'descanso' && <span className="text-sm font-black text-emerald-700 leading-none">D</span>}
+                                                            {status.type === 'trasladado' && <ArrowRightLeft size={14} className="text-orange-600" />}
+                                                            {status.type === 'digital' && (
+                                                                <Circle size={13} className={isDarkTile ? 'text-green-300' : 'text-green-500'} fill="currentColor" />
+                                                            )}
+                                                            {status.type === 'manual_present' && (
+                                                                <CheckCircle2 size={15} className={isDarkTile ? 'text-green-300' : 'text-green-600'} />
+                                                            )}
+                                                            {status.type === 'manual_absent' && <span className="text-sm font-black text-rose-600 leading-none">A</span>}
+                                                            {status.type === 'empty' && (
+                                                                <span className="text-xs font-bold text-slate-300 leading-none">{isEditMode ? '+' : '·'}</span>
+                                                            )}
+                                                        </button>
+                                                    );
+                                                })}
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            );
+                        })
+                    )}
+
+                    {selectedSiteId && finalVisibleEmployees.length > 0 && (
+                        <button
+                            type="button"
+                            onClick={() => setIsManageStaffOpen(true)}
+                            className="w-full py-3 bg-white hover:bg-blue-50 border border-dashed border-blue-300 rounded-xl flex items-center justify-center gap-2 text-blue-600 font-black text-xs uppercase tracking-wide shadow-sm transition"
+                        >
+                            <Plus size={16} />
+                            <span>Agregar / gestionar colaboradores</span>
+                        </button>
+                    )}
+                </div>
+            ) : (
+            /* Main Table */
+            <div
+                style={isMobileViewport ? { minHeight: '260px', maxHeight: '72vh' } : undefined}
+                className={`${isMobileViewport ? '' : 'flex-1'} overflow-hidden bg-white rounded-xl shadow-sm border border-slate-200 flex flex-col`}
+            >
                 <div className="overflow-auto flex-1 custom-scrollbar">
                     <table className="w-full border-collapse">
                         <thead className="sticky top-0 z-30 bg-white shadow-sm">
                             <tr>
-                                <th className="sticky left-0 z-40 bg-slate-50 border-b border-r border-slate-200 p-4 text-left min-w-[250px] shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">
+                                <th className={`sticky left-0 z-40 bg-slate-50 border-b border-r border-slate-200 text-left shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] ${isMobileViewport ? 'p-2.5 min-w-[140px] max-w-[155px] sm:min-w-[185px] sm:max-w-[205px]' : 'p-4 min-w-[250px]'}`}>
                                     <span className="text-xs font-black text-slate-400 uppercase tracking-widest block mb-1">Personal</span>
                                     <div className="flex items-center justify-between gap-2">
-                                        <span className="text-[10px] font-bold text-slate-300">📋 LISTA MAESTRA</span>
+                                        <span className="text-[10px] font-bold text-slate-300 truncate">📋 LISTA MAESTRA</span>
                                         <button
                                             onClick={() => setIsManageStaffOpen(true)}
-                                            className="p-1.5 bg-blue-50 text-blue-600 rounded hover:bg-blue-100 transition"
+                                            className="p-1.5 bg-blue-50 text-blue-600 rounded hover:bg-blue-100 transition shrink-0"
                                             title="Gestionar Dotación"
                                         >
                                             <Users size={14} />
@@ -1376,7 +2008,7 @@ const ShiftManagement: React.FC = () => {
                                     }`}
                                 >
                                     <td
-                                        className={`sticky left-0 z-20 border-r border-slate-100 p-3 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)] transition-colors ${
+                                        className={`sticky left-0 z-20 border-r border-slate-100 ${isMobileViewport ? 'p-2 min-w-[140px] max-w-[155px] sm:min-w-[185px] sm:max-w-[205px]' : 'p-3'} shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)] transition-colors ${
                                             isEditMode && rowDragOverId === emp.id && rowDragId !== emp.id
                                                 ? 'bg-blue-50/90 border-t-2 border-t-blue-500'
                                                 : isEditMode && rowDragId === emp.id
@@ -1384,10 +2016,11 @@ const ShiftManagement: React.FC = () => {
                                                     : 'bg-white'
                                         }`}
                                     >
-                                        <div className="flex items-center justify-between gap-2 group">
-                                            <div className="flex items-center gap-2 min-w-0">
+                                        <div className={`flex ${isMobileViewport ? 'flex-col items-stretch gap-1' : 'items-center justify-between gap-2'} group`}>
+                                            <div className="flex items-center gap-1.5 sm:gap-2 min-w-0">
                                                 {isEditMode && (
                                                     <div className="flex items-center gap-0.5 shrink-0 bg-slate-50 border border-slate-200/80 rounded-md p-0.5 shadow-sm">
+                                                        {!isMobileViewport && (
                                                         <div
                                                             draggable
                                                             onDragStart={(e) => {
@@ -1404,6 +2037,7 @@ const ShiftManagement: React.FC = () => {
                                                         >
                                                             <GripVertical size={14} />
                                                         </div>
+                                                        )}
                                                         <div className="flex flex-col -space-y-1">
                                                             <button
                                                                 type="button"
@@ -1433,18 +2067,18 @@ const ShiftManagement: React.FC = () => {
                                                     </div>
                                                 )}
                                                 <div className="flex flex-col min-w-0">
-                                                    <span className="text-sm font-bold text-slate-800 truncate">{emp.firstName} {emp.lastNamePaterno}</span>
+                                                    <span className={`${isMobileViewport ? 'text-xs sm:text-sm' : 'text-sm'} font-bold text-slate-800 truncate`}>{emp.firstName} {emp.lastNamePaterno}</span>
                                                     <span className="text-[10px] font-mono text-slate-400">{emp.rut}</span>
                                                 </div>
                                             </div>
-                                            <div className="flex flex-col items-end gap-1 shrink-0">
+                                            <div className={`flex ${isMobileViewport ? 'flex-row items-center justify-between' : 'flex-col items-end'} gap-1 shrink-0`}>
                                                 {isEditMode && (
                                                     <button
                                                         onClick={(e) => { e.stopPropagation(); handleRemoveEmployeeFromSite(emp.id); }}
-                                                        className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded transition shrink-0"
+                                                        className="p-1 text-red-400 hover:text-red-600 hover:bg-red-50 rounded transition shrink-0"
                                                         title="Quitar de esta sucursal"
                                                     >
-                                                        <UserMinus size={16} />
+                                                        <UserMinus size={15} />
                                                     </button>
                                                 )}
                                                 <ContractStatusBadge
@@ -1464,9 +2098,26 @@ const ShiftManagement: React.FC = () => {
                                         return (
                                             <td
                                                 key={day.toISOString()}
-                                                onMouseDown={() => handleCellMouseDown(emp.id, day, status.type)}
-                                                onMouseEnter={() => handleCellMouseEnter(emp.id, day)}
-                                                onClick={() => handleCellClick(emp.id, day)}
+                                                onPointerDown={(e) => {
+                                                    lastPointerTypeRef.current = e.pointerType || 'mouse';
+                                                    if (isEditMode && e.pointerType === 'mouse') {
+                                                        handleCellMouseDown(emp.id, day, status.type);
+                                                    }
+                                                }}
+                                                onPointerEnter={(e) => {
+                                                    if (isEditMode && e.pointerType === 'mouse') {
+                                                        handleCellMouseEnter(emp.id, day);
+                                                    }
+                                                }}
+                                                onClick={() => {
+                                                    if (isEditMode) {
+                                                        if (lastPointerTypeRef.current !== 'mouse') {
+                                                            applyEditCellAction(emp.id, day, status.type);
+                                                        }
+                                                    } else {
+                                                        handleCellClick(emp.id, day);
+                                                    }
+                                                }}
                                                 className={`
                                             p-1 text-center border-r border-slate-50 cursor-pointer transition-all duration-200 relative
                                             ${isEditMode ? 'hover:bg-blue-50 cursor-crosshair' : 'hover:bg-slate-100'}
@@ -1538,15 +2189,15 @@ const ShiftManagement: React.FC = () => {
                             {/* Agregar Colaborador Row */}
                             {selectedSiteId && (
                                 <tr className="bg-slate-50/30">
-                                    <td className="sticky left-0 z-20 bg-slate-50 border-r border-slate-100 p-3">
+                                    <td className={`sticky left-0 z-20 bg-slate-50 border-r border-slate-100 ${isMobileViewport ? 'p-2 min-w-[140px] max-w-[155px] sm:min-w-[185px] sm:max-w-[205px]' : 'p-3'}`}>
                                         <button
                                             onClick={() => setIsManageStaffOpen(true)}
-                                            className="flex items-center gap-2 text-blue-600 hover:text-blue-700 font-black text-xs uppercase tracking-tighter transition group"
+                                            className="flex items-center gap-2 text-blue-600 hover:text-blue-700 font-black text-xs uppercase tracking-tighter transition group text-left"
                                         >
-                                            <div className="p-1 bg-blue-100 text-blue-600 rounded group-hover:bg-blue-600 group-hover:text-white transition">
+                                            <div className="p-1 bg-blue-100 text-blue-600 rounded group-hover:bg-blue-600 group-hover:text-white transition shrink-0">
                                                 <Plus size={14} />
                                             </div>
-                                            Agregar nuevo colaborador
+                                            <span>Agregar nuevo colaborador</span>
                                         </button>
                                     </td>
                                     {days.map(day => (
@@ -1558,42 +2209,47 @@ const ShiftManagement: React.FC = () => {
                     </table>
                 </div>
             </div>
+            )}
 
             {/* Legend / Footer Instructions */}
-            <div className="bg-white p-4 rounded-xl border border-slate-200 flex flex-col md:flex-row items-start md:items-center gap-6 shrink-0 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] z-20">
+            <div className="bg-white p-3 sm:p-4 rounded-xl border border-slate-200 flex flex-col lg:flex-row items-start lg:items-center gap-3 lg:gap-6 shrink-0 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] z-20">
                 <div className="flex flex-col">
                     <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest italic">Instrucciones de Programación:</h3>
-                    <p className="text-[10px] text-blue-500 font-bold uppercase mt-1 animate-pulse">💡 ¡NUEVO! Mantén el clic y arrastra para marcar varios días.</p>
+                    <p className="text-[10px] text-blue-500 font-bold uppercase mt-1 animate-pulse">
+                        {isMobileViewport
+                            ? '📱 Activa Programar / Editar, elige una herramienta y toca los días.'
+                            : '💡 ¡NUEVO! Mantén el clic y arrastra para marcar varios días.'}
+                    </p>
                 </div>
 
-                <div className="flex items-center gap-4 text-xs font-bold text-slate-600">
-                    <div className="flex items-center gap-2 bg-blue-50 px-3 py-1.5 rounded-lg border border-blue-100">
+                <div className="flex flex-wrap items-center gap-2 sm:gap-3 text-xs font-bold text-slate-600">
+                    <div className="flex items-center gap-1.5 sm:gap-2 bg-blue-50 px-2.5 sm:px-3 py-1.5 rounded-lg border border-blue-100">
                         <span className="w-5 h-5 flex items-center justify-center bg-blue-100 text-blue-700 rounded text-[10px] font-black">X</span>
                         <span>Programado</span>
                     </div>
-                    <div className="flex items-center gap-2 bg-indigo-50 px-3 py-1.5 rounded-lg border border-indigo-100">
+                    <div className="flex items-center gap-1.5 sm:gap-2 bg-indigo-50 px-2.5 sm:px-3 py-1.5 rounded-lg border border-indigo-100">
                         <span className="w-5 h-5 flex items-center justify-center bg-indigo-100 text-indigo-700 rounded text-[10px] font-black">N</span>
                         <span>Turno Noche</span>
                     </div>
-                    <div className="flex items-center gap-2 bg-emerald-50 px-3 py-1.5 rounded-lg border border-emerald-100">
+                    <div className="flex items-center gap-1.5 sm:gap-2 bg-emerald-50 px-2.5 sm:px-3 py-1.5 rounded-lg border border-emerald-100">
                         <span className="w-5 h-5 flex items-center justify-center bg-emerald-100 text-emerald-700 rounded text-[10px] font-black">D</span>
                         <span>Descanso</span>
                     </div>
-                    <div className="flex items-center gap-2 bg-green-50 px-3 py-1.5 rounded-lg border border-green-100">
+                    <div className="flex items-center gap-1.5 sm:gap-2 bg-green-50 px-2.5 sm:px-3 py-1.5 rounded-lg border border-green-100">
                         <span className="w-5 h-5 flex items-center justify-center bg-green-100 text-green-700 rounded text-[10px] font-black">✓</span>
                         <span className="text-green-700">Asistió (Manual)</span>
                     </div>
-                    <div className="flex items-center gap-2 bg-red-50 px-3 py-1.5 rounded-lg border border-red-100">
+                    <div className="flex items-center gap-1.5 sm:gap-2 bg-red-50 px-2.5 sm:px-3 py-1.5 rounded-lg border border-red-100">
                         <span className="w-5 h-5 flex items-center justify-center bg-red-100 text-red-600 rounded text-[10px] font-black">A</span>
-                        <span className="text-red-700">3 Clicks: Ausente</span>
+                        <span className="text-red-700">{isMobileViewport ? 'Ausente' : '3 Clicks: Ausente'}</span>
                     </div>
-                    <div className="flex items-center gap-2 px-3 py-1.5 text-slate-400">
+                    <div className="flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3 py-1.5 text-slate-400">
                         <Eraser size={14} />
-                        <span>4 Clicks: Limpiar</span>
+                        <span>{isMobileViewport ? 'Limpiar casilla' : '4 Clicks: Limpiar'}</span>
                     </div>
                 </div>
 
-                <div className="ml-auto flex items-center gap-2">
+                <div className="lg:ml-auto flex items-center gap-2 flex-wrap">
                     <div className="w-3 h-3 rounded-full bg-yellow-400"></div>
                     <span className="text-[10px] font-black text-slate-400 uppercase">Planta: {sites.find(s => s.id == selectedSiteId)?.name || '...'}</span>
                     <button
@@ -1608,8 +2264,8 @@ const ShiftManagement: React.FC = () => {
 
             {/* Detail Modal (Read Mode) */}
             {detailModal.isOpen && detailModal.data && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden relative">
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-3 sm:p-4 animate-in fade-in duration-200">
+                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[92vh] overflow-y-auto relative">
                         <div className="bg-blue-600 p-6 flex flex-col items-center text-white relative">
                             <button
                                 onClick={() => setDetailModal(prev => ({ ...prev, isOpen: false }))}
@@ -1709,9 +2365,9 @@ const ShiftManagement: React.FC = () => {
 
             {/* Modal de Entrada Manual */}
             {manualEntryPrompt && (
-                <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-                    <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95">
-                        <div className="p-8 space-y-6">
+                <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-3 sm:p-4">
+                    <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md max-h-[92vh] overflow-y-auto animate-in zoom-in-95">
+                        <div className="p-5 sm:p-8 space-y-5 sm:space-y-6">
                             <div className="text-center">
                                 <div className="w-16 h-16 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center mx-auto mb-4">
                                     <CheckCircle2 size={32} />
@@ -2063,8 +2719,8 @@ const ShiftManagement: React.FC = () => {
             )}
             {/* Note Modal */}
             {noteModal && (
-                <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
-                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden animate-in fade-in duration-200">
+                <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/40 backdrop-blur-sm p-3 sm:p-4">
+                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm max-h-[92vh] overflow-y-auto animate-in fade-in duration-200">
                         <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-amber-50">
                             <h3 className="text-sm font-bold text-amber-900 flex items-center gap-2">
                                 <StickyNote size={16} />
