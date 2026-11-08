@@ -16,6 +16,24 @@ import { esEsquemaNuevo } from '../lib/novedades/seguimientoService';
 const fmtTime = (iso: string) =>
     new Date(iso).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' });
 
+const CATEGORIA_META: Record<string, { icon: string; label: string; badgeClass: string }> = {
+    acceso_personas: { icon: '🧍🏽', label: 'Acceso Personas', badgeClass: 'bg-sky-50 border-sky-200/80' },
+    acceso_vehiculos: { icon: '🚗', label: 'Acceso Vehículos', badgeClass: 'bg-indigo-50 border-indigo-200/80' },
+    daño_desperfecto: { icon: '🚧', label: 'Falla o Daños', badgeClass: 'bg-amber-50 border-amber-200/80' },
+    infraestructura: { icon: '🚧', label: 'Infraestructura', badgeClass: 'bg-amber-50 border-amber-200/80' },
+    alarma: { icon: '🚨', label: 'Alarmas', badgeClass: 'bg-rose-50 border-rose-200/80' },
+    emergencia: { icon: '🆘', label: 'SOS Emergencia', badgeClass: 'bg-red-50 border-red-200/80' },
+    objeto_encontrado: { icon: '📦', label: 'Objeto Encontrado', badgeClass: 'bg-emerald-50 border-emerald-200/80' },
+    requiere_seguimiento: { icon: '👁️', label: 'Requiere Seguimiento', badgeClass: 'bg-purple-50 border-purple-200/80' },
+    seguridad: { icon: '🛡️', label: 'Seguridad', badgeClass: 'bg-blue-50 border-blue-200/80' },
+    persona_sospechosa: { icon: '🕵️', label: 'Persona Sospechosa', badgeClass: 'bg-orange-50 border-orange-200/80' },
+    entrega_recepcion_turno: { icon: '🔄', label: 'Entrega de Turno', badgeClass: 'bg-teal-50 border-teal-200/80' },
+    otro: { icon: '📝', label: 'Otro', badgeClass: 'bg-slate-50 border-slate-200/80' },
+};
+
+const getCategoriaMeta = (categoria?: string) =>
+    (categoria && CATEGORIA_META[categoria]) || CATEGORIA_META.otro;
+
 const ResultBadge = ({ result }: { result: string }) => {
     const cfg: Record<string, { bg: string; text: string; ring: string; label: string }> = {
         SIN_NOVEDAD: { bg: 'bg-emerald-50', text: 'text-emerald-700', ring: 'ring-emerald-600/20', label: 'Sin Novedad' },
@@ -216,11 +234,14 @@ const AdminLibroNovedadesPage: React.FC = () => {
         const matchSite = siteFilter === 'all' || item.siteId === siteFilter;
         const matchPrioridad = prioridadFilter === 'all' || item.prioridad === prioridadFilter;
         const q = searchText.trim().toLowerCase();
+        const catMetaForSearch = item.tipo !== 'ronda' ? getCategoriaMeta(item.categoria) : null;
         const matchSearch = !q || [
             item.descripcion,
             item.guardName,
             item.sucursalName,
             item.tipo,
+            item.categoria,
+            catMetaForSearch?.label,
             item.timestamp,
         ].some(v => v && v.toString().toLowerCase().includes(q));
         return matchDate && matchTipo && matchSite && matchPrioridad && matchSearch;
@@ -501,6 +522,7 @@ const AdminLibroNovedadesPage: React.FC = () => {
                             : item.resultado === 'SIN_NOVEDAD' ? 'bg-emerald-400 border-emerald-300'
                             : (item.resultado === 'CON_NOVEDAD' || item.tipo === 'incidente') ? 'bg-rose-400 border-rose-300'
                             : item.tipo === 'alerta' ? 'bg-amber-400 border-amber-300' : 'bg-blue-400 border-blue-300';
+                        const catMeta = item.tipo !== 'ronda' ? getCategoriaMeta(item.categoria) : null;
                         return (
                             <React.Fragment key={item.id}>
                                 {showSep && (
@@ -521,6 +543,15 @@ const AdminLibroNovedadesPage: React.FC = () => {
                                     </div>
                                     <div className="flex-1 min-w-0 relative">
                                         <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
+                                            {catMeta && (
+                                                <span
+                                                    title={`Categoría: ${catMeta.label}`}
+                                                    aria-label={catMeta.label}
+                                                    className={`inline-flex items-center justify-center w-6 h-6 rounded-lg border text-sm leading-none shrink-0 select-none ${catMeta.badgeClass}`}
+                                                >
+                                                    {catMeta.icon}
+                                                </span>
+                                            )}
                                             <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[9px] font-black uppercase ${tipoColor[item.tipo] || tipoColor.otro}`}>
                                                 {tipoIcon[item.tipo] || tipoIcon.otro}{item.tipo}
                                             </span>

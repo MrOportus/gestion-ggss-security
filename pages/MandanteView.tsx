@@ -23,6 +23,24 @@ const fmtDate = (iso: string) =>
 const fmtDateTime = (iso: string) =>
     new Date(iso).toLocaleString('es-CL', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 
+const CATEGORIA_META: Record<string, { icon: string; label: string; badgeClass: string }> = {
+    acceso_personas: { icon: '🧍🏽', label: 'Acceso Personas', badgeClass: 'bg-sky-50 border-sky-200/80' },
+    acceso_vehiculos: { icon: '🚗', label: 'Acceso Vehículos', badgeClass: 'bg-indigo-50 border-indigo-200/80' },
+    daño_desperfecto: { icon: '🚧', label: 'Falla o Daños', badgeClass: 'bg-amber-50 border-amber-200/80' },
+    infraestructura: { icon: '🚧', label: 'Infraestructura', badgeClass: 'bg-amber-50 border-amber-200/80' },
+    alarma: { icon: '🚨', label: 'Alarmas', badgeClass: 'bg-rose-50 border-rose-200/80' },
+    emergencia: { icon: '🆘', label: 'SOS Emergencia', badgeClass: 'bg-red-50 border-red-200/80' },
+    objeto_encontrado: { icon: '📦', label: 'Objeto Encontrado', badgeClass: 'bg-emerald-50 border-emerald-200/80' },
+    requiere_seguimiento: { icon: '👁️', label: 'Requiere Seguimiento', badgeClass: 'bg-purple-50 border-purple-200/80' },
+    seguridad: { icon: '🛡️', label: 'Seguridad', badgeClass: 'bg-blue-50 border-blue-200/80' },
+    persona_sospechosa: { icon: '🕵️', label: 'Persona Sospechosa', badgeClass: 'bg-orange-50 border-orange-200/80' },
+    entrega_recepcion_turno: { icon: '🔄', label: 'Entrega de Turno', badgeClass: 'bg-teal-50 border-teal-200/80' },
+    otro: { icon: '📝', label: 'Otro', badgeClass: 'bg-slate-50 border-slate-200/80' },
+};
+
+const getCategoriaMeta = (categoria?: string) =>
+    (categoria && CATEGORIA_META[categoria]) || CATEGORIA_META.otro;
+
 // ─── Subcomponents ────────────────────────────────────────────────────────────
 const ResultBadge = ({ result }: { result: string }) => {
     const cfg: Record<string, { bg: string; text: string; ring: string; icon: React.ReactNode; label: string }> = {
@@ -432,11 +450,19 @@ const EstadoServicio = ({ allowedSites, guardRounds, novedades, attendanceLogs, 
                                 : n.prioridad === 'media' ? 'bg-amber-500'
                                 : n.prioridad === 'informativa' ? 'bg-blue-500'
                                 : 'bg-amber-400';
+                            const catMeta = getCategoriaMeta(n.categoria);
                             return (
                                 <div key={n.id} className="bg-white rounded-xl p-3 flex items-start gap-3 border border-slate-100 shadow-sm">
                                     <div className={`w-2 h-2 rounded-full mt-1.5 shrink-0 ${dotColor}`} />
                                     <div className="flex-1 min-w-0">
                                         <div className="flex items-center gap-2 flex-wrap mb-1">
+                                            <span
+                                                title={`Categoría: ${catMeta.label}`}
+                                                aria-label={catMeta.label}
+                                                className={`inline-flex items-center justify-center w-5 h-5 rounded-md border text-xs leading-none shrink-0 select-none ${catMeta.badgeClass}`}
+                                            >
+                                                {catMeta.icon}
+                                            </span>
                                             {n.prioridad && (
                                                 <span className={`px-1.5 py-0.5 rounded text-[8px] font-black uppercase ${
                                                     n.prioridad === 'critica' ? 'bg-red-100 text-red-700' :
@@ -560,6 +586,7 @@ const LibroNovedades = ({ allowedSites, guardRounds, novedades, allowedSiteIds }
                 siteId: String(n.siteId || n.sucursalId),
                 sucursalName: n.siteName || n.sucursalNombre,
                 tipo: n.tipoRegistro || n.tipo,
+                categoria: n.categoria,
                 descripcion: n.descripcion,
                 guardName: n.autorNombre || n.guardName,
                 timestamp: n.fechaHoraDispositivo || n.timestamp || n.createdAt || '',
@@ -579,11 +606,14 @@ const LibroNovedades = ({ allowedSites, guardRounds, novedades, allowedSiteIds }
         const matchSite = siteFilter === 'all' || item.siteId === siteFilter;
         const matchPrioridad = prioridadFilter === 'all' || item.prioridad === prioridadFilter;
         const q = searchText.trim().toLowerCase();
+        const catMetaForSearch = item.tipo !== 'ronda' ? getCategoriaMeta(item.categoria) : null;
         const matchSearch = !q || [
             item.descripcion,
             item.guardName,
             item.sucursalName,
             item.tipo,
+            item.categoria,
+            catMetaForSearch?.label,
             item.timestamp,
         ].some(v => v && v.toString().toLowerCase().includes(q));
         return matchDate && matchTipo && matchSite && matchPrioridad && matchSearch;
@@ -700,6 +730,7 @@ const LibroNovedades = ({ allowedSites, guardRounds, novedades, allowedSiteIds }
                             : item.resultado === 'SIN_NOVEDAD' ? 'bg-emerald-400 border-emerald-300'
                             : (item.resultado === 'CON_NOVEDAD' || item.tipo === 'incidente') ? 'bg-rose-400 border-rose-300'
                             : item.tipo === 'alerta' ? 'bg-amber-400 border-amber-300' : 'bg-blue-400 border-blue-300';
+                        const catMeta = item.tipo !== 'ronda' ? getCategoriaMeta(item.categoria) : null;
                         return (
                             <React.Fragment key={item.id}>
                                 {showSep && (
@@ -720,6 +751,15 @@ const LibroNovedades = ({ allowedSites, guardRounds, novedades, allowedSiteIds }
                                     </div>
                                     <div className="flex-1 min-w-0">
                                         <div className="flex items-center gap-2 flex-wrap">
+                                            {catMeta && (
+                                                <span
+                                                    title={`Categoría: ${catMeta.label}`}
+                                                    aria-label={catMeta.label}
+                                                    className={`inline-flex items-center justify-center w-6 h-6 rounded-lg border text-sm leading-none shrink-0 select-none ${catMeta.badgeClass}`}
+                                                >
+                                                    {catMeta.icon}
+                                                </span>
+                                            )}
                                             <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[9px] font-black uppercase ${tipoColor[item.tipo] || tipoColor.otro}`}>
                                                 {tipoIcon[item.tipo] || tipoIcon.otro}{item.tipo}
                                             </span>
@@ -1006,6 +1046,7 @@ const generatePDF = (tipo: string, rounds: any[], novedades: any[], siteName: st
         ...novedades.map((n: any) => ({
             ts: n.fechaHoraDispositivo || n.timestamp || n.createdAt || '',
             tipo: n.tipoRegistro || n.tipo || 'N/A',
+            categoria: n.categoria,
             guard: n.autorNombre || n.guardName || 'Sistema',
             site: n.siteName || n.sucursalNombre || n.sucursalName || 'Instalación',
             desc: n.descripcion || n.detalles || 'Sin descripción',
@@ -1056,30 +1097,33 @@ ${gStats.map((g: any) => `<tr><td><strong>${g.name}</strong></td><td style="text
 <div class="stitle" style="margin-top:24px">Últimas Incidencias y Novedades</div>
 <table><thead><tr><th>Fecha / Hora</th><th>Guardia</th><th>Instalación</th><th>Resultado / Tipo</th><th>Observación</th></tr></thead><tbody>
 ${incidenciasTimeline.map((item: any) => {
-    let bc: string; let lbl: string;
+    let bc: string; let lbl: string; let catIconPrefix = '';
     if (item.tipo === 'Ronda' || item.tipo === 'ronda') {
         bc = item.res === 'CON_NOVEDAD' ? 'con' : item.res === 'SOSPECHA' ? 'sos' : 'rnd';
         lbl = item.res ? item.res.replace(/_/g, ' ') : 'RONDA';
     } else {
         bc = novBadgeClass(item.prioridad || '');
         lbl = novLabel(item.prioridad || '');
+        catIconPrefix = `${getCategoriaMeta(item.categoria).icon} `;
     }
-    return `<tr><td>${fD(item.ts)} ${fT(item.ts)}</td><td>${item.guard}</td><td>${item.site}</td><td><span class="badge ${bc}">${lbl}</span></td><td>${(item.desc || '—').substring(0, 55)}</td></tr>`;
+    return `<tr><td>${fD(item.ts)} ${fT(item.ts)}</td><td>${item.guard}</td><td>${item.site}</td><td>${catIconPrefix}<span class="badge ${bc}">${lbl}</span></td><td>${(item.desc || '—').substring(0, 55)}</td></tr>`;
 }).join('') || '<tr><td colspan="5" style="text-align:center;color:#94a3b8">Sin incidencias</td></tr>'}
 </tbody></table>`;
     } else {
         body = `<div class="stitle">Registro Cronológico (${timeline.length} eventos)</div>
 ${timeline.map((item: any) => {
-    let dotC: string; let badgeC: string; let displayLabel: string; let resTag = '';
+    let dotC: string; let badgeC: string; let displayLabel: string; let resTag = ''; let catIconHtml = '';
     if (item.tipo === 'Ronda' || item.tipo === 'ronda') {
         dotC = item.res === 'SIN_NOVEDAD' ? 'g' : item.res === 'CON_NOVEDAD' ? 'r' : 'a';
         badgeC = 'rnd'; displayLabel = 'RONDA';
         resTag = item.res ? `<span class="badge ${item.res === 'SIN_NOVEDAD' ? 'sin' : item.res === 'CON_NOVEDAD' ? 'con' : 'sos'}">${item.res.replace(/_/g, ' ')}</span>` : '';
     } else {
         const p = item.prioridad || '';
+        const catMeta = getCategoriaMeta(item.categoria);
         dotC = novDotClass(p); badgeC = novBadgeClass(p); displayLabel = novLabel(p);
+        catIconHtml = `<span title="${catMeta.label}" style="font-size:12px;line-height:1">${catMeta.icon}</span>`;
     }
-    return `<div class="ti"><div class="td">${fD(item.ts)}<br/>${fT(item.ts)}</div><div class="dot ${dotC}"></div><div style="flex:1"><div style="display:flex;gap:6px;align-items:center;margin-bottom:2px"><span class="badge ${badgeC}">${displayLabel}</span><strong style="font-size:10px">${item.guard}</strong><span style="color:#94a3b8;font-size:9px">· ${item.site}</span>${resTag}</div><div style="color:#475569;font-size:10px">${item.desc}</div></div></div>`;
+    return `<div class="ti"><div class="td">${fD(item.ts)}<br/>${fT(item.ts)}</div><div class="dot ${dotC}"></div><div style="flex:1"><div style="display:flex;gap:6px;align-items:center;margin-bottom:2px">${catIconHtml}<span class="badge ${badgeC}">${displayLabel}</span><strong style="font-size:10px">${item.guard}</strong><span style="color:#94a3b8;font-size:9px">· ${item.site}</span>${resTag}</div><div style="color:#475569;font-size:10px">${item.desc}</div></div></div>`;
 }).join('')}`;
     }
 

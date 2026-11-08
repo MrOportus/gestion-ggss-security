@@ -15,6 +15,24 @@ const PRIORIDAD_BADGE: Record<string, { label: string; color: string; bg: string
   critica:     { label: 'Crítica',     color: 'text-red-700', bg: 'bg-red-50' },
 };
 
+const CATEGORIA_META: Record<string, { icon: string; label: string; badgeClass: string }> = {
+  acceso_personas: { icon: '🧍🏽', label: 'Acceso Personas', badgeClass: 'bg-sky-50 border-sky-200/80' },
+  acceso_vehiculos: { icon: '🚗', label: 'Acceso Vehículos', badgeClass: 'bg-indigo-50 border-indigo-200/80' },
+  daño_desperfecto: { icon: '🚧', label: 'Falla o Daños', badgeClass: 'bg-amber-50 border-amber-200/80' },
+  infraestructura: { icon: '🚧', label: 'Infraestructura', badgeClass: 'bg-amber-50 border-amber-200/80' },
+  alarma: { icon: '🚨', label: 'Alarmas', badgeClass: 'bg-rose-50 border-rose-200/80' },
+  emergencia: { icon: '🆘', label: 'SOS Emergencia', badgeClass: 'bg-red-50 border-red-200/80' },
+  objeto_encontrado: { icon: '📦', label: 'Objeto Encontrado', badgeClass: 'bg-emerald-50 border-emerald-200/80' },
+  requiere_seguimiento: { icon: '👁️', label: 'Requiere Seguimiento', badgeClass: 'bg-purple-50 border-purple-200/80' },
+  seguridad: { icon: '🛡️', label: 'Seguridad', badgeClass: 'bg-blue-50 border-blue-200/80' },
+  persona_sospechosa: { icon: '🕵️', label: 'Persona Sospechosa', badgeClass: 'bg-orange-50 border-orange-200/80' },
+  entrega_recepcion_turno: { icon: '🔄', label: 'Entrega de Turno', badgeClass: 'bg-teal-50 border-teal-200/80' },
+  otro: { icon: '📝', label: 'Otro', badgeClass: 'bg-slate-50 border-slate-200/80' },
+};
+
+const getCategoriaMeta = (categoria?: string) =>
+  (categoria && CATEGORIA_META[categoria]) || CATEGORIA_META.otro;
+
 export const AdminNovedadesSeguimiento: React.FC = () => {
   const { sites, currentUser, employees } = useAppStore();
   const [pendientes, setPendientes] = useState<RegistroNovedad[]>([]);
@@ -224,7 +242,7 @@ export const AdminNovedadesSeguimiento: React.FC = () => {
               : nov.fechaHoraDispositivo 
                 ? formatSeguimientoFecha(nov.fechaHoraDispositivo) 
                 : 'No registrado';
-            const catLabel = nov.categoria?.replace('_', ' ') || 'No registrado';
+            const catMeta = getCategoriaMeta(nov.categoria);
 
             return (
               <button
@@ -238,9 +256,18 @@ export const AdminNovedadesSeguimiento: React.FC = () => {
                       {nov.unreadAdminCount}
                     </div>
                   ) : null}
-                  <span className={`px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-widest ${prio.bg} ${prio.color}`}>
-                    {prio.label}
-                  </span>
+                  <div className="flex items-center gap-1.5">
+                    <span
+                      title={`Categoría: ${catMeta.label}`}
+                      aria-label={catMeta.label}
+                      className={`inline-flex items-center justify-center w-6 h-6 rounded-lg border text-sm leading-none shrink-0 select-none ${catMeta.badgeClass}`}
+                    >
+                      {catMeta.icon}
+                    </span>
+                    <span className={`px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-widest ${prio.bg} ${prio.color}`}>
+                      {prio.label}
+                    </span>
+                  </div>
                   <span className={`px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-widest 
                     ${nov.estado === 'resuelta' 
                       ? 'bg-emerald-100 text-emerald-700' 
@@ -263,7 +290,7 @@ export const AdminNovedadesSeguimiento: React.FC = () => {
                     {nov.descripcion}
                   </p>
                   <p className="text-[10px] text-slate-500 font-medium mt-2 capitalize">
-                    {nov.tipoRegistro} • {catLabel}
+                    {nov.tipoRegistro} • {catMeta.label}
                   </p>
                 </div>
 
