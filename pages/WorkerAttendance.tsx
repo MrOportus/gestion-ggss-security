@@ -59,6 +59,9 @@ import { Geolocation } from '@capacitor/geolocation';
 import { toAbsoluteMinutes } from '../lib/phase5/shadowResolver';
 
 
+// Flag de visibilidad del módulo Turnos Extra en app de guardias
+const SHOW_EXTRA_SHIFTS_MODULE = false;
+
 // ── Constantes de horarios de turno ───────────────────────────────────────
 // Resolver Shadow trasladado al backend en Subfase 5B.3───────────────────────────────────────
 const SHIFT_SCHEDULES: Record<string, { inicio: string; termino: string }> = {
@@ -402,7 +405,7 @@ const WorkerAttendance: React.FC = () => {
       const type = customEvent.detail?.type;
       if (type === 'new_doc') {
         setStep('documents');
-      } else if (type === 'market_turno') {
+      } else if (type === 'market_turno' && SHOW_EXTRA_SHIFTS_MODULE) {
         setStep('market');
       } else if (type === 'novedad_seguimiento') {
         // No navegar automáticamente — el badge rojo indica el mensaje pendiente
@@ -1321,7 +1324,7 @@ const WorkerAttendance: React.FC = () => {
         )}
 
 
-        {step === 'market' && (
+        {SHOW_EXTRA_SHIFTS_MODULE && step === 'market' && (
           <div className="bg-slate-50 min-h-screen pb-20 -mx-6">
             <div className="bg-white p-4 flex items-center gap-4 sticky top-0 z-30 shadow-sm border-b mb-4">
               <button
@@ -1336,7 +1339,7 @@ const WorkerAttendance: React.FC = () => {
           </div>
         )}
 
-        {step === 'my_extra_shifts' && (
+        {SHOW_EXTRA_SHIFTS_MODULE && step === 'my_extra_shifts' && (
           <div className="bg-slate-50 min-h-screen pb-20 -mx-6">
             <div className="bg-white p-4 flex items-center gap-4 sticky top-0 z-30 shadow-sm border-b mb-4">
               <button
@@ -1978,16 +1981,18 @@ const WorkerAttendance: React.FC = () => {
             </button>
 
 
-            <button
-              onClick={() => { setStep('my_extra_shifts'); setIsSidebarOpen(false); }}
-              className={`w-full p-4 rounded-2xl flex items-center justify-between transition-all ${step === 'my_extra_shifts' ? 'bg-blue-50 text-blue-600' : 'text-slate-600 hover:bg-slate-50'}`}
-            >
-              <div className="flex items-center gap-3">
-                <Zap size={22} className={step === 'my_extra_shifts' ? 'text-blue-600' : 'text-slate-400'} />
-                <span className="font-bold">Mis Turnos Extra</span>
-              </div>
-              <ChevronRight size={16} className="opacity-30" />
-            </button>
+            {SHOW_EXTRA_SHIFTS_MODULE && (
+              <button
+                onClick={() => { setStep('my_extra_shifts'); setIsSidebarOpen(false); }}
+                className={`w-full p-4 rounded-2xl flex items-center justify-between transition-all ${step === 'my_extra_shifts' ? 'bg-blue-50 text-blue-600' : 'text-slate-600 hover:bg-slate-50'}`}
+              >
+                <div className="flex items-center gap-3">
+                  <Zap size={22} className={step === 'my_extra_shifts' ? 'text-blue-600' : 'text-slate-400'} />
+                  <span className="font-bold">Mis Turnos Extra</span>
+                </div>
+                <ChevronRight size={16} className="opacity-30" />
+              </button>
+            )}
 
             <button
               onClick={() => { setStep('documents'); setIsSidebarOpen(false); }}

@@ -17,6 +17,10 @@ import { LogOut, LayoutDashboard, Users, Clock, MapPin, ClipboardList, RefreshCw
 
 const attendanceShadowQaEnabled = import.meta.env.VITE_ENABLE_ATTENDANCE_SHADOW_QA === 'true';
 
+// Flags de visibilidad de módulos ocultos en UI (preservan componentes y datos históricos)
+const SHOW_EXTRA_SHIFTS_MODULE = false;
+const SHOW_SHIFT_PAYMENTS_MODULE = false;
+
 const AttendanceShadowQA = attendanceShadowQaEnabled
   ? React.lazy(() => import('./pages/AttendanceShadowQA'))
   : () => <div className="p-8 text-center text-red-500">Acceso no autorizado</div>;
@@ -148,7 +152,16 @@ const App: React.FC = () => {
   }, [currentUser, processSyncQueue]);
 
   // Redirección de seguridad y enfoque inicial para supervisores (enfocado en visitas)
+  // y bloqueo de acceso a módulos ocultos en la UI
   useEffect(() => {
+    if (!SHOW_EXTRA_SHIFTS_MODULE && currentView === 'solicitudes_turnos_extra') {
+      setCurrentView(currentUser?.role === 'supervisor' ? 'visitas_supervisor' : 'dashboard');
+      return;
+    }
+    if (!SHOW_SHIFT_PAYMENTS_MODULE && currentView === 'payments') {
+      setCurrentView(currentUser?.role === 'supervisor' ? 'visitas_supervisor' : 'dashboard');
+      return;
+    }
     if (currentUser?.role === 'supervisor') {
       const forbiddenViews = ['sites', 'tasks', 'shift_management', 'payments', 'loans', 'attendance'];
       if (forbiddenViews.includes(currentView)) {
@@ -441,7 +454,7 @@ const App: React.FC = () => {
       const type = customEvent.detail?.type;
       if (type === 'new_doc') {
         setCurrentView('documents');
-      } else if (type === 'market_turno') {
+      } else if (type === 'market_turno' && SHOW_EXTRA_SHIFTS_MODULE) {
         setCurrentView('solicitudes_turnos_extra');
       } else if (type === 'visita_seguimiento') {
         setCurrentView('visitas_supervisor');
@@ -599,14 +612,14 @@ const App: React.FC = () => {
             </button>
           )}
 
-          {currentUser.role === 'admin' && (
+          {SHOW_EXTRA_SHIFTS_MODULE && currentUser.role === 'admin' && (
             <button onClick={() => setCurrentView('solicitudes_turnos_extra')} className={navItemClass('solicitudes_turnos_extra')}>
               <Zap size={20} className="text-yellow-500" />
               <span className="font-medium">Turnos Extra</span>
             </button>
           )}
 
-          {currentUser.role !== 'supervisor' && (
+          {SHOW_SHIFT_PAYMENTS_MODULE && currentUser.role !== 'supervisor' && (
             <button onClick={() => setCurrentView('payments')} className={navItemClass('payments')}>
               <DollarSign size={20} />
               <span className="font-medium">Pago de Turnos</span>
@@ -829,13 +842,13 @@ const App: React.FC = () => {
                   <ChevronRight size={16} className="text-slate-300" />
                 </button>
               )}
-              {currentUser.role === 'admin' && (
+              {SHOW_EXTRA_SHIFTS_MODULE && currentUser.role === 'admin' && (
                 <button onClick={() => handleNavChange('solicitudes_turnos_extra')} className={mobileNavItemClass('solicitudes_turnos_extra')}>
                   <div className="flex items-center gap-3"><Zap size={20} className="text-yellow-500" /> Turnos Extra</div>
                   <ChevronRight size={16} className="text-slate-300" />
                 </button>
               )}
-              {currentUser.role !== 'supervisor' && (
+              {SHOW_SHIFT_PAYMENTS_MODULE && currentUser.role !== 'supervisor' && (
                 <button onClick={() => handleNavChange('payments')} className={mobileNavItemClass('payments')}>
                   <div className="flex items-center gap-3"><DollarSign size={20} /> Pago de Turnos</div>
                   <ChevronRight size={16} className="text-slate-300" />
@@ -963,7 +976,7 @@ const App: React.FC = () => {
             {currentView === 'employees' && currentUser.role === 'admin' && <EmployeesPage />}
             {currentView === 'tasks' && currentUser.role !== 'supervisor' && <TasksPage />}
             {currentView === 'sites' && currentUser.role !== 'supervisor' && <SitesPage />}
-            {currentView === 'payments' && currentUser.role !== 'supervisor' && (
+            {SHOW_SHIFT_PAYMENTS_MODULE && currentView === 'payments' && currentUser.role !== 'supervisor' && (
               <div className="p-6 max-w-7xl mx-auto">
                 <DailyShiftPayment />
               </div>
@@ -975,7 +988,7 @@ const App: React.FC = () => {
             {currentView === 'supervisor_mgmt' && currentUser.role === 'admin' && <SupervisorManagement />}
             {currentView === 'mandante_mgmt' && currentUser.role === 'admin' && <MandanteManagement />}
             {currentView === 'shift_management' && currentUser.role !== 'supervisor' && <ShiftManagement />}
-            {currentView === 'solicitudes_turnos_extra' && currentUser.role === 'admin' && <PanelAdminSolicitudes />}
+            {SHOW_EXTRA_SHIFTS_MODULE && currentView === 'solicitudes_turnos_extra' && currentUser.role === 'admin' && <PanelAdminSolicitudes />}
             {currentView === 'loans' && currentUser.role !== 'supervisor' && <LoansPage />}
             {currentView === 'documents' && <DocumentsPage />}
             {currentView === 'hr_contracts' && (currentUser.role === 'admin' || currentUser.role === 'rrhh') && <HRContractsDashboard />}

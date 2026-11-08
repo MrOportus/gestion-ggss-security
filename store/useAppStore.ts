@@ -804,14 +804,27 @@ export const useAppStore = create<AppState>()(
           // que usa Admin SDK (único método sin re-autenticación del usuario).
           if (data.email && data.email !== emp.email) {
             try {
-              const updateEmailFn = httpsCallable(functions, 'updateEmployeeEmail');
-              await updateEmailFn({ uid: id, newEmail: data.email });
-              console.log(`[updateEmployee] Email de Auth sincronizado para UID ${id}`);
+              const updateEmailFn = httpsCallable<{ uid: string; newEmail: string }, { success: boolean; authSynced?: boolean; reason?: string }>(functions, 'updateEmployeeEmail');
+              const res = await updateEmailFn({ uid: id, newEmail: data.email });
+              if (res.data?.authSynced === false && res.data?.reason === 'no-auth-account') {
+                // Colaborador legacy/importado sin cuenta activa en Auth: el correo queda guardado en Firestore.
+                console.log(`[updateEmployee] UID ${id} sin cuenta en Auth. Email guardado en Firestore.`);
+                get().showNotification('Correo actualizado en la ficha. Si requiere acceso a la app, genere su contraseña.', 'info');
+              } else {
+                console.log(`[updateEmployee] Email de Auth sincronizado para UID ${id}`);
+              }
             } catch (emailError: any) {
               console.error('[updateEmployee] Error sincronizando email en Auth:', emailError);
               // Revertir el email en Firestore para mantener consistencia
               const docRef = doc(db, 'Colaboradores', id);
-              await updateDoc(docRef, { email: emp.email }).catch(() => {});
+              await updateDoc(docRef, { email: emp.email ?? '' }).catch(() => {});
+              const code: string = emailError?.code || '';
+              if (code.includes('already-exists')) {
+                throw new Error('No se pudo actualizar el correo: ya está registrado para otro usuario. El cambio fue revertido.');
+              }
+              if (code.includes('invalid-argument')) {
+                throw new Error('No se pudo actualizar el correo: el formato no es válido. El cambio fue revertido.');
+              }
               throw new Error('No se pudo actualizar el correo en el sistema de autenticación. El cambio fue revertido.');
             }
           }

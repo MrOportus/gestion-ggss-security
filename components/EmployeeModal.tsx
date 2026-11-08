@@ -252,8 +252,12 @@ const EmployeeModal: React.FC<EmployeeModalProps> = ({ employee, onClose }) => {
   };
 
   const handleSave = async () => {
-    await updateEmployee(employee.id, editData);
-    setIsEditing(false);
+    try {
+      await updateEmployee(employee.id, editData);
+      setIsEditing(false);
+    } catch {
+      // El store ya gestiona y notifica el error al usuario
+    }
   };
 
   const handleDeleteClick = () => {

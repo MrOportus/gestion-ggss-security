@@ -8,6 +8,8 @@ import {
     Calendar, ArrowLeft, Building2, Save, Search, CheckCircle, Square
 } from 'lucide-react';
 
+const SHOW_RESIGNATIONS_MODULE = false;
+
 const SupervisorManagement: React.FC = () => {
     const {
         resignationRequests, updateResignationRequestStatus, deleteResignationRequest,
@@ -25,7 +27,8 @@ const SupervisorManagement: React.FC = () => {
             desc: 'Reportar renuncia de un trabajador con documentos adjuntos.',
             icon: <X size={22} />,
             color: 'text-rose-500',
-            bg: 'bg-rose-50'
+            bg: 'bg-rose-50',
+            hidden: !SHOW_RESIGNATIONS_MODULE
         },
         {
             id: 'assign_sites',
@@ -34,9 +37,10 @@ const SupervisorManagement: React.FC = () => {
             icon: <Building2 size={22} />,
             color: 'text-indigo-500',
             bg: 'bg-indigo-50',
-            adminOnly: true
+            adminOnly: true,
+            hidden: false
         }
-    ].filter(i => !i.adminOnly || currentUser?.role === 'admin');
+    ].filter(i => !i.hidden && (!i.adminOnly || currentUser?.role === 'admin'));
 
     if (view === 'menu') {
         return (
@@ -88,7 +92,7 @@ const SupervisorManagement: React.FC = () => {
             </div>
 
             {/* SECTIONS CONTENT */}
-            {view === 'resignations' && (
+            {SHOW_RESIGNATIONS_MODULE && view === 'resignations' && (
                 <div className="bg-white rounded-[32px] border border-slate-200 shadow-2xl overflow-hidden animate-in fade-in duration-500">
                     <div className="overflow-x-auto">
                         <table className="w-full text-left">
