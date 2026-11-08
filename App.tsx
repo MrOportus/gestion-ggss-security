@@ -59,7 +59,9 @@ import ShiftManagement from './pages/ShiftManagement';
 import LoansPage from './pages/LoansPage';
 import DocumentsPage from './pages/DocumentsPage';
 import AdminLibroNovedadesPage from './pages/AdminLibroNovedadesPage';
-import { StickyNote, Navigation, CalendarDays, Receipt, ShieldCheck, Zap, Info, User, BookOpen, ClipboardCheck, Plus, PenTool } from 'lucide-react';
+import SupervisorDashboard from './pages/SupervisorDashboard';
+import NotificacionesSupervisorCenter from './components/supervisor/NotificacionesSupervisorCenter';
+import { StickyNote, Navigation, CalendarDays, Receipt, ShieldCheck, Zap, Info, User, BookOpen, ClipboardCheck, Plus, PenTool, ShieldAlert } from 'lucide-react';
 import VisitasSupervisorPage from './pages/VisitasSupervisorPage';
 import SignatureModal from './components/SignatureModal';
 // NOTA: firebase/messaging y lib/firebase.messaging se importan dinámicamente
@@ -87,8 +89,8 @@ const App: React.FC = () => {
   }
 
   const { currentUser, logout, fetchInitialData, isLoading, initializeAuthListener, registerFCMToken, showNotification, processSyncQueue, authInitialized, showConfirmation, employees, updateEmployee, digitalDocuments } = useAppStore();
-  const [currentView, setCurrentView] = useState<'dashboard' | 'employees' | 'tasks' | 'sites' | 'payments' | 'supervisor_mgmt' | 'mandante_mgmt' | 'notes' | 'attendance' | 'rounds' | 'shift_management' | 'loans' | 'documents' | 'solicitudes_turnos_extra' | 'hr_contracts' | 'attendance_shadow_qa' | 'libro_novedades' | 'visitas_supervisor'>(() => {
-    return currentUser?.role === 'supervisor' ? 'visitas_supervisor' : 'dashboard';
+  const [currentView, setCurrentView] = useState<'dashboard' | 'supervisor_dashboard' | 'employees' | 'tasks' | 'sites' | 'payments' | 'supervisor_mgmt' | 'mandante_mgmt' | 'notes' | 'attendance' | 'rounds' | 'shift_management' | 'loans' | 'documents' | 'solicitudes_turnos_extra' | 'hr_contracts' | 'attendance_shadow_qa' | 'libro_novedades' | 'visitas_supervisor'>(() => {
+    return 'dashboard';
   });
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [showSupervisorSigModal, setShowSupervisorSigModal] = useState(false);
@@ -173,30 +175,23 @@ const App: React.FC = () => {
     }
   }, [currentUser, processSyncQueue]);
 
-  // Redirección de seguridad y enfoque inicial para supervisores (enfocado en visitas)
-  // y bloqueo de acceso a módulos ocultos en la UI
+  // Redirección de seguridad y bloqueo de acceso a módulos ocultos en la UI
   useEffect(() => {
     if (!SHOW_EXTRA_SHIFTS_MODULE && currentView === 'solicitudes_turnos_extra') {
-      setCurrentView(currentUser?.role === 'supervisor' ? 'visitas_supervisor' : 'dashboard');
+      setCurrentView('dashboard');
       return;
     }
     if (!SHOW_SHIFT_PAYMENTS_MODULE && currentView === 'payments') {
-      setCurrentView(currentUser?.role === 'supervisor' ? 'visitas_supervisor' : 'dashboard');
+      setCurrentView('dashboard');
       return;
     }
     if (currentUser?.role === 'supervisor') {
-      const forbiddenViews = ['sites', 'tasks', 'shift_management', 'payments', 'loans', 'attendance'];
+      const forbiddenViews = ['sites', 'tasks', 'shift_management', 'payments', 'loans', 'attendance', 'employees', 'supervisor_mgmt', 'mandante_mgmt'];
       if (forbiddenViews.includes(currentView)) {
-        setCurrentView('visitas_supervisor');
+        setCurrentView('dashboard');
       }
     }
   }, [currentUser?.role, currentView]);
-
-  useEffect(() => {
-    if (currentUser?.role === 'supervisor' && currentView === 'dashboard') {
-      setCurrentView('visitas_supervisor');
-    }
-  }, [currentUser?.role]);
 
   const handleSaveSupervisorSignature = async (dataUrl: string) => {
     if (!currentUser?.uid) return;
@@ -309,7 +304,7 @@ const App: React.FC = () => {
         const pushReceivedListener = await PushNotifications.addListener('pushNotificationReceived', (notification) => {
           console.log('[PUSH] Notificación recibida en primer plano:', notification);
           setFcmDebug(prev => ({ ...prev, lastNotification: `${notification.title || ''}: ${notification.body || ''}` }));
-          if (isSubscribed) {
+          if (isSubscribed && (notification as any).data?.type !== 'supervisor_inbox') {
             showNotification(
               `${notification.title || 'GGSS Security'}: ${notification.body || ''}`,
               'info'
@@ -328,6 +323,10 @@ const App: React.FC = () => {
           } else if (data && data.type === 'novedad_seguimiento') {
             window.dispatchEvent(new CustomEvent('app-navigate', {
               detail: { type: 'novedad_seguimiento', novedadId: data.novedadId }
+            }));
+          } else if (data && data.type === 'supervisor_inbox') {
+            window.dispatchEvent(new CustomEvent('app-navigate', {
+              detail: { type: 'supervisor_inbox', vista: data.vista, origenTipo: data.origenTipo, origenId: data.origenId }
             }));
           } else if (data && data.type === 'visita_seguimiento') {
             window.dispatchEvent(new CustomEvent('app-navigate', {
@@ -417,6 +416,11 @@ const App: React.FC = () => {
               const data = payload.data || {};
               const tipo = data.type;
 
+              // El Centro de Notificaciones del supervisor ya avisa en pantalla (evita doble aviso/sonido)
+              if (tipo === 'supervisor_inbox') {
+                return;
+              }
+
               // Manejar novedad_seguimiento y visita_seguimiento: solo mostrar toast (no navegar para no interrumpir)
               if (tipo === 'visita_seguimiento') {
                 showNotification(
@@ -480,6 +484,17 @@ const App: React.FC = () => {
         setCurrentView('solicitudes_turnos_extra');
       } else if (type === 'visita_seguimiento') {
         setCurrentView('visitas_supervisor');
+      } else if (type === 'supervisor_inbox') {
+        const { vista, origenTipo, origenId } = customEvent.detail || {};
+        if (vista === 'dashboard' && origenTipo && origenId) {
+          sessionStorage.setItem('aspro_open_alerta', `${origenTipo}_${origenId}`);
+          setCurrentView('dashboard');
+          window.setTimeout(() => window.dispatchEvent(new Event('aspro:abrir-alerta')), 300);
+        } else if (vista === 'libro_novedades' || vista === 'visitas_supervisor' || vista === 'rounds') {
+          setCurrentView(vista);
+        } else {
+          setCurrentView('dashboard');
+        }
       }
     };
 
@@ -593,12 +608,12 @@ const App: React.FC = () => {
         </div>
 
         <nav className="flex-1 px-4 py-6 space-y-2 overflow-y-auto">
-          {currentUser.role !== 'supervisor' && (
-            <button onClick={() => setCurrentView('dashboard')} className={navItemClass('dashboard')}>
-              <LayoutDashboard size={20} />
-              <span className="font-medium">Dashboard</span>
-            </button>
-          )}
+          <button onClick={() => setCurrentView('dashboard')} className={navItemClass('dashboard')}>
+            <LayoutDashboard size={20} />
+            <span className="font-medium">
+              {currentUser.role === 'supervisor' ? 'Dashboard Operacional' : 'Dashboard'}
+            </span>
+          </button>
 
           {(currentUser.role === 'admin' || currentUser.role === 'supervisor') && (
             <button onClick={() => setCurrentView('visitas_supervisor')} className={navItemClass('visitas_supervisor')}>
@@ -722,6 +737,11 @@ const App: React.FC = () => {
                 <span className="bg-white px-2 -mt-3 text-[10px] font-black text-slate-300 uppercase tracking-[0.2em]">Gestión Supervisores</span>
               </div>
 
+              <button onClick={() => setCurrentView('supervisor_dashboard')} className={navItemClass('supervisor_dashboard')}>
+                <ShieldAlert size={20} className="text-indigo-600" />
+                <span className="font-medium">Fiscalización Supervisores</span>
+              </button>
+
               <button onClick={() => setCurrentView('supervisor_mgmt')} className={navItemClass('supervisor_mgmt')}>
                 <ClipboardList size={20} />
                 <span className="font-medium">Gestión Supervisores</span>
@@ -804,7 +824,8 @@ const App: React.FC = () => {
                 </>
               )}
               <span className="text-[10px] text-slate-400 font-bold uppercase tracking-widest leading-none mt-1 truncate">
-                {currentView === 'dashboard' ? 'Panel General' :
+                {currentView === 'dashboard' ? (currentUser.role === 'supervisor' ? 'Dashboard Operacional' : 'Panel General') :
+                  currentView === 'supervisor_dashboard' ? 'Fiscalización Supervisores' :
                   currentView === 'employees' ? 'Empleados' :
                     currentView === 'tasks' ? 'Tareas Recurrentes' :
                       currentView === 'sites' ? 'Sucursales' :
@@ -841,15 +862,16 @@ const App: React.FC = () => {
         {viewportMode.isCompactShell && isMobileMenuOpen && (
           <div className="absolute inset-0 bg-white/95 backdrop-blur-sm z-40 animate-in slide-in-from-top-5 duration-200 flex flex-col">
             <nav className="flex-1 overflow-y-auto pt-4 pb-28">
+              <button onClick={() => handleNavChange('dashboard')} className={mobileNavItemClass('dashboard')}>
+                <div className="flex items-center gap-3">
+                  <LayoutDashboard size={20} className={currentUser.role === 'supervisor' ? 'text-indigo-600' : ''} />
+                  {currentUser.role === 'supervisor' ? 'Dashboard Operacional' : 'Dashboard'}
+                </div>
+                <ChevronRight size={16} className="text-slate-300" />
+              </button>
               {(currentUser.role === 'admin' || currentUser.role === 'supervisor') && (
                 <button onClick={() => handleNavChange('visitas_supervisor')} className={mobileNavItemClass('visitas_supervisor')}>
                   <div className="flex items-center gap-3"><ClipboardCheck size={20} className="text-emerald-600" /> Visitas de Supervisor</div>
-                  <ChevronRight size={16} className="text-slate-300" />
-                </button>
-              )}
-              {currentUser.role !== 'supervisor' && (
-                <button onClick={() => handleNavChange('dashboard')} className={mobileNavItemClass('dashboard')}>
-                  <div className="flex items-center gap-3"><LayoutDashboard size={20} /> Dashboard</div>
                   <ChevronRight size={16} className="text-slate-300" />
                 </button>
               )}
@@ -959,6 +981,10 @@ const App: React.FC = () => {
 
               {currentUser.role === 'admin' && (
                 <>
+                  <button onClick={() => handleNavChange('supervisor_dashboard')} className={mobileNavItemClass('supervisor_dashboard')}>
+                    <div className="flex items-center gap-3"><ShieldAlert size={20} className="text-indigo-600" /> Fiscalización Supervisores</div>
+                    <ChevronRight size={16} className="text-slate-300" />
+                  </button>
                   <button onClick={() => handleNavChange('supervisor_mgmt')} className={mobileNavItemClass('supervisor_mgmt')}>
                     <div className="flex items-center gap-3"><ClipboardList size={20} /> Gestión Supervisores</div>
                     <ChevronRight size={16} className="text-slate-300" />
@@ -1007,7 +1033,12 @@ const App: React.FC = () => {
         <div className="flex-1 overflow-y-auto">
           <div className={`animate-fade-in ${currentUser.role === 'supervisor' && viewportMode.isCompactShell ? 'pb-24' : 'pb-4'} ${!viewportMode.isCompactShell && currentView === 'shift_management' ? 'h-full pb-0' : !viewportMode.isCompactShell ? 'pb-0' : ''}`}>
             {currentView === 'dashboard' && currentUser.role !== 'supervisor' && <AdminDashboard />}
-            {(currentView === 'visitas_supervisor' || (currentView === 'dashboard' && currentUser.role === 'supervisor')) && (currentUser.role === 'admin' || currentUser.role === 'supervisor') && <VisitasSupervisorPage />}
+            {((currentView === 'dashboard' && currentUser.role === 'supervisor') || currentView === 'supervisor_dashboard') && (currentUser.role === 'admin' || currentUser.role === 'supervisor' || currentUser.role === 'jefe_operaciones') && (
+              <div className="p-4 sm:p-6 max-w-7xl mx-auto">
+                <SupervisorDashboard />
+              </div>
+            )}
+            {currentView === 'visitas_supervisor' && (currentUser.role === 'admin' || currentUser.role === 'supervisor') && <VisitasSupervisorPage />}
             {currentView === 'employees' && currentUser.role === 'admin' && <EmployeesPage />}
             {currentView === 'tasks' && currentUser.role !== 'supervisor' && <TasksPage />}
             {currentView === 'sites' && currentUser.role !== 'supervisor' && <SitesPage />}
@@ -1045,22 +1076,35 @@ const App: React.FC = () => {
           </div>
         </div>
         </div>
-        {/* BOTTOM NAVIGATION PARA SUPERVISOR (CELULAR): Novedades (izquierda), Visitas (centro), Rondas (derecha) */}
+        {/* BOTTOM NAVIGATION PARA SUPERVISOR (CELULAR): Panel, Novedades, Visitas (centro), Rondas */}
         {currentUser.role === 'supervisor' && viewportMode.isCompactShell && (
-          <nav className="fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-md border-t border-slate-200/80 z-30 px-6 py-2 shadow-2xl safe-area-bottom">
+          <nav className="fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-md border-t border-slate-200/80 z-30 px-4 py-2 shadow-2xl safe-area-bottom">
             <div className="flex items-center justify-between max-w-md mx-auto relative">
-              {/* 1. LIBRO DE NOVEDADES (Izquierda) */}
+              {/* 1. DASHBOARD OPERACIONAL */}
+              <button
+                onClick={() => handleNavChange('dashboard')}
+                className={`flex flex-col items-center justify-center flex-1 py-1 transition-all active:scale-95 ${
+                  currentView === 'dashboard' || currentView === 'supervisor_dashboard'
+                    ? 'text-blue-600 font-black'
+                    : 'text-slate-400 hover:text-slate-600 font-bold'
+                }`}
+              >
+                <LayoutDashboard size={22} className={currentView === 'dashboard' || currentView === 'supervisor_dashboard' ? 'stroke-[2.5]' : ''} />
+                <span className="text-[10px] tracking-tight mt-1">Panel</span>
+              </button>
+
+              {/* 2. LIBRO DE NOVEDADES */}
               <button
                 onClick={() => handleNavChange('libro_novedades')}
                 className={`flex flex-col items-center justify-center flex-1 py-1 transition-all active:scale-95 ${
                   currentView === 'libro_novedades' ? 'text-blue-600 font-black' : 'text-slate-400 hover:text-slate-600 font-bold'
                 }`}
               >
-                <BookOpen size={24} className={currentView === 'libro_novedades' ? 'stroke-[2.5]' : ''} />
-                <span className="text-[11px] tracking-tight mt-1">Novedades</span>
+                <BookOpen size={22} className={currentView === 'libro_novedades' ? 'stroke-[2.5]' : ''} />
+                <span className="text-[10px] tracking-tight mt-1">Novedades</span>
               </button>
 
-              {/* 2. VISITAS (Centro destacado y más grande) */}
+              {/* 3. VISITAS (Centro destacado y más grande) */}
               <div className="flex-1 flex justify-center -mt-6">
                 <button
                   onClick={() => handleNavChange('visitas_supervisor')}
@@ -1076,7 +1120,7 @@ const App: React.FC = () => {
                     <ClipboardCheck size={28} className="stroke-[2.5]" />
                   </div>
                   <span
-                    className={`text-[11px] tracking-tight mt-1 transition-colors ${
+                    className={`text-[10px] tracking-tight mt-1 transition-colors ${
                       currentView === 'visitas_supervisor' ? 'text-emerald-700 font-black' : 'text-slate-500 font-bold'
                     }`}
                   >
@@ -1085,20 +1129,24 @@ const App: React.FC = () => {
                 </button>
               </div>
 
-              {/* 3. MONITOREO DE RONDAS (Derecha) */}
+              {/* 4. MONITOREO DE RONDAS */}
               <button
                 onClick={() => handleNavChange('rounds')}
                 className={`flex flex-col items-center justify-center flex-1 py-1 transition-all active:scale-95 ${
                   currentView === 'rounds' ? 'text-blue-600 font-black' : 'text-slate-400 hover:text-slate-600 font-bold'
                 }`}
               >
-                <Navigation size={24} className={currentView === 'rounds' ? 'stroke-[2.5]' : ''} />
-                <span className="text-[11px] tracking-tight mt-1">Rondas</span>
+                <Navigation size={22} className={currentView === 'rounds' ? 'stroke-[2.5]' : ''} />
+                <span className="text-[10px] tracking-tight mt-1">Rondas</span>
               </button>
             </div>
           </nav>
         )}
       </main>
+      <NotificacionesSupervisorCenter
+        onNavigate={handleNavChange}
+        bottomClassName={currentUser.role === 'supervisor' && viewportMode.isCompactShell ? 'bottom-28' : 'bottom-6'}
+      />
       <GlobalOverlay />
       {/* Banner de actualización de APK — visible para todos los roles */}
       <AppUpdateBanner />

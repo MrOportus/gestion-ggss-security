@@ -170,3 +170,8 @@ Este documento define la estructura de datos persistente en **Cloud Firestore**,
 - **Object Store 1 (`pendingPoints`):** Coordenadas GPS intermedias registradas durante la ronda activa.
 - **Object Store 2 (`pendingEvidences`):** Almacena objetos binarios `Blob` de fotografías tomadas durante la ronda, indexadas por `roundId`, para subirlas por presigned URLs solo al finalizar el recorrido.
 
+
+## notificaciones_supervisor/{id} (Notificaciones internas Supervisor/Administracion)
+- Campos: destinatarioUid, tipo (consulta_admin | respuesta_supervisor | seguimiento_novedad), titulo, mensaje, siteId, siteName, origenTipo, origenId, vista, creadaPorUid, creadaPorNombre, leida, leidaEn, creadoEn.
+- Lectura/actualizacion de leida solo por el destinatario; sin borrado. Servicio: lib/supervisor/notificacionesSupervisorService.ts. UI: components/supervisor/NotificacionesSupervisorCenter.tsx (campana flotante con contador).
+- Las alertas del dashboard y el historialGestion usan onSnapshot (tiempo real).

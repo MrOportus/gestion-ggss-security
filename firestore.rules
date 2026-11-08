@@ -49,6 +49,35 @@ service cloud.firestore {
       return request.auth != null && exists(/databases/$(database)/documents/Colaboradores/$(request.auth.uid));
     }
 
+    // Verifica si el supervisor tiene asignada la instalación (compatible con siteId string o number)
+    function isSupervisorAssignedToSite(siteId) {
+      let colab = get(/databases/$(database)/documents/Colaboradores/$(request.auth.uid)).data;
+      return isSupervisor() &&
+        siteId != null &&
+        'assignedSites' in colab &&
+        colab.assignedSites is list &&
+        (
+          siteId in colab.assignedSites ||
+          string(siteId) in colab.assignedSites ||
+          (siteId is string && siteId.matches('^[0-9]+$') ? int(siteId) in colab.assignedSites : false)
+        );
+    }
+
+    function isSupervisorAssignedToNovedadData(novData) {
+      return ('sucursalId' in novData ? isSupervisorAssignedToSite(novData.sucursalId) : false) ||
+             ('siteId' in novData ? isSupervisorAssignedToSite(novData.siteId) : false);
+    }
+
+    function isValidGestionSupervisorPayload(g) {
+      return g is map &&
+        g.supervisorUid == request.auth.uid &&
+        g.fueSolucionado in ['si', 'no', 'pendiente'] &&
+        g.medidasTomadas is string &&
+        g.medidasTomadas.size() > 0 &&
+        g.fechaGestion == request.time &&
+        (g.fueSolucionado != 'no' || ('motivoNoSolucionado' in g && g.motivoNoSolucionado is string && g.motivoNoSolucionado.size() > 0));
+    }
+
     // Reglas para la colección de documentos digitales (Signatures)
     match /documents/{docId} {
       allow create, delete: if isAdmin() || isRRHH();
@@ -153,13 +182,44 @@ service cloud.firestore {
     match /Rondas/{roundId} {
       allow read: if request.auth != null && (
         isAdmin() || 
+        isJefeOperaciones() ||
         isSupervisor() || 
         isMandante() ||
         resource.data.workerId == request.auth.uid
       );
       allow create: if request.auth != null && (isAdmin() || isSupervisor() || request.resource.data.workerId == request.auth.uid);
-      allow update: if request.auth != null && (isAdmin() || isSupervisor() || resource.data.workerId == request.auth.uid);
+      allow update: if request.auth != null && (
+        // Caso 1: Registro de Gestión del Supervisor (independiente: solo modifica gestionSupervisor)
+        (
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['gestionSupervisor']) &&
+          (isAdmin() || isSupervisorAssignedToSite(resource.data.siteId)) &&
+          isValidGestionSupervisorPayload(request.resource.data.gestionSupervisor)
+        ) ||
+        // Caso 2: Flujo original de Rondas (sin tocar gestionSupervisor ni campos protegidos de un tercero)
+        (
+          !request.resource.data.diff(resource.data).affectedKeys().hasAny(['gestionSupervisor']) &&
+          (
+            isAdmin() ||
+            (resource.data.workerId == request.auth.uid && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['workerId', 'siteId']))
+          )
+        )
+      );
       allow delete: if isAdmin();
+
+      // Historial inmutable de gestiones de supervisor sobre la ronda
+      match /historialGestion/{gestionId} {
+        allow read: if request.auth != null && (
+          isAdmin() ||
+          isJefeOperaciones() ||
+          isSupervisor()
+        );
+        allow create: if request.auth != null &&
+          (isAdmin() || isSupervisorAssignedToSite(request.resource.data.siteId)) &&
+          isValidGestionSupervisorPayload(request.resource.data) &&
+          request.resource.data.origenTipo == 'ronda' &&
+          request.resource.data.origenId == roundId;
+        allow update, delete: if false;
+      }
     }
     
     // SupervisorTasks, ChecklistTemplates, RecurringTasks, etc.
@@ -415,11 +475,53 @@ service cloud.firestore {
         isColaborador() &&
         request.resource.data.autorUid == request.auth.uid &&
         request.resource.data.colaboradorId == request.auth.uid;
-      // PELIGRO HALLAZGO FASE 8: Actualmente el update es demasiado permisivo.
-      // Se mantiene para no romper el sistema (addSeguimiento() actualiza el doc padre),
-      // pero requiere una revisión profunda en el futuro.
-      allow update: if request.auth != null; 
+      allow update: if request.auth != null && (
+        // Caso 1: Registro de Gestión del Supervisor (independiente: solo modifica gestionSupervisor)
+        (
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['gestionSupervisor']) &&
+          (isAdmin() || isSupervisorAssignedToNovedadData(resource.data)) &&
+          isValidGestionSupervisorPayload(request.resource.data.gestionSupervisor)
+        ) ||
+        // Caso 2: Flujo original de seguimiento / acuse de lectura (protege campos originales y gestionSupervisor)
+        (
+          !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+            'gestionSupervisor',
+            'autorUid',
+            'colaboradorId',
+            'sucursalId',
+            'siteId',
+            'evidencias',
+            'fotos',
+            'fechaHoraEvento',
+            'fechaEvento',
+            'horaEvento',
+            'creadoEn'
+          ]) &&
+          (
+            isAdmin() ||
+            isJefeOperaciones() ||
+            isRRHH() ||
+            isSupervisorAssignedToNovedadData(resource.data) ||
+            (isColaborador() && !isMandante())
+          )
+        )
+      );
       allow delete: if false;
+
+      // Historial inmutable de gestiones de supervisor sobre la novedad
+      match /historialGestion/{gestionId} {
+        allow read: if request.auth != null && (
+          isAdmin() ||
+          isJefeOperaciones() ||
+          isSupervisor()
+        );
+        allow create: if request.auth != null &&
+          (isAdmin() || isSupervisorAssignedToSite(request.resource.data.siteId)) &&
+          isValidGestionSupervisorPayload(request.resource.data) &&
+          request.resource.data.origenTipo == 'novedad' &&
+          request.resource.data.origenId == docId;
+        allow update, delete: if false;
+      }
     }
 
     // ─── FASE 8: SEGUIMIENTO DE NOVEDADES (SUBCOLECCIÓN) ──────────────
@@ -488,6 +590,35 @@ service cloud.firestore {
           && request.resource.data.leidoPorUid == request.auth.uid;
         allow delete: if false;
       }
+    }
+
+    // Notificaciones internas Supervisor / Administracion (historial por destinatario)
+    match /notificaciones_supervisor/{notifId} {
+      // Lectura: solo el destinatario (las consultas filtran por destinatarioUid == uid)
+      allow read: if request.auth != null && resource.data.destinatarioUid == request.auth.uid;
+
+      // Creacion: colaboradores autenticados o Cloud Functions (Admin SDK)
+      allow create: if isColaborador()
+        && request.resource.data.creadaPorUid == request.auth.uid
+        && request.resource.data.destinatarioUid is string
+        && request.resource.data.destinatarioUid.size() > 0
+        && request.resource.data.tipo in [
+          'consulta_admin',
+          'respuesta_supervisor',
+          'seguimiento_novedad',
+          'novedad_urgente',
+          'visita_seguimiento'
+        ]
+        && request.resource.data.titulo is string
+        && request.resource.data.mensaje is string
+        && request.resource.data.leida == false;
+
+      // Solo el destinatario puede marcarla como leida (ningun otro campo)
+      allow update: if request.auth != null
+        && resource.data.destinatarioUid == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['leida', 'leidaEn']);
+
+      allow delete: if false;
     }
 
     // Reglas por defecto para cualquier otra colección (Denegación estricta)

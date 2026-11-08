@@ -347,6 +347,8 @@ export interface GuardRound {
   evidences?: RoundEvidence[];
   result?: 'SIN_NOVEDAD' | 'CON_NOVEDAD' | 'SOSPECHA';
   notes?: string;
+  /** Resumen de la última gestión operacional del supervisor (independiente del resultado/estado original) */
+  gestionSupervisor?: GestionSupervisorResumen;
 }
 
 export interface LoanInstallment {
@@ -439,6 +441,8 @@ export interface Novedad {
   roundId?: string; // Reference to guardRound if auto-generated from round
   evidencias?: string[]; // URLs of photos if any
   createdAt: string; // ISO string
+  /** Resumen de la última gestión operacional del supervisor (independiente del estado original) */
+  gestionSupervisor?: GestionSupervisorResumen;
 }
 
 // ─── Registro de Incidencias y Novedades (GG.SS.) ────────────────────────────
@@ -577,6 +581,63 @@ export interface RegistroNovedad {
   // Metadatos Firestore
   creadoEn: any;       // serverTimestamp()
   actualizadoEn?: any; // serverTimestamp() al editar
+
+  /** Resumen de la última gestión operacional del supervisor (independiente del estado/seguimiento original) */
+  gestionSupervisor?: GestionSupervisorResumen;
+}
+
+// ─── Gestión Operacional del Supervisor (Rondas y Novedades) ──────────────────
+// Subcolecciones independientes e inmutables:
+//   - Rondas/{roundId}/historialGestion/{gestionId}
+//   - novedades/{novedadId}/historialGestion/{gestionId}
+// En el documento padre solo se almacena el resumen `gestionSupervisor`.
+export type EstadoSolucionSupervisor = 'si' | 'no' | 'pendiente';
+
+export type TipoRegistroGestionSupervisor = 'gestion_supervisor' | 'consulta_admin';
+
+export interface ConsultaAdminResumen {
+  mensaje: string;
+  adminUid: string;
+  adminNombre: string;
+  fechaISO: string;
+  pendienteRespuesta: boolean;
+}
+
+export interface GestionSupervisorEntry {
+  id: string;
+  origenTipo: 'ronda' | 'novedad';
+  origenId: string;
+  siteId: string | number;
+  siteName?: string;
+  tipoRegistro?: TipoRegistroGestionSupervisor;
+  fueSolucionado: EstadoSolucionSupervisor;
+  medidasTomadas: string;
+  observaciones?: string;
+  motivoNoSolucionado?: string;
+  requiereIntervencionJefatura?: boolean;
+  supervisorUid: string;
+  supervisorNombre: string;
+  fechaGestion: any;          // serverTimestamp() oficial de Firestore
+  fechaGestionISO?: string;   // ISO derivado para visualización en cliente
+}
+
+export interface GestionSupervisorResumen {
+  ultimaGestionId: string;
+  tipoRegistro?: TipoRegistroGestionSupervisor;
+  fueSolucionado: EstadoSolucionSupervisor;
+  medidasTomadas: string;
+  observaciones?: string;
+  motivoNoSolucionado?: string;
+  requiereIntervencionJefatura?: boolean;
+  supervisorUid: string;
+  supervisorNombre: string;
+  ultimoSupervisorUid?: string;
+  ultimoSupervisorNombre?: string;
+  fechaGestion: any;          // serverTimestamp() oficial de Firestore
+  fechaGestionISO?: string;   // ISO derivado para visualización en cliente
+  fechaUltimaGestionSupervisorISO?: string;
+  consultaAdmin?: ConsultaAdminResumen | null;
+  totalGestiones?: number;
 }
 
 // ─── Plantillas de Firma ──────────────────────────────────────────────────────

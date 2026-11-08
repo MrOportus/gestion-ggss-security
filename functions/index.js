@@ -45,6 +45,14 @@ exports.generateBunnyUploadUrl = generateBunnyUploadUrl;
 const { emitirContratoV2 } = require('./src/contratos/emitirContratoV2');
 exports.emitirContratoV2 = emitirContratoV2;
 
+// Notificaciones internas + push para Supervisores (novedades urgentes, consultas de Jefatura, seguimientos)
+const supervisorInbox = require('./src/supervisorInbox');
+exports.notificarNovedadUrgenteSupervisor = supervisorInbox.notificarNovedadUrgenteSupervisor;
+exports.notificarSeguimientoNovedadSupervisor = supervisorInbox.notificarSeguimientoNovedadSupervisor;
+exports.notificarGestionNovedad = supervisorInbox.notificarGestionNovedad;
+exports.notificarGestionRonda = supervisorInbox.notificarGestionRonda;
+exports.registrarSeguimientoVisitaInbox = supervisorInbox.registrarSeguimientoVisitaInbox;
+
 // Función para generar contratos (vía Apps Script)
 exports.generarContrato = onRequest(
     { 
@@ -505,13 +513,9 @@ exports.notificarSeguimientoVisita = onDocumentCreated(
                     .where('role', 'in', ['admin', 'jefe_operaciones'])
                     .get();
 
-                adminsSnap.forEach(docSnap => {
-                    if (docSnap.id !== autorUid) {
-                        const data = docSnap.data();
-                        const tokens = data.fcmTokens || [];
-                        targetTokens = targetTokens.concat(tokens);
-                    }
-                });
+                // Administración/Jefatura NO reciben push (se usa en PC): el aviso queda como
+                // registro en su Centro de Mensajes (ver src/supervisorInbox).
+                void adminsSnap;
             }
 
             // Deduplicar tokens
