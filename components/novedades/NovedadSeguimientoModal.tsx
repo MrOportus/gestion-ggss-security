@@ -101,6 +101,8 @@ const NovedadSeguimientoModal: React.FC<NovedadSeguimientoModalProps> = ({
 
   const isCurrentUserAdmin = ['admin', 'supervisor', 'jefe_operaciones', 'rrhh'].includes(usuario.rol);
   const isWorker = usuario.rol === 'worker';
+  // Solamente el supervisor y el admin pueden dejar como resuelta una novedad
+  const canResolve = ['admin', 'supervisor', 'jefe_operaciones'].includes(usuario.rol);
 
   // Modo: 'ver' | 'resolver'
   const [modo, setModo] = useState<'ver' | 'resolver'>('ver');
@@ -214,6 +216,10 @@ const NovedadSeguimientoModal: React.FC<NovedadSeguimientoModalProps> = ({
 
   // ── Enviar seguimiento (normal o resolucion) ──────────────────────────────
   const handleEnviar = async (tipo: SeguimientoTipo) => {
+    if (tipo === 'resolucion' && !canResolve) {
+      setError('Solamente el supervisor y el administrador pueden dejar como resuelta una novedad.');
+      return;
+    }
     let textoFinal = mensaje.trim();
     if (tipo === 'resolucion' && !textoFinal) {
       textoFinal = 'Resuelto';
@@ -297,7 +303,7 @@ const NovedadSeguimientoModal: React.FC<NovedadSeguimientoModalProps> = ({
         </button>
         <div className="flex-1 min-w-0">
           <h2 className="font-black text-slate-800 text-base leading-tight truncate">
-            {modo === 'resolver' ? 'Resolver novedad' : 'Seguimiento'}
+            {modo === 'resolver' && canResolve ? 'Resolver novedad' : 'Seguimiento'}
           </h2>
           <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest truncate">
             {novedad.sucursalNombre || 'Sucursal'}
@@ -309,11 +315,19 @@ const NovedadSeguimientoModal: React.FC<NovedadSeguimientoModalProps> = ({
         </span>
       </div>
 
-      {/* Banner de comunicación directa con el guardia de turno */}
+      {/* Banner de comunicación según rol */}
       <div className="mx-4 md:mx-8 mt-3 px-3.5 py-2.5 bg-blue-50/90 border border-blue-200/90 rounded-2xl flex items-center gap-2.5 text-xs text-blue-900 shadow-xs shrink-0">
         <Smartphone size={16} className="text-blue-600 shrink-0" />
         <div className="leading-tight">
-          <strong>Canal directo con el guardia de turno:</strong> Las notas e indicaciones enviadas en este seguimiento le llegarán en tiempo real a la aplicación móvil del guardia en {novedad.sucursalNombre || 'la instalación'}.
+          {canResolve ? (
+            <>
+              <strong>Canal directo con el guardia de turno:</strong> Las notas e indicaciones enviadas en este seguimiento le llegarán en tiempo real a la aplicación móvil del guardia en {novedad.sucursalNombre || 'la instalación'}.
+            </>
+          ) : (
+            <>
+              <strong>Canal con Supervisión:</strong> Tus respuestas y avances en este hilo son recibidos en tiempo real por tu supervisor y jefatura.
+            </>
+          )}
         </div>
       </div>
 
@@ -493,13 +507,19 @@ const NovedadSeguimientoModal: React.FC<NovedadSeguimientoModalProps> = ({
             <div className="pt-4 border-t border-slate-100 mt-6 space-y-4">
               <div className="space-y-2">
                 <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">
-                  Mensaje / Indicación para el guardia de turno *
+                  {canResolve
+                    ? 'Mensaje / Indicación para el guardia de turno *'
+                    : 'Tu respuesta o actualización para supervisión *'}
                 </label>
                 <textarea
                   value={mensaje}
                   onChange={e => setMensaje(e.target.value)}
                   rows={4}
-                  placeholder="Escriba aquí las instrucciones o indicaciones que recibirá el guardia de turno en su app..."
+                  placeholder={
+                    canResolve
+                      ? 'Escriba aquí las instrucciones o indicaciones que recibirá el guardia de turno en su app...'
+                      : 'Escribe aquí tu respuesta, detalles o avances sobre esta novedad...'
+                  }
                   className="w-full px-4 py-3 bg-white border-2 border-slate-200 rounded-2xl focus:border-blue-500 outline-none transition-all font-medium text-slate-700 placeholder-slate-400 resize-none text-sm"
                 />
                 <p className={`text-[10px] font-bold px-1 ${mensaje.trim().length < 5 ? 'text-red-400' : 'text-emerald-500'}`}>
@@ -552,8 +572,8 @@ const NovedadSeguimientoModal: React.FC<NovedadSeguimientoModalProps> = ({
           )}
         </div>
 
-      {/* OVERLAY: MODAL DE RESOLUCIÓN */}
-      {modo === 'resolver' && (
+      {/* OVERLAY: MODAL DE RESOLUCIÓN (Solo Supervisor y Admin) */}
+      {modo === 'resolver' && canResolve && (
         <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200 p-4">
           <div className="bg-white rounded-3xl w-full max-w-sm shadow-2xl p-6 flex flex-col gap-4 animate-in zoom-in-95 duration-200">
             
@@ -643,7 +663,7 @@ const NovedadSeguimientoModal: React.FC<NovedadSeguimientoModalProps> = ({
 
       {/* Barra de acciones PRINCIPAL */}
       <div className="shrink-0 bg-white border-t border-slate-100 shadow-[0_-8px_20px_-5px_rgba(0,0,0,0.08)] px-4 py-4 md:px-8 md:py-6 space-y-2 pb-[calc(1rem+env(safe-area-inset-bottom,0px))] relative z-0">
-        <div className="grid grid-cols-2 gap-3 md:gap-6">
+        <div className={`grid ${canResolve ? 'grid-cols-2' : 'grid-cols-1'} gap-3 md:gap-6`}>
             <button
               onClick={() => handleEnviar('seguimiento')}
               disabled={enviando || mensaje.trim().length < 5 || novedad.estado === 'resuelta'}
@@ -652,17 +672,19 @@ const NovedadSeguimientoModal: React.FC<NovedadSeguimientoModalProps> = ({
               {enviando ? (
                 <><Loader2 size={18} className="animate-spin" /> Enviando...</>
               ) : (
-                <><Send size={18} /> Enviar al Guardia</>
+                <><Send size={18} /> {canResolve ? 'Enviar al Guardia' : 'Enviar Respuesta'}</>
               )}
             </button>
-            <button
-              onClick={() => { setError(null); setConfirmResolucion(false); setModo('resolver'); }}
-              disabled={novedad.estado === 'resuelta'}
-              className="py-4 md:py-5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-[1.5rem] md:rounded-[2rem] font-black text-sm md:text-base uppercase tracking-widest shadow-lg shadow-emerald-200 active:scale-95 transition-all flex items-center justify-center gap-2 disabled:opacity-40"
-            >
-              <CheckCircle size={18} />
-              Resolver
-            </button>
+            {canResolve && (
+              <button
+                onClick={() => { setError(null); setConfirmResolucion(false); setModo('resolver'); }}
+                disabled={novedad.estado === 'resuelta'}
+                className="py-4 md:py-5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-[1.5rem] md:rounded-[2rem] font-black text-sm md:text-base uppercase tracking-widest shadow-lg shadow-emerald-200 active:scale-95 transition-all flex items-center justify-center gap-2 disabled:opacity-40"
+              >
+                <CheckCircle size={18} />
+                Resolver
+              </button>
+            )}
         </div>
       </div>
       </div>
