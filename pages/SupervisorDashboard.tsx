@@ -473,6 +473,8 @@ const SupervisorDashboard: React.FC = () => {
   // Modales de Gestión y Acceso al Registro Original
   const [selectedAlertaForGestion, setSelectedAlertaForGestion] =
     useState<AlertaOperacionalItem | null>(null);
+  const [previousAlertaForGestion, setPreviousAlertaForGestion] =
+    useState<AlertaOperacionalItem | null>(null);
   const [selectedOriginalRound, setSelectedOriginalRound] = useState<any | null>(null);
   const [selectedOriginalNovedad, setSelectedOriginalNovedad] = useState<any | null>(null);
   const [novedadToInit, setNovedadToInit] = useState<any | null>(null);
@@ -771,7 +773,26 @@ const SupervisorDashboard: React.FC = () => {
     };
   }, [siteOperationalCards]);
 
-  const handleOpenOriginalRecord = (item: AlertaOperacionalItem) => {
+  const handleBackToAlertaGestion = useCallback(() => {
+    if (previousAlertaForGestion) {
+      setSelectedOriginalRound(null);
+      setSelectedOriginalNovedad(null);
+      setNovedadToInit(null);
+      setSelectedAlertaForGestion(previousAlertaForGestion);
+      setPreviousAlertaForGestion(null);
+    }
+  }, [previousAlertaForGestion]);
+
+  const handleOpenOriginalRecord = (
+    item: AlertaOperacionalItem,
+    fromGestionModal: boolean = false,
+  ) => {
+    if (fromGestionModal) {
+      setPreviousAlertaForGestion(item);
+    } else {
+      setPreviousAlertaForGestion(null);
+    }
+
     if (item.origenTipo === 'ronda' && item.originalRound) {
       setSelectedOriginalRound(item.originalRound);
       return;
@@ -1710,7 +1731,7 @@ const SupervisorDashboard: React.FC = () => {
           }}
           onOpenOriginalRecord={(alerta) => {
             setSelectedAlertaForGestion(null);
-            handleOpenOriginalRecord(alerta);
+            handleOpenOriginalRecord(alerta, true);
           }}
         />
       )}
@@ -1719,7 +1740,11 @@ const SupervisorDashboard: React.FC = () => {
       {selectedOriginalRound && (
         <RouteMapModal
           round={selectedOriginalRound}
-          onClose={() => setSelectedOriginalRound(null)}
+          onClose={() => {
+            setSelectedOriginalRound(null);
+            setPreviousAlertaForGestion(null);
+          }}
+          onBack={previousAlertaForGestion ? handleBackToAlertaGestion : undefined}
         />
       )}
 
@@ -1732,15 +1757,29 @@ const SupervisorDashboard: React.FC = () => {
             nombre: currentActorName,
             rol: currentUser.role,
           }}
-          onClose={() => setSelectedOriginalNovedad(null)}
+          onClose={() => {
+            setSelectedOriginalNovedad(null);
+            setPreviousAlertaForGestion(null);
+          }}
+          onBack={previousAlertaForGestion ? handleBackToAlertaGestion : undefined}
         />
       )}
 
       {novedadToInit && (
         <IniciarSeguimientoModal
           novedad={novedadToInit}
-          onClose={() => setNovedadToInit(null)}
-          onSuccess={() => setNovedadToInit(null)}
+          onClose={() => {
+            setNovedadToInit(null);
+            setPreviousAlertaForGestion(null);
+          }}
+          onSuccess={() => {
+            setNovedadToInit(null);
+            if (previousAlertaForGestion) {
+              setSelectedAlertaForGestion(previousAlertaForGestion);
+              setPreviousAlertaForGestion(null);
+            }
+          }}
+          onBack={previousAlertaForGestion ? handleBackToAlertaGestion : undefined}
         />
       )}
 

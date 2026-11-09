@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { X, PlayCircle, Loader2, Camera, Smartphone } from 'lucide-react';
+import { X, PlayCircle, Loader2, Camera, Smartphone, ArrowLeft } from 'lucide-react';
 import { addSeguimiento } from '../../lib/novedades/seguimientoService';
 import { useAppStore } from '../../store/useAppStore';
 import PhotoGalleryModal from '../PhotoGalleryModal';
@@ -8,9 +8,15 @@ interface IniciarSeguimientoModalProps {
   novedad: any;
   onClose: () => void;
   onSuccess: () => void;
+  onBack?: () => void;
 }
 
-export const IniciarSeguimientoModal: React.FC<IniciarSeguimientoModalProps> = ({ novedad, onClose, onSuccess }) => {
+export const IniciarSeguimientoModal: React.FC<IniciarSeguimientoModalProps> = ({
+  novedad,
+  onClose,
+  onSuccess,
+  onBack,
+}) => {
   const { currentUser, employees } = useAppStore();
   const [mensaje, setMensaje] = useState('');
   const [loading, setLoading] = useState(false);
@@ -84,17 +90,30 @@ export const IniciarSeguimientoModal: React.FC<IniciarSeguimientoModalProps> = (
       <div className="fixed inset-0 z-[200] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
         <div className="bg-white w-full max-w-md rounded-2xl shadow-xl overflow-hidden flex flex-col">
           {/* Header */}
-          <div className="bg-slate-50 border-b border-slate-100 px-5 py-4 flex justify-between items-center">
-            <div>
-              <h3 className="font-bold text-slate-800 flex items-center gap-2">
-                <PlayCircle size={18} className="text-blue-600" />
-                Dar seguimiento a novedad
-              </h3>
-              <p className="text-[11px] text-slate-500 font-medium">
-                Envío de indicación directa al guardia de turno
-              </p>
+          <div className="bg-slate-50 border-b border-slate-100 px-5 py-4 flex justify-between items-center gap-3">
+            <div className="flex items-center gap-2.5 min-w-0">
+              {onBack && (
+                <button
+                  type="button"
+                  onClick={onBack}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white hover:bg-slate-100 text-slate-800 border border-slate-200 text-xs font-black transition-all active:scale-95 cursor-pointer shadow-xs shrink-0"
+                  title="Regresar a la novedad crítica"
+                >
+                  <ArrowLeft size={16} className="text-slate-700" />
+                  <span>Atrás</span>
+                </button>
+              )}
+              <div className="min-w-0">
+                <h3 className="font-bold text-slate-800 flex items-center gap-2">
+                  <PlayCircle size={18} className="text-blue-600 shrink-0" />
+                  <span className="truncate">Dar seguimiento a novedad</span>
+                </h3>
+                <p className="text-[11px] text-slate-500 font-medium truncate">
+                  Envío de indicación directa al guardia de turno
+                </p>
+              </div>
             </div>
-            <button onClick={onClose} disabled={loading} className="text-slate-400 hover:text-slate-600 transition-colors">
+            <button onClick={onClose} disabled={loading} className="text-slate-400 hover:text-slate-600 transition-colors p-1 rounded-lg">
               <X size={20} />
             </button>
           </div>
@@ -193,11 +212,11 @@ export const IniciarSeguimientoModal: React.FC<IniciarSeguimientoModalProps> = (
             <div className="flex gap-3 pt-2">
               <button
                 type="button"
-                onClick={onClose}
+                onClick={onBack || onClose}
                 disabled={loading}
                 className="flex-1 py-2.5 bg-slate-100 text-slate-600 font-bold text-sm rounded-xl hover:bg-slate-200 transition-colors cursor-pointer"
               >
-                Cancelar
+                {onBack ? 'Volver Atrás' : 'Cancelar'}
               </button>
               <button
                 type="submit"

@@ -59,6 +59,7 @@ const SabotageIcon = L.icon({
 interface RouteMapModalProps {
     round: any;
     onClose: () => void;
+    onBack?: () => void;
 }
 
 // Component to auto-fit bounds when path changes
@@ -77,7 +78,7 @@ const ChangeView = ({ bounds }: { bounds: L.LatLngBoundsExpression }) => {
     return null;
 };
 
-const RouteMapModal: React.FC<RouteMapModalProps> = ({ round, onClose }) => {
+const RouteMapModal: React.FC<RouteMapModalProps> = ({ round, onClose, onBack }) => {
     const [selectedPhotoIndex, setSelectedPhotoIndex] = React.useState<number | null>(null);
     const [isZoomed, setIsZoomed] = React.useState(false);
     const [zoomOrigin, setZoomOrigin] = React.useState({ x: 50, y: 50 });
@@ -311,9 +312,22 @@ const RouteMapModal: React.FC<RouteMapModalProps> = ({ round, onClose }) => {
                         </div>
                     </div>
 
-                    <button onClick={onClose} className="p-2.5 sm:p-3 hover:bg-slate-100 rounded-xl sm:rounded-2xl text-slate-400 transition-all active:scale-90 shrink-0">
-                        <X className="w-5 h-5 sm:w-6 sm:h-6" />
-                    </button>
+                    <div className="flex items-center gap-2">
+                        {onBack && (
+                            <button
+                                type="button"
+                                onClick={onBack}
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-black transition-all active:scale-95 cursor-pointer shadow-xs border border-slate-200"
+                                title="Regresar a la novedad crítica"
+                            >
+                                <ChevronLeft className="w-4 h-4 text-slate-700" />
+                                <span>Atrás</span>
+                            </button>
+                        )}
+                        <button onClick={onClose} className="p-2.5 sm:p-3 hover:bg-slate-100 rounded-xl sm:rounded-2xl text-slate-400 transition-all active:scale-90 shrink-0">
+                            <X className="w-5 h-5 sm:w-6 sm:h-6" />
+                        </button>
+                    </div>
                 </div>
 
                 {/* Resumen compacto visible en móvil/tablet */}
