@@ -46,6 +46,36 @@ const READ_STORAGE_PREFIX = 'aspro_notif_read_v1_';
 const INITIALIZED_STORAGE_PREFIX = 'aspro_notif_init_v1_';
 export const NOTIFS_UPDATED_EVENT = 'aspro:notifs-updated';
 
+/** Ventana operativa: notificaciones leídas/vistas se retienen hasta 24 horas */
+export const NOTIF_MAX_AGE_LEIDA_MS = 24 * 60 * 60 * 1000;
+/** Ventana operativa: notificaciones no vistas/pendientes se retienen hasta 36 horas */
+export const NOTIF_MAX_AGE_NO_VISTA_MS = 36 * 60 * 60 * 1000;
+
+/**
+ * Valida si una notificación pertenece a la ventana operativa permitida:
+ *  - Nuevas / vistas: dentro de las últimas 24 horas.
+ *  - No vistas / pendientes: dentro de un máximo de 36 horas.
+ * Cualquier registro anterior a 36 horas (o visto hace más de 24 horas) se descarta
+ * para evitar la llegada de notificaciones antiguas o de meses anteriores.
+ */
+export function isNotificationWithinOperationalWindow(
+  item: { creadoEnMs: number; leida: boolean },
+  nowMs: number = Date.now(),
+): boolean {
+  if (!item.creadoEnMs || item.creadoEnMs <= 0) return false;
+  const ageMs = nowMs - item.creadoEnMs;
+  if (ageMs < 0) {
+    // Timestamp en el futuro o leve desfase de reloj -> tratar como reciente
+    return true;
+  }
+  if (!item.leida) {
+    // No vista: máximo 36 horas
+    return ageMs <= NOTIF_MAX_AGE_NO_VISTA_MS;
+  }
+  // Ya vista / leída: nuevas dentro de las últimas 24 horas
+  return ageMs <= NOTIF_MAX_AGE_LEIDA_MS;
+}
+
 export type TipoNotificacionSupervisor =
   | 'consulta_admin'
   | 'respuesta_supervisor'
@@ -284,8 +314,8 @@ export function isNotifRead(
 
 /**
  * Si es la primera vez que el usuario abre este navegador, pre-marca como leídos
- * los registros antiguos (> 24 horas) para que el contador muestre solo actividad reciente,
- * manteniendo los antiguos disponibles en la pestaña "Historial".
+ * los registros que exceden la ventana máxima de 36 horas para que el contador
+ * muestre solo actividad reciente.
  */
 function ensureInitialReadWatermark(uid: string, items: NotificacionSupervisor[]): Set<string> {
   const readSet = getReadNotifIds(uid);
@@ -293,7 +323,7 @@ function ensureInitialReadWatermark(uid: string, items: NotificacionSupervisor[]
 
   const initKey = `${INITIALIZED_STORAGE_PREFIX}${uid}`;
   if (!localStorage.getItem(initKey) && items.length > 0) {
-    const cutoffMs = Date.now() - 24 * 60 * 60 * 1000;
+    const cutoffMs = Date.now() - NOTIF_MAX_AGE_NO_VISTA_MS;
     let changed = false;
     items.forEach((item) => {
       if (item.creadoEnMs > 0 && item.creadoEnMs < cutoffMs) {
@@ -501,11 +531,15 @@ function deriveFromNovedad(
     const canonKey = `novedad:${novId}:novedad_urgente`;
     // Suprimir derivación si ya existe documento oficial en notificaciones_supervisor
     if (!coveredDirectKeys?.has(canonKey)) {
-      const eventMs = toTimestampMs(
-        raw.fechaHoraEvento || raw.creadoEn || raw.createdAt,
-        raw.fechaEvento,
-        raw.horaEvento,
-      );
+      const eventMs =
+        toTimestampMs(
+          raw.fechaHoraEvento || raw.creadoEn || raw.createdAt,
+          raw.fechaEvento,
+          raw.horaEvento,
+        ) ||
+        toMs(raw.creadoEn) ||
+        toMs(raw.createdAt) ||
+        0;
       const id = `drv_nov_urg_${novId}`;
       const tieneGestionPropia = Boolean(g && g.tipoRegistro !== 'consulta_admin');
       result.push({
@@ -525,8 +559,8 @@ function deriveFromNovedad(
         creadaPorNombre: String(raw.autorNombre || raw.colaboradorNombre || 'Guardia'),
         // Si el supervisor ya la gestionó, se considera atendida/leída
         leida: tieneGestionPropia || readSet.has(id) || readSet.has(canonKey),
-        creadoEnISO: eventMs ? new Date(eventMs).toISOString() : new Date().toISOString(),
-        creadoEnMs: eventMs || Date.now(),
+        creadoEnISO: eventMs ? new Date(eventMs).toISOString() : '',
+        creadoEnMs: eventMs,
       });
     }
   }
@@ -536,7 +570,11 @@ function deriveFromNovedad(
     const canonKey = `novedad:${novId}:consulta_admin`;
     if (!coveredDirectKeys?.has(canonKey)) {
       const c = g.consultaAdmin;
-      const cMs = toMs(c.fechaISO) || toMs(g.fechaGestion) || Date.now();
+      const cMs =
+        toMs(c.fechaISO) ||
+        toMs(g.fechaGestion) ||
+        toMs(raw.fechaHoraEvento || raw.creadoEn || raw.createdAt) ||
+        0;
       const id = `drv_cons_nov_${novId}_${c.fechaISO || g.ultimaGestionId || '1'}`;
       result.push({
         id,
@@ -552,7 +590,7 @@ function deriveFromNovedad(
         creadaPorUid: String(c.adminUid || ''),
         creadaPorNombre: String(c.adminNombre || 'Administración'),
         leida: !c.pendienteRespuesta || readSet.has(id) || readSet.has(canonKey),
-        creadoEnISO: new Date(cMs).toISOString(),
+        creadoEnISO: cMs ? new Date(cMs).toISOString() : '',
         creadoEnMs: cMs,
       });
     }
@@ -566,7 +604,8 @@ function deriveFromNovedad(
       const gMs =
         toMs(g.fechaUltimaGestionSupervisorISO) ||
         toMs(g.fechaGestion, g.fechaGestionISO) ||
-        Date.now();
+        toMs(raw.fechaHoraEvento || raw.creadoEn || raw.createdAt) ||
+        0;
       const id = `drv_resp_nov_${novId}_${g.ultimaGestionId || gMs}`;
       const estadoLabel =
         g.fueSolucionado === 'si'
@@ -590,7 +629,7 @@ function deriveFromNovedad(
         creadaPorUid: String(g.ultimoSupervisorUid || g.supervisorUid || ''),
         creadaPorNombre: supNombre,
         leida: readSet.has(id) || readSet.has(canonKey),
-        creadoEnISO: new Date(gMs).toISOString(),
+        creadoEnISO: gMs ? new Date(gMs).toISOString() : '',
         creadoEnMs: gMs,
       });
     }
@@ -600,7 +639,7 @@ function deriveFromNovedad(
   if (raw.ultimoSeguimientoMsg && raw.ultimoSeguimientoEn) {
     const canonKey = `novedad:${novId}:seguimiento_novedad`;
     if (!coveredDirectKeys?.has(canonKey)) {
-      const segMs = toMs(raw.ultimoSeguimientoEn);
+      const segMs = toMs(raw.ultimoSeguimientoEn) || toMs(raw.creadoEn) || 0;
       const segRol = String(raw.ultimoSeguimientoRol || '');
       const segPor = String(raw.ultimoSeguimientoPor || 'Usuario');
       const id = `drv_seg_nov_${novId}_${segMs || raw.cantidadSeguimientos || 1}`;
@@ -620,8 +659,8 @@ function deriveFromNovedad(
           creadaPorUid: '',
           creadaPorNombre: segPor,
           leida: readSet.has(id) || readSet.has(canonKey),
-          creadoEnISO: new Date(segMs || Date.now()).toISOString(),
-          creadoEnMs: segMs || Date.now(),
+          creadoEnISO: segMs ? new Date(segMs).toISOString() : '',
+          creadoEnMs: segMs,
         });
       } else if (isAdmin && segRol !== 'admin' && segRol !== 'jefe_operaciones') {
         result.push({
@@ -641,8 +680,8 @@ function deriveFromNovedad(
             Number(raw.unreadAdminCount || 0) === 0 ||
             readSet.has(id) ||
             readSet.has(canonKey),
-          creadoEnISO: new Date(segMs || Date.now()).toISOString(),
-          creadoEnMs: segMs || Date.now(),
+          creadoEnISO: segMs ? new Date(segMs).toISOString() : '',
+          creadoEnMs: segMs,
         });
       }
     }
@@ -679,7 +718,7 @@ function deriveFromRound(
     const canonKey = `ronda:${roundId}:novedad_urgente`;
     if (!coveredDirectKeys?.has(canonKey)) {
       const rawTime = raw.endTime || raw.startTime || raw.finishedAt || raw.startedAt;
-      const rMs = toTimestampMs(rawTime);
+      const rMs = toTimestampMs(rawTime) || toMs(rawTime) || 0;
       const id = `drv_rnd_urg_${roundId}`;
       const tieneGestionPropia = Boolean(g && g.tipoRegistro !== 'consulta_admin');
       result.push({
@@ -698,8 +737,8 @@ function deriveFromRound(
         creadaPorUid: String(raw.workerId || ''),
         creadaPorNombre: String(raw.workerName || 'Guardia'),
         leida: tieneGestionPropia || readSet.has(id) || readSet.has(canonKey),
-        creadoEnISO: toSafeISOString(rawTime) || new Date(rMs || Date.now()).toISOString(),
-        creadoEnMs: rMs || Date.now(),
+        creadoEnISO: toSafeISOString(rawTime) || (rMs ? new Date(rMs).toISOString() : ''),
+        creadoEnMs: rMs,
       });
     }
   }
@@ -709,7 +748,12 @@ function deriveFromRound(
     const canonKey = `ronda:${roundId}:consulta_admin`;
     if (!coveredDirectKeys?.has(canonKey)) {
       const c = g.consultaAdmin;
-      const cMs = toMs(c.fechaISO) || toMs(g.fechaGestion) || Date.now();
+      const cMs =
+        toMs(c.fechaISO) ||
+        toMs(g.fechaGestion) ||
+        toTimestampMs(raw.endTime || raw.startTime) ||
+        toMs(raw.endTime || raw.startTime) ||
+        0;
       const id = `drv_cons_rnd_${roundId}_${c.fechaISO || g.ultimaGestionId || '1'}`;
       result.push({
         id,
@@ -725,7 +769,7 @@ function deriveFromRound(
         creadaPorUid: String(c.adminUid || ''),
         creadaPorNombre: String(c.adminNombre || 'Administración'),
         leida: !c.pendienteRespuesta || readSet.has(id) || readSet.has(canonKey),
-        creadoEnISO: new Date(cMs).toISOString(),
+        creadoEnISO: cMs ? new Date(cMs).toISOString() : '',
         creadoEnMs: cMs,
       });
     }
@@ -739,7 +783,9 @@ function deriveFromRound(
       const gMs =
         toMs(g.fechaUltimaGestionSupervisorISO) ||
         toMs(g.fechaGestion, g.fechaGestionISO) ||
-        Date.now();
+        toTimestampMs(raw.endTime || raw.startTime) ||
+        toMs(raw.endTime || raw.startTime) ||
+        0;
       const id = `drv_resp_rnd_${roundId}_${g.ultimaGestionId || gMs}`;
       const estadoLabel =
         g.fueSolucionado === 'si'
@@ -761,7 +807,7 @@ function deriveFromRound(
         creadaPorUid: String(g.ultimoSupervisorUid || g.supervisorUid || ''),
         creadaPorNombre: supNombre,
         leida: readSet.has(id) || readSet.has(canonKey),
-        creadoEnISO: new Date(gMs).toISOString(),
+        creadoEnISO: gMs ? new Date(gMs).toISOString() : '',
         creadoEnMs: gMs,
       });
     }
@@ -788,7 +834,11 @@ function deriveFromVisita(
   }
 
   const siteName = String(raw.sucursalNombre || 'Sucursal');
-  const segMs = toMs(raw.ultimoSeguimientoEn);
+  const segMs =
+    toMs(raw.ultimoSeguimientoEn) ||
+    toMs(raw.creadoEn) ||
+    toMs(raw.fechaVisita) ||
+    0;
   const segPor = String(raw.ultimoSeguimientoPor || 'Administración');
   const segRol = String(raw.ultimoSeguimientoRol || '');
   const id = `drv_vis_${visitaId}_${segMs || raw.cantidadSeguimientos || 1}`;
@@ -809,8 +859,8 @@ function deriveFromVisita(
       creadaPorUid: '',
       creadaPorNombre: segPor,
       leida: !unreadSup || readSet.has(id) || readSet.has(canonKey),
-      creadoEnISO: new Date(segMs || Date.now()).toISOString(),
-      creadoEnMs: segMs || Date.now(),
+      creadoEnISO: segMs ? new Date(segMs).toISOString() : '',
+      creadoEnMs: segMs,
     });
   } else if (isAdmin && segRol === 'supervisor') {
     const unreadAdm = Number(raw.unreadAdminCount || 0) > 0;
@@ -828,8 +878,8 @@ function deriveFromVisita(
       creadaPorUid: String(raw.supervisorUid || ''),
       creadaPorNombre: segPor,
       leida: !unreadAdm || readSet.has(id) || readSet.has(canonKey),
-      creadoEnISO: new Date(segMs || Date.now()).toISOString(),
-      creadoEnMs: segMs || Date.now(),
+      creadoEnISO: segMs ? new Date(segMs).toISOString() : '',
+      creadoEnMs: segMs,
     });
   }
 
@@ -945,7 +995,14 @@ export function subscribeNotificacionesSupervisor(
       }
     });
 
-    const all = Array.from(byKey.values()).sort((a, b) => b.creadoEnMs - a.creadoEnMs);
+    // Filtrar estrictamente por la ventana operativa requerida:
+    // - Nuevas / vistas: dentro de las últimas 24 horas.
+    // - No vistas / pendientes: dentro de un máximo de 36 horas.
+    // Los eventos que excedan estas ventanas (o de meses anteriores) se excluyen de la operativa.
+    const now = Date.now();
+    const all = Array.from(byKey.values())
+      .filter((item) => isNotificationWithinOperationalWindow(item, now))
+      .sort((a, b) => b.creadoEnMs - a.creadoEnMs);
 
     // 5. Detección de nuevas notificaciones para emitir alerta sonora/toast sin duplicados
     const nuevas: NotificacionSupervisor[] = [];
@@ -1101,7 +1158,7 @@ export function subscribeNotificacionesSupervisor(
         directNotifsMap.clear();
         snap.docs.forEach((d) => {
           const data: any = d.data(LIVE_OPTS);
-          const ms = toMs(data.creadoEn);
+          const ms = toMs(data.creadoEn) || toMs(data.createdAt) || 0;
           const tipo = data.tipo as TipoNotificacionSupervisor;
           const origenTipo = resolveOrigenTipo({
             id: d.id,
@@ -1123,8 +1180,8 @@ export function subscribeNotificacionesSupervisor(
             creadaPorUid: String(data.creadaPorUid || ''),
             creadaPorNombre: String(data.creadaPorNombre || ''),
             leida: Boolean(data.leida),
-            creadoEnISO: new Date(ms || Date.now()).toISOString(),
-            creadoEnMs: ms || Date.now(),
+            creadoEnISO: ms ? new Date(ms).toISOString() : '',
+            creadoEnMs: ms,
           });
         });
         recompute(true);
@@ -1135,9 +1192,15 @@ export function subscribeNotificacionesSupervisor(
     ),
   );
 
+  // Reevalúa periódicamente la ventana operativa (cada 60s) para descartar eventos que expiren
+  const windowInterval = setInterval(() => {
+    recompute(false);
+  }, 60 * 1000);
+
   return () => {
     disposed = true;
     if (settleTimer) clearTimeout(settleTimer);
+    clearInterval(windowInterval);
     if (typeof window !== 'undefined') {
       window.removeEventListener(NOTIFS_UPDATED_EVENT, handleLocalReadEvent);
     }

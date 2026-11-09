@@ -174,4 +174,5 @@ Este documento define la estructura de datos persistente en **Cloud Firestore**,
 ## notificaciones_supervisor/{id} (Notificaciones internas Supervisor/Administracion)
 - Campos: destinatarioUid, tipo (consulta_admin | respuesta_supervisor | seguimiento_novedad), titulo, mensaje, siteId, siteName, origenTipo, origenId, vista, creadaPorUid, creadaPorNombre, leida, leidaEn, creadoEn.
 - Lectura/actualizacion de leida solo por el destinatario; sin borrado. Servicio: lib/supervisor/notificacionesSupervisorService.ts. UI: components/supervisor/NotificacionesSupervisorCenter.tsx (campana flotante con contador).
+- Ventana operativa estricta: solo se reciben/muestran notificaciones nuevas dentro de las últimas 24 horas o no vistas en un máximo de 36 horas. Registros anteriores a 36 horas (o vistos hace más de 24 horas) se descartan en memoria y no saturan los paneles ni emiten alertas.
 - Las alertas del dashboard y el historialGestion usan onSnapshot (tiempo real).

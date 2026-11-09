@@ -7,7 +7,10 @@ vi.mock('../../firebase', () => ({
 import {
   extractCanonicalKeysFromId,
   getNotificationCanonicalKey,
+  isNotificationWithinOperationalWindow,
   isNotifRead,
+  NOTIF_MAX_AGE_LEIDA_MS,
+  NOTIF_MAX_AGE_NO_VISTA_MS,
   type NotificacionSupervisor,
   resolveOrigenTipo,
 } from '../notificacionesSupervisorService';
@@ -302,6 +305,77 @@ describe('notificacionesSupervisorService — Deduplicación y Claves Canónicas
 
       // Debe ser reconocida como ya conocida -> CERO alerta sonora duplicada!
       expect(isKnown2).toBe(true);
+    });
+  });
+
+  describe('6. Ventana Operativa de Notificaciones (24h leídas / máx 36h no vistas)', () => {
+    const fixedNow = 1794200000000; // Punto de referencia fijo
+
+    it('acepta notificaciones no vistas de menos de 24 horas', () => {
+      const item = {
+        creadoEnMs: fixedNow - 2 * 60 * 60 * 1000, // hace 2h
+        leida: false,
+      };
+      expect(isNotificationWithinOperationalWindow(item, fixedNow)).toBe(true);
+    });
+
+    it('acepta notificaciones ya leídas de menos de 24 horas', () => {
+      const item = {
+        creadoEnMs: fixedNow - 12 * 60 * 60 * 1000, // hace 12h
+        leida: true,
+      };
+      expect(isNotificationWithinOperationalWindow(item, fixedNow)).toBe(true);
+    });
+
+    it('acepta notificaciones NO vistas de entre 24h y 36h', () => {
+      const item = {
+        creadoEnMs: fixedNow - 30 * 60 * 60 * 1000, // hace 30h
+        leida: false,
+      };
+      expect(isNotificationWithinOperationalWindow(item, fixedNow)).toBe(true);
+    });
+
+    it('rechaza notificaciones ya leídas/vistas de más de 24 horas', () => {
+      const item = {
+        creadoEnMs: fixedNow - 25 * 60 * 60 * 1000, // hace 25h
+        leida: true,
+      };
+      expect(isNotificationWithinOperationalWindow(item, fixedNow)).toBe(false);
+    });
+
+    it('rechaza notificaciones no vistas de más de 36 horas', () => {
+      const item = {
+        creadoEnMs: fixedNow - 37 * 60 * 60 * 1000, // hace 37h
+        leida: false,
+      };
+      expect(isNotificationWithinOperationalWindow(item, fixedNow)).toBe(false);
+    });
+
+    it('rechaza notificaciones antiguas de meses pasados (leídas o no)', () => {
+      const itemMesesAtrasUnread = {
+        creadoEnMs: fixedNow - 60 * 24 * 60 * 60 * 1000, // hace 60 días
+        leida: false,
+      };
+      const itemMesesAtrasRead = {
+        creadoEnMs: fixedNow - 60 * 24 * 60 * 60 * 1000,
+        leida: true,
+      };
+      expect(isNotificationWithinOperationalWindow(itemMesesAtrasUnread, fixedNow)).toBe(false);
+      expect(isNotificationWithinOperationalWindow(itemMesesAtrasRead, fixedNow)).toBe(false);
+    });
+
+    it('rechaza notificaciones con timestamp nulo, cero o inválido', () => {
+      expect(isNotificationWithinOperationalWindow({ creadoEnMs: 0, leida: false }, fixedNow)).toBe(false);
+      expect(isNotificationWithinOperationalWindow({ creadoEnMs: -1, leida: false }, fixedNow)).toBe(false);
+      expect(isNotificationWithinOperationalWindow({ creadoEnMs: undefined as any, leida: false }, fixedNow)).toBe(false);
+    });
+
+    it('acepta notificaciones con leve desfase hacia el futuro', () => {
+      const itemFuturo = {
+        creadoEnMs: fixedNow + 5000, // 5 segundos en el futuro (desajuste reloj cliente/servidor)
+        leida: false,
+      };
+      expect(isNotificationWithinOperationalWindow(itemFuturo, fixedNow)).toBe(true);
     });
   });
 });

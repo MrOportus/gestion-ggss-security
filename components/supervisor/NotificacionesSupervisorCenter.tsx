@@ -33,7 +33,7 @@ const formatRelative = (ms: number) => {
   if (min < 1) return 'ahora';
   if (min < 60) return `hace ${min} min`;
   const h = Math.floor(min / 60);
-  if (h < 24) return `hace ${h} h`;
+  if (h < 36) return `hace ${h} h`;
   return new Date(ms).toLocaleString('es-CL', {
     day: '2-digit',
     month: '2-digit',
@@ -242,11 +242,14 @@ export const NotificacionesSupervisorCenter: React.FC<Props> = ({
             <div className="px-5 py-4 bg-slate-900 text-white flex items-center justify-between rounded-t-3xl sm:rounded-none">
               <div>
                 <p className="text-[10px] font-black uppercase tracking-widest text-indigo-300">
-                  Centro de Mensajes
+                  Centro de Notificaciones Operativas
                 </p>
                 <h3 className="text-base font-black">
                   Notificaciones {unread.length > 0 ? `(${unread.length} pendientes)` : ''}
                 </h3>
+                <p className="text-[11px] font-medium text-slate-300">
+                  Nuevas (&lt; 24h) · No vistas (máx. 36h)
+                </p>
               </div>
               <button
                 type="button"
@@ -296,8 +299,8 @@ export const NotificacionesSupervisorCenter: React.FC<Props> = ({
               {visible.length === 0 ? (
                 <div className="py-12 text-center text-xs font-bold text-slate-400">
                   {filter === 'pendientes'
-                    ? 'No tienes mensajes pendientes por revisar.'
-                    : 'Aún no hay notificaciones registradas.'}
+                    ? 'No tienes notificaciones pendientes dentro de las últimas 36 horas.'
+                    : 'No hay notificaciones operativas registradas en las últimas 24 horas.'}
                 </div>
               ) : (
                 visible.map((n) => (
