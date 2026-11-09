@@ -868,7 +868,7 @@ const SupervisorDashboard: React.FC = () => {
     }
     return (
       <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg text-[10px] font-black uppercase bg-amber-100 text-amber-800 border border-amber-200">
-        <Clock className="w-3 h-3" /> Pendiente de Decisión
+        <Clock className="w-3 h-3" /> Pendiente de Gestión
       </span>
     );
   };
@@ -911,42 +911,42 @@ const SupervisorDashboard: React.FC = () => {
       {/* Tarjetas Resumen Compactas */}
       <div
         className={`grid grid-cols-2 ${
-          isAdminOrJefe ? 'lg:grid-cols-3' : 'lg:grid-cols-5'
+          isAdminOrJefe ? 'lg:grid-cols-3' : 'lg:grid-cols-4'
         } gap-3`}
       >
         {!isAdminOrJefe && (
-          <>
-            <div className="bg-white p-3.5 rounded-2xl border border-slate-200/80 shadow-sm">
-              <div className="flex items-center justify-between text-emerald-600 mb-1">
-                <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">
-                  En Servicio Hoy
-                </span>
-                <UserCheck className="w-4 h-4" />
-              </div>
-              <p className="text-2xl font-black text-slate-900">
-                {stats.totalGuardiasEnServicio}
-              </p>
-              <span className="text-[10px] font-bold text-emerald-600">
-                Guardias activos
+          <div className="bg-white p-3.5 rounded-2xl border border-slate-200/80 shadow-sm">
+            <div className="flex items-center justify-between text-emerald-600 mb-1">
+              <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">
+                En Servicio Hoy
               </span>
+              <UserCheck className="w-4 h-4" />
             </div>
-
-            <div className="bg-white p-3.5 rounded-2xl border border-slate-200/80 shadow-sm">
-              <div className="flex items-center justify-between text-rose-600 mb-1">
-                <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">
-                  Sin Cobertura / Ausencias
-                </span>
-                <UserX className="w-4 h-4" />
-              </div>
-              <p className="text-2xl font-black text-slate-900">{stats.totalAusencias}</p>
-              <span className="text-[10px] font-bold text-rose-600">
-                Turnos programados sin ingreso
-              </span>
-            </div>
-          </>
+            <p className="text-2xl font-black text-slate-900">
+              {stats.totalGuardiasEnServicio}
+            </p>
+            <span className="text-[10px] font-bold text-emerald-600">
+              Guardias activos
+            </span>
+          </div>
         )}
 
-        <div className="bg-white p-3.5 rounded-2xl border border-slate-200/80 shadow-sm">
+        <button
+          type="button"
+          onClick={() => {
+            setPage(1);
+            setEstadoGestionFilter((curr) =>
+              curr === 'sin_gestion' ? 'todos' : 'sin_gestion',
+            );
+            setOnlyJefaturaFilter(false);
+          }}
+          className={`text-left p-3.5 rounded-2xl border transition-all cursor-pointer ${
+            estadoGestionFilter === 'sin_gestion'
+              ? 'bg-amber-50 border-amber-300 ring-2 ring-amber-400/50 shadow-md'
+              : 'bg-white border-slate-200/80 hover:border-amber-200 shadow-sm'
+          }`}
+          title="Clic para filtrar alertas sin gestión"
+        >
           <div className="flex items-center justify-between text-amber-600 mb-1">
             <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">
               Alertas Sin Gestión
@@ -954,21 +954,53 @@ const SupervisorDashboard: React.FC = () => {
             <AlertTriangle className="w-4 h-4" />
           </div>
           <p className="text-2xl font-black text-slate-900">{stats.sinGestion}</p>
-          <span className="text-[10px] font-bold text-amber-600">Requieren revisión</span>
-        </div>
+          <span className="text-[10px] font-bold text-amber-600">
+            {estadoGestionFilter === 'sin_gestion' ? 'Filtro activo (clic para quitar)' : 'Requieren revisión'}
+          </span>
+        </button>
 
-        <div className="bg-white p-3.5 rounded-2xl border border-slate-200/80 shadow-sm">
+        <button
+          type="button"
+          onClick={() => {
+            setPage(1);
+            setEstadoGestionFilter((curr) =>
+              curr === 'pendiente' ? 'todos' : 'pendiente',
+            );
+            setOnlyJefaturaFilter(false);
+          }}
+          className={`text-left p-3.5 rounded-2xl border transition-all cursor-pointer ${
+            estadoGestionFilter === 'pendiente'
+              ? 'bg-indigo-50 border-indigo-300 ring-2 ring-indigo-400/50 shadow-md'
+              : 'bg-white border-slate-200/80 hover:border-indigo-200 shadow-sm'
+          }`}
+          title="Clic para filtrar alertas pendientes de gestión"
+        >
           <div className="flex items-center justify-between text-indigo-600 mb-1">
             <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">
-              Pendiente Decisión
+              Pendiente de Gestión
             </span>
             <Clock className="w-4 h-4" />
           </div>
           <p className="text-2xl font-black text-slate-900">{stats.pendientesDecision}</p>
-          <span className="text-[10px] font-bold text-indigo-600">En seguimiento</span>
-        </div>
+          <span className="text-[10px] font-bold text-indigo-600">
+            {estadoGestionFilter === 'pendiente' ? 'Filtro activo (clic para quitar)' : 'En seguimiento'}
+          </span>
+        </button>
 
-        <div className="col-span-2 lg:col-span-1 bg-white p-3.5 rounded-2xl border border-red-200/80 shadow-sm">
+        <button
+          type="button"
+          onClick={() => {
+            setPage(1);
+            setOnlyJefaturaFilter((v) => !v);
+            setEstadoGestionFilter('todos');
+          }}
+          className={`text-left p-3.5 rounded-2xl border transition-all cursor-pointer ${
+            onlyJefaturaFilter
+              ? 'bg-red-50 border-red-300 ring-2 ring-red-400/50 shadow-md'
+              : 'bg-white border-red-200/80 hover:border-red-300 shadow-sm'
+          }`}
+          title="Clic para filtrar alertas escaladas a jefatura"
+        >
           <div className="flex items-center justify-between text-red-600 mb-1">
             <span className="text-[10px] font-black uppercase tracking-wider text-red-500">
               Intervención Jefatura
@@ -976,8 +1008,10 @@ const SupervisorDashboard: React.FC = () => {
             <ShieldAlert className="w-4 h-4" />
           </div>
           <p className="text-2xl font-black text-red-700">{stats.escaladasJefatura}</p>
-          <span className="text-[10px] font-bold text-red-600">Escaladas a Operaciones</span>
-        </div>
+          <span className="text-[10px] font-bold text-red-600">
+            {onlyJefaturaFilter ? 'Filtro activo (clic para quitar)' : 'Escaladas a Operaciones'}
+          </span>
+        </button>
       </div>
 
       {/* ─── ÁREA A: TURNOS EN VIVO (Solo vista Supervisor) ────────────────────── */}
@@ -1321,7 +1355,7 @@ const SupervisorDashboard: React.FC = () => {
           >
             <option value="todos">Estado gestión: Todos</option>
             <option value="sin_gestion">Sin gestión registrada</option>
-            <option value="pendiente">Pendiente de decisión</option>
+            <option value="pendiente">Pendiente de gestión</option>
             <option value="no">No solucionado</option>
             <option value="si">Solucionado</option>
           </select>

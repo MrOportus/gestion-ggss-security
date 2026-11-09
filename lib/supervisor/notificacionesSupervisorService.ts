@@ -573,7 +573,7 @@ function deriveFromNovedad(
           ? 'Solucionado'
           : g.fueSolucionado === 'no'
           ? 'No Solucionado'
-          : 'Pendiente de Decisión';
+          : 'Pendiente de Gestión';
       result.push({
         id,
         destinatarioUid: ctx.uid,
@@ -746,7 +746,7 @@ function deriveFromRound(
           ? 'Solucionado'
           : g.fueSolucionado === 'no'
           ? 'No Solucionado'
-          : 'Pendiente de Decisión';
+          : 'Pendiente de Gestión';
       result.push({
         id,
         destinatarioUid: ctx.uid,

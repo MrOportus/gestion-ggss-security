@@ -419,7 +419,7 @@ export function validateRegistrarGestionInput(params: RegistrarGestionParams): v
     throw new Error('El identificador del registro original es obligatorio.');
   }
   if (!['si', 'no', 'pendiente'].includes(params.fueSolucionado)) {
-    throw new Error('Debe seleccionar un estado de solución válido (Sí, No o Pendiente de decisión).');
+    throw new Error('Debe seleccionar un estado de solución válido (Sí, No o Pendiente de gestión).');
   }
   if (!params.medidasTomadas || !params.medidasTomadas.trim()) {
     throw new Error('El campo "Medidas tomadas" es obligatorio.');
