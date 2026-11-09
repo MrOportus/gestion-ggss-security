@@ -340,7 +340,7 @@ exports.registrarSeguimientoVisitaInbox = onDocumentCreated(
                 mensaje: `${seg.autorNombre || 'Usuario'}: ${texto}`,
                 siteId: visita.sucursalId || '',
                 siteName,
-                origenTipo: '',
+                origenTipo: 'visita',
                 origenId: event.params.visitaId,
                 vista: 'visitas_supervisor',
                 creadaPorUid: seg.autorUid || '',

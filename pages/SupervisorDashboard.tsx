@@ -46,6 +46,7 @@ import { GestionSupervisorModal } from '../components/supervisor/GestionSupervis
 import {
   type NotificacionSupervisor,
   marcarNotificacionLeida,
+  resolveOrigenTipo,
   subscribeNotificacionesSupervisor,
 } from '../lib/supervisor/notificacionesSupervisorService';
 import RouteMapModal from '../components/RouteMapModal';
@@ -541,7 +542,7 @@ const SupervisorDashboard: React.FC = () => {
   useEffect(() => {
     if (!openedKey || !currentUser?.uid) return;
     unreadNotifs
-      .filter((n) => `${n.origenTipo}_${n.origenId}` === openedKey)
+      .filter((n) => `${resolveOrigenTipo(n)}_${n.origenId}` === openedKey)
       .forEach((n) => void marcarNotificacionLeida(n.id, currentUser.uid));
   }, [openedKey, unreadNotifs, currentUser?.uid]);
 

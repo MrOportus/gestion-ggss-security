@@ -15,6 +15,7 @@ import {
   type NotificacionSupervisor,
   marcarNotificacionLeida,
   marcarTodasLeidas,
+  resolveOrigenTipo,
   subscribeNotificacionesSupervisor,
 } from '../../lib/supervisor/notificacionesSupervisorService';
 
@@ -183,8 +184,9 @@ export const NotificacionesSupervisorCenter: React.FC<Props> = ({
       void marcarNotificacionLeida(n.id, uid);
     }
     setOpen(false);
-    if (n.vista === 'dashboard' && n.origenTipo && n.origenId) {
-      sessionStorage.setItem('aspro_open_alerta', `${n.origenTipo}_${n.origenId}`);
+    const origenTipo = resolveOrigenTipo(n);
+    if (n.vista === 'dashboard' && origenTipo && n.origenId) {
+      sessionStorage.setItem('aspro_open_alerta', `${origenTipo}_${n.origenId}`);
       onNavigate(role === 'supervisor' ? 'dashboard' : 'supervisor_dashboard');
       window.setTimeout(() => window.dispatchEvent(new Event('aspro:abrir-alerta')), 150);
     } else {

@@ -101,6 +101,126 @@ function toMs(val: any, fallbackISO?: string): number {
   return 0;
 }
 
+// ─── Helpers de resolución y claves canónicas para deduplicación ─────────
+
+/**
+ * Resuelve con certeza el tipo de origen ('novedad' | 'ronda' | 'visita')
+ * normalizando datos antiguos, campos vacíos o prefijos de IDs conocidos.
+ */
+export function resolveOrigenTipo(item: {
+  id?: string;
+  tipo?: TipoNotificacionSupervisor | string;
+  origenTipo?: 'ronda' | 'novedad' | 'visita' | string;
+  vista?: string;
+}): 'novedad' | 'ronda' | 'visita' {
+  if (item.origenTipo === 'ronda' || item.origenTipo === 'novedad' || item.origenTipo === 'visita') {
+    return item.origenTipo;
+  }
+  const id = item.id || '';
+  if (
+    item.tipo === 'visita_seguimiento' ||
+    id.startsWith('sv_') ||
+    id.startsWith('drv_vis_') ||
+    item.vista === 'visitas_supervisor'
+  ) {
+    return 'visita';
+  }
+  if (id.startsWith('drv_rnd_') || item.vista === 'rounds') {
+    return 'ronda';
+  }
+  return 'novedad';
+}
+
+/**
+ * Genera la clave canónica única de un evento de notificación.
+ * Permite emparejar y deduplicar registros oficiales de `notificaciones_supervisor`
+ * con registros sintéticos derivados de `novedades`/`Rondas`/`visitas`.
+ */
+export function getNotificationCanonicalKey(item: NotificacionSupervisor): string {
+  const ot = resolveOrigenTipo(item);
+  const origenId = item.origenId ? String(item.origenId) : '';
+
+  if (origenId && item.tipo) {
+    // 1) Novedad urgente (crítica / alta / sospecha en ronda):
+    // Solo existe un evento base por incidente. El documento oficial y el derivado
+    // comparten exactamente la misma clave canónica.
+    if (item.tipo === 'novedad_urgente') {
+      return `${ot}:${origenId}:novedad_urgente`;
+    }
+
+    // 2) Notificaciones derivadas sintéticas (prefijo 'drv_'):
+    // Representan el estado activo del registro padre, por lo que su clave canónica
+    // mapea al tipo de evento en esa entidad para no duplicar documentos oficiales.
+    if (item.id.startsWith('drv_')) {
+      return `${ot}:${origenId}:${item.tipo}`;
+    }
+  }
+
+  // 3) Documentos oficiales directos de `notificaciones_supervisor`:
+  // Cada consulta, respuesta o seguimiento individual de Firestore mantiene su propio ID único.
+  return item.id;
+}
+
+/**
+ * Extrae todas las claves canónicas y alias asociados a un ID (ej. para lectura unificada).
+ */
+export function extractCanonicalKeysFromId(id: string): string[] {
+  const keys: string[] = [id];
+  if (!id) return keys;
+
+  // nu_${novedadId}_${uid} o nua_${novedadId}_${uid}
+  const matchNu = id.match(/^nua?_(.+)_[^_]+$/);
+  if (matchNu) {
+    const novId = matchNu[1];
+    keys.push(`novedad:${novId}:novedad_urgente`);
+    keys.push(`drv_nov_urg_${novId}`);
+  }
+  // drv_nov_urg_${novId}
+  const matchDrvNov = id.match(/^drv_nov_urg_(.+)$/);
+  if (matchDrvNov) {
+    const novId = matchDrvNov[1];
+    keys.push(`novedad:${novId}:novedad_urgente`);
+  }
+  // drv_rnd_urg_${roundId}
+  const matchDrvRnd = id.match(/^drv_rnd_urg_(.+)$/);
+  if (matchDrvRnd) {
+    const rndId = matchDrvRnd[1];
+    keys.push(`ronda:${rndId}:novedad_urgente`);
+  }
+  // drv_cons_nov_${novId}_...
+  const matchDrvConsNov = id.match(/^drv_cons_nov_(.+)_[^_]+$/);
+  if (matchDrvConsNov) {
+    keys.push(`novedad:${matchDrvConsNov[1]}:consulta_admin`);
+  }
+  // drv_cons_rnd_${roundId}_...
+  const matchDrvConsRnd = id.match(/^drv_cons_rnd_(.+)_[^_]+$/);
+  if (matchDrvConsRnd) {
+    keys.push(`ronda:${matchDrvConsRnd[1]}:consulta_admin`);
+  }
+  // drv_resp_nov_${novId}_...
+  const matchDrvRespNov = id.match(/^drv_resp_nov_(.+)_[^_]+$/);
+  if (matchDrvRespNov) {
+    keys.push(`novedad:${matchDrvRespNov[1]}:respuesta_supervisor`);
+  }
+  // drv_resp_rnd_${roundId}_...
+  const matchDrvRespRnd = id.match(/^drv_resp_rnd_(.+)_[^_]+$/);
+  if (matchDrvRespRnd) {
+    keys.push(`ronda:${matchDrvRespRnd[1]}:respuesta_supervisor`);
+  }
+  // drv_seg_nov_${novId}_...
+  const matchDrvSegNov = id.match(/^drv_seg_nov_(.+)_[^_]+$/);
+  if (matchDrvSegNov) {
+    keys.push(`novedad:${matchDrvSegNov[1]}:seguimiento_novedad`);
+  }
+  // drv_vis_${visitaId}_...
+  const matchDrvVis = id.match(/^drv_vis_(.+)_[^_]+$/);
+  if (matchDrvVis) {
+    keys.push(`visita:${matchDrvVis[1]}:visita_seguimiento`);
+  }
+
+  return keys;
+}
+
 // ─── Persistencia local instantánea + sincronización de estado leído ─────────
 
 export function getReadNotifIds(uid: string): Set<string> {
@@ -127,9 +247,39 @@ function saveReadNotifIds(uid: string, set: Set<string>): void {
   }
 }
 
-export function isNotifRead(uid: string, notifId: string, firestoreLeida?: boolean): boolean {
-  if (firestoreLeida) return true;
-  return getReadNotifIds(uid).has(notifId);
+export function isNotifRead(
+  uid: string,
+  itemOrId: NotificacionSupervisor | string,
+  firestoreLeidaOrReadSet?: boolean | Set<string>,
+): boolean {
+  if (typeof itemOrId === 'string') {
+    const id = itemOrId;
+    const firestoreLeida =
+      typeof firestoreLeidaOrReadSet === 'boolean' ? firestoreLeidaOrReadSet : false;
+    if (firestoreLeida) return true;
+    const readSet = getReadNotifIds(uid);
+    if (readSet.has(id)) return true;
+    const related = extractCanonicalKeysFromId(id);
+    return related.some((k) => readSet.has(k));
+  }
+
+  const item = itemOrId;
+  if (item.leida) return true;
+  const readSet =
+    firestoreLeidaOrReadSet instanceof Set ? firestoreLeidaOrReadSet : getReadNotifIds(uid);
+  if (readSet.has(item.id)) return true;
+
+  const canonKey = getNotificationCanonicalKey(item);
+  if (readSet.has(canonKey)) return true;
+
+  const related = extractCanonicalKeysFromId(item.id);
+  if (related.some((k) => readSet.has(k))) return true;
+
+  if (item.origenId && item.tipo) {
+    const eventKey = `${resolveOrigenTipo(item)}:${item.origenId}:${item.tipo}`;
+    if (readSet.has(eventKey)) return true;
+  }
+  return false;
 }
 
 /**
@@ -148,6 +298,9 @@ function ensureInitialReadWatermark(uid: string, items: NotificacionSupervisor[]
     items.forEach((item) => {
       if (item.creadoEnMs > 0 && item.creadoEnMs < cutoffMs) {
         readSet.add(item.id);
+        const canonKey = getNotificationCanonicalKey(item);
+        readSet.add(canonKey);
+        extractCanonicalKeysFromId(item.id).forEach((k) => readSet.add(k));
         changed = true;
       }
     });
@@ -162,18 +315,27 @@ function ensureInitialReadWatermark(uid: string, items: NotificacionSupervisor[]
 export async function marcarNotificacionLeida(id: string, uid?: string): Promise<void> {
   if (uid) {
     const set = getReadNotifIds(uid);
-    if (!set.has(id)) {
-      set.add(id);
+    const related = extractCanonicalKeysFromId(id);
+    let changed = false;
+    related.forEach((k) => {
+      if (!set.has(k)) {
+        set.add(k);
+        changed = true;
+      }
+    });
+    if (changed) {
       saveReadNotifIds(uid, set);
     }
   }
   try {
-    await updateDoc(doc(db, NOTIFICACIONES_SUPERVISOR_COL, id), {
-      leida: true,
-      leidaEn: serverTimestamp(),
-    });
+    if (!id.startsWith('drv_')) {
+      await updateDoc(doc(db, NOTIFICACIONES_SUPERVISOR_COL, id), {
+        leida: true,
+        leidaEn: serverTimestamp(),
+      });
+    }
   } catch {
-    /* Si es una notificación derivada de Rondas/novedades/visitas, no existe doc en notificaciones_supervisor */
+    /* Si no existe doc en notificaciones_supervisor (o derivado), no falla */
   }
 }
 
@@ -181,7 +343,9 @@ export async function marcarTodasLeidas(ids: string[], uid?: string): Promise<vo
   if (ids.length === 0) return;
   if (uid) {
     const set = getReadNotifIds(uid);
-    ids.forEach((id) => set.add(id));
+    ids.forEach((id) => {
+      extractCanonicalKeysFromId(id).forEach((k) => set.add(k));
+    });
     saveReadNotifIds(uid, set);
   }
   try {
@@ -213,8 +377,26 @@ export function marcarAlertaComoLeida(
 ): void {
   if (!uid || !origenId) return;
   const matchingIds = currentItems
-    .filter((n) => n.origenTipo === origenTipo && n.origenId === origenId && !n.leida)
+    .filter(
+      (n) =>
+        resolveOrigenTipo(n) === origenTipo &&
+        String(n.origenId) === String(origenId) &&
+        !n.leida,
+    )
     .map((n) => n.id);
+
+  const set = getReadNotifIds(uid);
+  set.add(`${origenTipo}:${origenId}:novedad_urgente`);
+  set.add(`${origenTipo}:${origenId}:consulta_admin`);
+  set.add(`${origenTipo}:${origenId}:respuesta_supervisor`);
+  set.add(`${origenTipo}:${origenId}:seguimiento_novedad`);
+  if (origenTipo === 'ronda') {
+    set.add(`drv_rnd_urg_${origenId}`);
+  } else if (origenTipo === 'novedad') {
+    set.add(`drv_nov_urg_${origenId}`);
+  }
+  saveReadNotifIds(uid, set);
+
   if (matchingIds.length > 0) {
     void marcarTodasLeidas(matchingIds, uid);
   }
@@ -294,6 +476,7 @@ function deriveFromNovedad(
   raw: any,
   ctx: SuscribirNotificacionesContext,
   readSet: Set<string>,
+  coveredDirectKeys?: Set<string>,
 ): NotificacionSupervisor[] {
   const result: NotificacionSupervisor[] = [];
   const isSupervisor = ctx.role === 'supervisor';
@@ -315,137 +498,153 @@ function deriveFromNovedad(
 
   // 1) Nueva novedad urgente (Crítica / Alta) -> notifica al Supervisor asignado
   if (isSupervisor && esUrgente) {
-    const eventMs = toTimestampMs(
-      raw.fechaHoraEvento || raw.creadoEn || raw.createdAt,
-      raw.fechaEvento,
-      raw.horaEvento,
-    );
-    const id = `drv_nov_urg_${novId}`;
-    const tieneGestionPropia = Boolean(g && g.tipoRegistro !== 'consulta_admin');
-    result.push({
-      id,
-      destinatarioUid: ctx.uid,
-      tipo: 'novedad_urgente',
-      titulo: `${prioridad === 'critica' ? '🆘 Novedad Crítica' : '⚠️ Prioridad Alta'} · ${siteName}`,
-      mensaje: `${raw.autorNombre || raw.colaboradorNombre || 'Guardia'}: ${String(
-        raw.descripcion || raw.titulo || 'Sin descripción',
-      ).slice(0, 180)}`,
-      siteId,
-      siteName,
-      origenTipo: 'novedad',
-      origenId: novId,
-      vista: 'dashboard',
-      creadaPorUid: String(raw.autorUid || raw.colaboradorId || ''),
-      creadaPorNombre: String(raw.autorNombre || raw.colaboradorNombre || 'Guardia'),
-      // Si el supervisor ya la gestionó, se considera atendida/leída
-      leida: tieneGestionPropia || readSet.has(id),
-      creadoEnISO: eventMs ? new Date(eventMs).toISOString() : new Date().toISOString(),
-      creadoEnMs: eventMs || Date.now(),
-    });
+    const canonKey = `novedad:${novId}:novedad_urgente`;
+    // Suprimir derivación si ya existe documento oficial en notificaciones_supervisor
+    if (!coveredDirectKeys?.has(canonKey)) {
+      const eventMs = toTimestampMs(
+        raw.fechaHoraEvento || raw.creadoEn || raw.createdAt,
+        raw.fechaEvento,
+        raw.horaEvento,
+      );
+      const id = `drv_nov_urg_${novId}`;
+      const tieneGestionPropia = Boolean(g && g.tipoRegistro !== 'consulta_admin');
+      result.push({
+        id,
+        destinatarioUid: ctx.uid,
+        tipo: 'novedad_urgente',
+        titulo: `${prioridad === 'critica' ? '🆘 Novedad Crítica' : '⚠️ Prioridad Alta'} · ${siteName}`,
+        mensaje: `${raw.autorNombre || raw.colaboradorNombre || 'Guardia'}: ${String(
+          raw.descripcion || raw.titulo || 'Sin descripción',
+        ).slice(0, 180)}`,
+        siteId,
+        siteName,
+        origenTipo: 'novedad',
+        origenId: novId,
+        vista: 'dashboard',
+        creadaPorUid: String(raw.autorUid || raw.colaboradorId || ''),
+        creadaPorNombre: String(raw.autorNombre || raw.colaboradorNombre || 'Guardia'),
+        // Si el supervisor ya la gestionó, se considera atendida/leída
+        leida: tieneGestionPropia || readSet.has(id) || readSet.has(canonKey),
+        creadoEnISO: eventMs ? new Date(eventMs).toISOString() : new Date().toISOString(),
+        creadoEnMs: eventMs || Date.now(),
+      });
+    }
   }
 
   // 2) Consulta de Administración / Jefatura -> notifica al Supervisor asignado
   if (isSupervisor && g?.consultaAdmin?.mensaje) {
-    const c = g.consultaAdmin;
-    const cMs = toMs(c.fechaISO) || toMs(g.fechaGestion) || Date.now();
-    const id = `drv_cons_nov_${novId}_${c.fechaISO || g.ultimaGestionId || '1'}`;
-    result.push({
-      id,
-      destinatarioUid: ctx.uid,
-      tipo: 'consulta_admin',
-      titulo: `📣 Consulta de Jefatura · ${siteName}`,
-      mensaje: `${c.adminNombre || 'Administración'}: ${c.mensaje}`,
-      siteId,
-      siteName,
-      origenTipo: 'novedad',
-      origenId: novId,
-      vista: 'dashboard',
-      creadaPorUid: String(c.adminUid || ''),
-      creadaPorNombre: String(c.adminNombre || 'Administración'),
-      leida: !c.pendienteRespuesta || readSet.has(id),
-      creadoEnISO: new Date(cMs).toISOString(),
-      creadoEnMs: cMs,
-    });
+    const canonKey = `novedad:${novId}:consulta_admin`;
+    if (!coveredDirectKeys?.has(canonKey)) {
+      const c = g.consultaAdmin;
+      const cMs = toMs(c.fechaISO) || toMs(g.fechaGestion) || Date.now();
+      const id = `drv_cons_nov_${novId}_${c.fechaISO || g.ultimaGestionId || '1'}`;
+      result.push({
+        id,
+        destinatarioUid: ctx.uid,
+        tipo: 'consulta_admin',
+        titulo: `📣 Consulta de Jefatura · ${siteName}`,
+        mensaje: `${c.adminNombre || 'Administración'}: ${c.mensaje}`,
+        siteId,
+        siteName,
+        origenTipo: 'novedad',
+        origenId: novId,
+        vista: 'dashboard',
+        creadaPorUid: String(c.adminUid || ''),
+        creadaPorNombre: String(c.adminNombre || 'Administración'),
+        leida: !c.pendienteRespuesta || readSet.has(id) || readSet.has(canonKey),
+        creadoEnISO: new Date(cMs).toISOString(),
+        creadoEnMs: cMs,
+      });
+    }
   }
 
   // 3) Gestión / Respuesta del Supervisor -> registro y aviso en Centro de Mensajes para Admin
   if (isAdmin && g && g.tipoRegistro !== 'consulta_admin' && g.medidasTomadas) {
-    const supNombre = g.ultimoSupervisorNombre || g.supervisorNombre || 'Supervisor';
-    const gMs =
-      toMs(g.fechaUltimaGestionSupervisorISO) ||
-      toMs(g.fechaGestion, g.fechaGestionISO) ||
-      Date.now();
-    const id = `drv_resp_nov_${novId}_${g.ultimaGestionId || gMs}`;
-    const estadoLabel =
-      g.fueSolucionado === 'si'
-        ? 'Solucionado'
-        : g.fueSolucionado === 'no'
-        ? 'No Solucionado'
-        : 'Pendiente de Decisión';
-    result.push({
-      id,
-      destinatarioUid: ctx.uid,
-      tipo: 'respuesta_supervisor',
-      titulo: `Gestión de ${supNombre} · ${siteName}`,
-      mensaje: `[${estadoLabel}] ${g.medidasTomadas}${
-        g.observaciones ? ` — Obs: ${g.observaciones}` : ''
-      }`,
-      siteId,
-      siteName,
-      origenTipo: 'novedad',
-      origenId: novId,
-      vista: 'dashboard',
-      creadaPorUid: String(g.ultimoSupervisorUid || g.supervisorUid || ''),
-      creadaPorNombre: supNombre,
-      leida: readSet.has(id),
-      creadoEnISO: new Date(gMs).toISOString(),
-      creadoEnMs: gMs,
-    });
+    const canonKey = `novedad:${novId}:respuesta_supervisor`;
+    if (!coveredDirectKeys?.has(canonKey)) {
+      const supNombre = g.ultimoSupervisorNombre || g.supervisorNombre || 'Supervisor';
+      const gMs =
+        toMs(g.fechaUltimaGestionSupervisorISO) ||
+        toMs(g.fechaGestion, g.fechaGestionISO) ||
+        Date.now();
+      const id = `drv_resp_nov_${novId}_${g.ultimaGestionId || gMs}`;
+      const estadoLabel =
+        g.fueSolucionado === 'si'
+          ? 'Solucionado'
+          : g.fueSolucionado === 'no'
+          ? 'No Solucionado'
+          : 'Pendiente de Decisión';
+      result.push({
+        id,
+        destinatarioUid: ctx.uid,
+        tipo: 'respuesta_supervisor',
+        titulo: `Gestión de ${supNombre} · ${siteName}`,
+        mensaje: `[${estadoLabel}] ${g.medidasTomadas}${
+          g.observaciones ? ` — Obs: ${g.observaciones}` : ''
+        }`,
+        siteId,
+        siteName,
+        origenTipo: 'novedad',
+        origenId: novId,
+        vista: 'dashboard',
+        creadaPorUid: String(g.ultimoSupervisorUid || g.supervisorUid || ''),
+        creadaPorNombre: supNombre,
+        leida: readSet.has(id) || readSet.has(canonKey),
+        creadoEnISO: new Date(gMs).toISOString(),
+        creadoEnMs: gMs,
+      });
+    }
   }
 
   // 4) Seguimiento en hilo del Libro de Novedades -> notifica al Supervisor (o Admin si responde guardia/sup)
   if (raw.ultimoSeguimientoMsg && raw.ultimoSeguimientoEn) {
-    const segMs = toMs(raw.ultimoSeguimientoEn);
-    const segRol = String(raw.ultimoSeguimientoRol || '');
-    const segPor = String(raw.ultimoSeguimientoPor || 'Usuario');
-    const id = `drv_seg_nov_${novId}_${segMs || raw.cantidadSeguimientos || 1}`;
+    const canonKey = `novedad:${novId}:seguimiento_novedad`;
+    if (!coveredDirectKeys?.has(canonKey)) {
+      const segMs = toMs(raw.ultimoSeguimientoEn);
+      const segRol = String(raw.ultimoSeguimientoRol || '');
+      const segPor = String(raw.ultimoSeguimientoPor || 'Usuario');
+      const id = `drv_seg_nov_${novId}_${segMs || raw.cantidadSeguimientos || 1}`;
 
-    if (isSupervisor && ['admin', 'jefe_operaciones', 'rrhh'].includes(segRol)) {
-      result.push({
-        id,
-        destinatarioUid: ctx.uid,
-        tipo: 'seguimiento_novedad',
-        titulo: `💬 Seguimiento de Novedad · ${siteName}`,
-        mensaje: `${segPor}: ${raw.ultimoSeguimientoMsg}`,
-        siteId,
-        siteName,
-        origenTipo: 'novedad',
-        origenId: novId,
-        vista: esUrgente ? 'dashboard' : 'libro_novedades',
-        creadaPorUid: '',
-        creadaPorNombre: segPor,
-        leida: readSet.has(id),
-        creadoEnISO: new Date(segMs || Date.now()).toISOString(),
-        creadoEnMs: segMs || Date.now(),
-      });
-    } else if (isAdmin && segRol !== 'admin' && segRol !== 'jefe_operaciones') {
-      result.push({
-        id,
-        destinatarioUid: ctx.uid,
-        tipo: 'seguimiento_novedad',
-        titulo: `💬 Nuevo Seguimiento · ${siteName}`,
-        mensaje: `${segPor}: ${raw.ultimoSeguimientoMsg}`,
-        siteId,
-        siteName,
-        origenTipo: 'novedad',
-        origenId: novId,
-        vista: esUrgente ? 'dashboard' : 'libro_novedades',
-        creadaPorUid: '',
-        creadaPorNombre: segPor,
-        leida: Number(raw.unreadAdminCount || 0) === 0 || readSet.has(id),
-        creadoEnISO: new Date(segMs || Date.now()).toISOString(),
-        creadoEnMs: segMs || Date.now(),
-      });
+      if (isSupervisor && ['admin', 'jefe_operaciones', 'rrhh'].includes(segRol)) {
+        result.push({
+          id,
+          destinatarioUid: ctx.uid,
+          tipo: 'seguimiento_novedad',
+          titulo: `💬 Seguimiento de Novedad · ${siteName}`,
+          mensaje: `${segPor}: ${raw.ultimoSeguimientoMsg}`,
+          siteId,
+          siteName,
+          origenTipo: 'novedad',
+          origenId: novId,
+          vista: esUrgente ? 'dashboard' : 'libro_novedades',
+          creadaPorUid: '',
+          creadaPorNombre: segPor,
+          leida: readSet.has(id) || readSet.has(canonKey),
+          creadoEnISO: new Date(segMs || Date.now()).toISOString(),
+          creadoEnMs: segMs || Date.now(),
+        });
+      } else if (isAdmin && segRol !== 'admin' && segRol !== 'jefe_operaciones') {
+        result.push({
+          id,
+          destinatarioUid: ctx.uid,
+          tipo: 'seguimiento_novedad',
+          titulo: `💬 Nuevo Seguimiento · ${siteName}`,
+          mensaje: `${segPor}: ${raw.ultimoSeguimientoMsg}`,
+          siteId,
+          siteName,
+          origenTipo: 'novedad',
+          origenId: novId,
+          vista: esUrgente ? 'dashboard' : 'libro_novedades',
+          creadaPorUid: '',
+          creadaPorNombre: segPor,
+          leida:
+            Number(raw.unreadAdminCount || 0) === 0 ||
+            readSet.has(id) ||
+            readSet.has(canonKey),
+          creadoEnISO: new Date(segMs || Date.now()).toISOString(),
+          creadoEnMs: segMs || Date.now(),
+        });
+      }
     }
   }
 
@@ -456,6 +655,7 @@ function deriveFromRound(
   raw: any,
   ctx: SuscribirNotificacionesContext,
   readSet: Set<string>,
+  coveredDirectKeys?: Set<string>,
 ): NotificacionSupervisor[] {
   const result: NotificacionSupervisor[] = [];
   if (raw.result !== 'CON_NOVEDAD' && raw.result !== 'SOSPECHA') return result;
@@ -476,86 +676,95 @@ function deriveFromRound(
 
   // 1) Ronda con sospecha/novedad -> notifica al Supervisor
   if (isSupervisor) {
-    const rawTime = raw.endTime || raw.startTime || raw.finishedAt || raw.startedAt;
-    const rMs = toTimestampMs(rawTime);
-    const id = `drv_rnd_urg_${roundId}`;
-    const tieneGestionPropia = Boolean(g && g.tipoRegistro !== 'consulta_admin');
-    result.push({
-      id,
-      destinatarioUid: ctx.uid,
-      tipo: 'novedad_urgente',
-      titulo: `${raw.result === 'SOSPECHA' ? '🚨 Ronda con Sospecha' : '🛰️ Ronda con Novedad'} · ${siteName}`,
-      mensaje: `${raw.workerName || 'Guardia'}: ${String(
-        raw.notes || raw.observations || 'Incidencia reportada en ronda.',
-      ).slice(0, 180)}`,
-      siteId,
-      siteName,
-      origenTipo: 'ronda',
-      origenId: roundId,
-      vista: 'dashboard',
-      creadaPorUid: String(raw.workerId || ''),
-      creadaPorNombre: String(raw.workerName || 'Guardia'),
-      leida: tieneGestionPropia || readSet.has(id),
-      creadoEnISO: toSafeISOString(rawTime) || new Date(rMs || Date.now()).toISOString(),
-      creadoEnMs: rMs || Date.now(),
-    });
+    const canonKey = `ronda:${roundId}:novedad_urgente`;
+    if (!coveredDirectKeys?.has(canonKey)) {
+      const rawTime = raw.endTime || raw.startTime || raw.finishedAt || raw.startedAt;
+      const rMs = toTimestampMs(rawTime);
+      const id = `drv_rnd_urg_${roundId}`;
+      const tieneGestionPropia = Boolean(g && g.tipoRegistro !== 'consulta_admin');
+      result.push({
+        id,
+        destinatarioUid: ctx.uid,
+        tipo: 'novedad_urgente',
+        titulo: `${raw.result === 'SOSPECHA' ? '🚨 Ronda con Sospecha' : '🛰️ Ronda con Novedad'} · ${siteName}`,
+        mensaje: `${raw.workerName || 'Guardia'}: ${String(
+          raw.notes || raw.observations || 'Incidencia reportada en ronda.',
+        ).slice(0, 180)}`,
+        siteId,
+        siteName,
+        origenTipo: 'ronda',
+        origenId: roundId,
+        vista: 'dashboard',
+        creadaPorUid: String(raw.workerId || ''),
+        creadaPorNombre: String(raw.workerName || 'Guardia'),
+        leida: tieneGestionPropia || readSet.has(id) || readSet.has(canonKey),
+        creadoEnISO: toSafeISOString(rawTime) || new Date(rMs || Date.now()).toISOString(),
+        creadoEnMs: rMs || Date.now(),
+      });
+    }
   }
 
   // 2) Consulta de Administración sobre Ronda -> notifica al Supervisor
   if (isSupervisor && g?.consultaAdmin?.mensaje) {
-    const c = g.consultaAdmin;
-    const cMs = toMs(c.fechaISO) || toMs(g.fechaGestion) || Date.now();
-    const id = `drv_cons_rnd_${roundId}_${c.fechaISO || g.ultimaGestionId || '1'}`;
-    result.push({
-      id,
-      destinatarioUid: ctx.uid,
-      tipo: 'consulta_admin',
-      titulo: `📣 Consulta de Jefatura (Ronda) · ${siteName}`,
-      mensaje: `${c.adminNombre || 'Administración'}: ${c.mensaje}`,
-      siteId,
-      siteName,
-      origenTipo: 'ronda',
-      origenId: roundId,
-      vista: 'dashboard',
-      creadaPorUid: String(c.adminUid || ''),
-      creadaPorNombre: String(c.adminNombre || 'Administración'),
-      leida: !c.pendienteRespuesta || readSet.has(id),
-      creadoEnISO: new Date(cMs).toISOString(),
-      creadoEnMs: cMs,
-    });
+    const canonKey = `ronda:${roundId}:consulta_admin`;
+    if (!coveredDirectKeys?.has(canonKey)) {
+      const c = g.consultaAdmin;
+      const cMs = toMs(c.fechaISO) || toMs(g.fechaGestion) || Date.now();
+      const id = `drv_cons_rnd_${roundId}_${c.fechaISO || g.ultimaGestionId || '1'}`;
+      result.push({
+        id,
+        destinatarioUid: ctx.uid,
+        tipo: 'consulta_admin',
+        titulo: `📣 Consulta de Jefatura (Ronda) · ${siteName}`,
+        mensaje: `${c.adminNombre || 'Administración'}: ${c.mensaje}`,
+        siteId,
+        siteName,
+        origenTipo: 'ronda',
+        origenId: roundId,
+        vista: 'dashboard',
+        creadaPorUid: String(c.adminUid || ''),
+        creadaPorNombre: String(c.adminNombre || 'Administración'),
+        leida: !c.pendienteRespuesta || readSet.has(id) || readSet.has(canonKey),
+        creadoEnISO: new Date(cMs).toISOString(),
+        creadoEnMs: cMs,
+      });
+    }
   }
 
   // 3) Gestión del Supervisor sobre Ronda -> registro para Admin
   if (isAdmin && g && g.tipoRegistro !== 'consulta_admin' && g.medidasTomadas) {
-    const supNombre = g.ultimoSupervisorNombre || g.supervisorNombre || 'Supervisor';
-    const gMs =
-      toMs(g.fechaUltimaGestionSupervisorISO) ||
-      toMs(g.fechaGestion, g.fechaGestionISO) ||
-      Date.now();
-    const id = `drv_resp_rnd_${roundId}_${g.ultimaGestionId || gMs}`;
-    const estadoLabel =
-      g.fueSolucionado === 'si'
-        ? 'Solucionado'
-        : g.fueSolucionado === 'no'
-        ? 'No Solucionado'
-        : 'Pendiente de Decisión';
-    result.push({
-      id,
-      destinatarioUid: ctx.uid,
-      tipo: 'respuesta_supervisor',
-      titulo: `Gestión en Ronda (${supNombre}) · ${siteName}`,
-      mensaje: `[${estadoLabel}] ${g.medidasTomadas}`,
-      siteId,
-      siteName,
-      origenTipo: 'ronda',
-      origenId: roundId,
-      vista: 'dashboard',
-      creadaPorUid: String(g.ultimoSupervisorUid || g.supervisorUid || ''),
-      creadaPorNombre: supNombre,
-      leida: readSet.has(id),
-      creadoEnISO: new Date(gMs).toISOString(),
-      creadoEnMs: gMs,
-    });
+    const canonKey = `ronda:${roundId}:respuesta_supervisor`;
+    if (!coveredDirectKeys?.has(canonKey)) {
+      const supNombre = g.ultimoSupervisorNombre || g.supervisorNombre || 'Supervisor';
+      const gMs =
+        toMs(g.fechaUltimaGestionSupervisorISO) ||
+        toMs(g.fechaGestion, g.fechaGestionISO) ||
+        Date.now();
+      const id = `drv_resp_rnd_${roundId}_${g.ultimaGestionId || gMs}`;
+      const estadoLabel =
+        g.fueSolucionado === 'si'
+          ? 'Solucionado'
+          : g.fueSolucionado === 'no'
+          ? 'No Solucionado'
+          : 'Pendiente de Decisión';
+      result.push({
+        id,
+        destinatarioUid: ctx.uid,
+        tipo: 'respuesta_supervisor',
+        titulo: `Gestión en Ronda (${supNombre}) · ${siteName}`,
+        mensaje: `[${estadoLabel}] ${g.medidasTomadas}`,
+        siteId,
+        siteName,
+        origenTipo: 'ronda',
+        origenId: roundId,
+        vista: 'dashboard',
+        creadaPorUid: String(g.ultimoSupervisorUid || g.supervisorUid || ''),
+        creadaPorNombre: supNombre,
+        leida: readSet.has(id) || readSet.has(canonKey),
+        creadoEnISO: new Date(gMs).toISOString(),
+        creadoEnMs: gMs,
+      });
+    }
   }
 
   return result;
@@ -565,6 +774,7 @@ function deriveFromVisita(
   raw: any,
   ctx: SuscribirNotificacionesContext,
   readSet: Set<string>,
+  coveredDirectKeys?: Set<string>,
 ): NotificacionSupervisor[] {
   const result: NotificacionSupervisor[] = [];
   if (!raw.ultimoSeguimientoMsg || !raw.ultimoSeguimientoEn) return result;
@@ -572,6 +782,11 @@ function deriveFromVisita(
   const isSupervisor = ctx.role === 'supervisor';
   const isAdmin = ctx.role === 'admin' || ctx.role === 'jefe_operaciones';
   const visitaId = String(raw.id);
+  const canonKey = `visita:${visitaId}:visita_seguimiento`;
+  if (coveredDirectKeys?.has(canonKey)) {
+    return result;
+  }
+
   const siteName = String(raw.sucursalNombre || 'Sucursal');
   const segMs = toMs(raw.ultimoSeguimientoEn);
   const segPor = String(raw.ultimoSeguimientoPor || 'Administración');
@@ -593,7 +808,7 @@ function deriveFromVisita(
       vista: 'visitas_supervisor',
       creadaPorUid: '',
       creadaPorNombre: segPor,
-      leida: !unreadSup || readSet.has(id),
+      leida: !unreadSup || readSet.has(id) || readSet.has(canonKey),
       creadoEnISO: new Date(segMs || Date.now()).toISOString(),
       creadoEnMs: segMs || Date.now(),
     });
@@ -612,7 +827,7 @@ function deriveFromVisita(
       vista: 'visitas_supervisor',
       creadaPorUid: String(raw.supervisorUid || ''),
       creadaPorNombre: segPor,
-      leida: !unreadAdm || readSet.has(id),
+      leida: !unreadAdm || readSet.has(id) || readSet.has(canonKey),
       creadoEnISO: new Date(segMs || Date.now()).toISOString(),
       creadoEnMs: segMs || Date.now(),
     });
@@ -649,7 +864,8 @@ export function subscribeNotificacionesSupervisor(
   const visitasMap = new Map<string, any>();
   const directNotifsMap = new Map<string, NotificacionSupervisor>();
 
-  let knownUnreadIds = new Set<string>();
+  const knownUnreadIds = new Set<string>();
+  const knownUnreadAlertKeys = new Set<string>();
   let initialSourcesSettled = false;
   let settleTimer: ReturnType<typeof setTimeout> | null = setTimeout(() => {
     initialSourcesSettled = true;
@@ -661,6 +877,15 @@ export function subscribeNotificacionesSupervisor(
   const recompute = (allowEmitNew: boolean) => {
     if (disposed) return;
 
+    // 1. Recopilar claves canónicas cubiertas por documentos directos de notificaciones_supervisor
+    const coveredDirectKeys = new Set<string>();
+    directNotifsMap.forEach((n) => {
+      const ot = resolveOrigenTipo(n);
+      if (n.origenId && n.tipo) {
+        coveredDirectKeys.add(`${ot}:${n.origenId}:${n.tipo}`);
+      }
+    });
+
     const mergedNov = new Map<string, any>();
     novedadesBySource.forEach((m) => m.forEach((v, k) => mergedNov.set(k, v)));
 
@@ -668,50 +893,86 @@ export function subscribeNotificacionesSupervisor(
     rondasBySource.forEach((m) => m.forEach((v, k) => mergedRounds.set(k, v)));
 
     const provisionalReadSet = getReadNotifIds(uid);
-    const derived: NotificacionSupervisor[] = [];
 
+    // 2. Derivar notificaciones sintéticas únicamente para eventos no cubiertos por Firestore directos
+    const derived: NotificacionSupervisor[] = [];
     mergedNov.forEach((nov) => {
-      derived.push(...deriveFromNovedad(nov, ctx, provisionalReadSet));
+      derived.push(...deriveFromNovedad(nov, ctx, provisionalReadSet, coveredDirectKeys));
     });
     mergedRounds.forEach((rnd) => {
-      derived.push(...deriveFromRound(rnd, ctx, provisionalReadSet));
+      derived.push(...deriveFromRound(rnd, ctx, provisionalReadSet, coveredDirectKeys));
     });
     visitasMap.forEach((vis) => {
-      derived.push(...deriveFromVisita(vis, ctx, provisionalReadSet));
+      derived.push(...deriveFromVisita(vis, ctx, provisionalReadSet, coveredDirectKeys));
     });
+
+    // 3. Preparar lista combinada sin duplicados
+    const combined: NotificacionSupervisor[] = [];
+
+    // Agregar las derivadas válidas (filtrando por si acaso alguna coincide con coveredDirectKeys)
+    derived.forEach((d) => {
+      const ot = resolveOrigenTipo(d);
+      const canonKey = d.origenId && d.tipo ? `${ot}:${d.origenId}:${d.tipo}` : '';
+      if (!canonKey || !coveredDirectKeys.has(canonKey)) {
+        combined.push(d);
+      }
+    });
+
+    // Agregar todas las directas (fuente de verdad oficial)
     directNotifsMap.forEach((n) => {
-      derived.push({
-        ...n,
-        leida: isNotifRead(uid, n.id, n.leida),
-      });
+      combined.push(n);
     });
 
     // Asegurar marca de agua inicial para no saturar con registros históricos (> 24h)
-    const finalReadSet = ensureInitialReadWatermark(uid, derived);
+    const finalReadSet = ensureInitialReadWatermark(uid, combined);
 
-    // Deduplicar y aplicar estado leído actualizado
-    const byId = new Map<string, NotificacionSupervisor>();
-    derived.forEach((item) => {
-      byId.set(item.id, {
-        ...item,
-        leida: item.leida || finalReadSet.has(item.id),
-      });
+    // 4. Deduplicación canónica estricta
+    // Para 'novedad_urgente', la clave canónica es `${ot}:${origenId}:novedad_urgente`.
+    // Las directas de notificaciones_supervisor tienen precedencia sobre las derivadas.
+    const byKey = new Map<string, NotificacionSupervisor>();
+
+    combined.forEach((item) => {
+      const canonKey = getNotificationCanonicalKey(item);
+      const existing = byKey.get(canonKey);
+
+      // Si no existe, agregarla.
+      // Si ya existe y el nuevo item es directo (no empieza con 'drv_'), sobrescribe al sintético.
+      if (!existing || (existing.id.startsWith('drv_') && !item.id.startsWith('drv_'))) {
+        byKey.set(canonKey, {
+          ...item,
+          leida: isNotifRead(uid, item, finalReadSet),
+        });
+      }
     });
 
-    const all = Array.from(byId.values()).sort((a, b) => b.creadoEnMs - a.creadoEnMs);
+    const all = Array.from(byKey.values()).sort((a, b) => b.creadoEnMs - a.creadoEnMs);
 
+    // 5. Detección de nuevas notificaciones para emitir alerta sonora/toast sin duplicados
     const nuevas: NotificacionSupervisor[] = [];
     if (initialSourcesSettled && allowEmitNew) {
       all.forEach((item) => {
-        if (!item.leida && !knownUnreadIds.has(item.id) && item.creadaPorUid !== uid) {
+        const canonKey = getNotificationCanonicalKey(item);
+        const ot = resolveOrigenTipo(item);
+        const eventKey = item.origenId && item.tipo ? `${ot}:${item.origenId}:${item.tipo}` : '';
+
+        const isAlreadyKnown =
+          knownUnreadIds.has(item.id) ||
+          knownUnreadAlertKeys.has(canonKey) ||
+          (eventKey ? knownUnreadAlertKeys.has(eventKey) : false);
+
+        if (!item.leida && !isAlreadyKnown && item.creadaPorUid !== uid) {
           nuevas.push(item);
         }
       });
     }
 
-    // Actualizar conjunto de IDs ya conocidos para futuros cambios en vivo
+    // Actualizar conjunto de IDs y claves canónicas ya conocidos para evitar re-alertas
     all.forEach((item) => {
       knownUnreadIds.add(item.id);
+      knownUnreadAlertKeys.add(getNotificationCanonicalKey(item));
+      if (item.origenId && item.tipo) {
+        knownUnreadAlertKeys.add(`${resolveOrigenTipo(item)}:${item.origenId}:${item.tipo}`);
+      }
     });
 
     onChange(all, nuevas);
@@ -841,15 +1102,22 @@ export function subscribeNotificacionesSupervisor(
         snap.docs.forEach((d) => {
           const data: any = d.data(LIVE_OPTS);
           const ms = toMs(data.creadoEn);
+          const tipo = data.tipo as TipoNotificacionSupervisor;
+          const origenTipo = resolveOrigenTipo({
+            id: d.id,
+            tipo,
+            origenTipo: data.origenTipo || undefined,
+            vista: data.vista,
+          });
           directNotifsMap.set(d.id, {
             id: d.id,
             destinatarioUid: String(data.destinatarioUid || ''),
-            tipo: data.tipo as TipoNotificacionSupervisor,
+            tipo,
             titulo: String(data.titulo || 'Notificación'),
             mensaje: String(data.mensaje || ''),
             siteId: data.siteId ? String(data.siteId) : undefined,
             siteName: data.siteName || undefined,
-            origenTipo: data.origenTipo || undefined,
+            origenTipo,
             origenId: data.origenId || undefined,
             vista: (data.vista || 'dashboard') as NotificacionSupervisor['vista'],
             creadaPorUid: String(data.creadaPorUid || ''),
