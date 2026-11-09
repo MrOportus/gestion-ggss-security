@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import {
   Building2,
   Calendar,
+  Camera,
   CheckCircle2,
   ClipboardCheck,
   Clock,
@@ -23,6 +24,7 @@ import {
   subscribeHistorialGestion,
 } from '../../lib/supervisor/gestionIncidenciaService';
 import { useAppStore } from '../../store/useAppStore';
+import PhotoGalleryModal from '../PhotoGalleryModal';
 
 const ADMIN_QUICK_PROMPTS = [
   '¿Esto fue resuelto?',
@@ -70,7 +72,7 @@ export const GestionSupervisorModal: React.FC<GestionSupervisorModalProps> = ({
   const [isSaving, setIsSaving] = useState(false);
   const [historial, setHistorial] = useState<GestionSupervisorEntry[]>([]);
   const [loadingHistorial, setLoadingHistorial] = useState(false);
-  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
+  const [galleryIndex, setGalleryIndex] = useState<number | null>(null);
 
   useEffect(() => {
     if (!isOpen || !alerta) return;
@@ -336,8 +338,8 @@ export const GestionSupervisorModal: React.FC<GestionSupervisorModalProps> = ({
             <div className="min-w-0">
               <span className="text-[10px] font-black uppercase tracking-widest text-indigo-300 block">
                 {isAdminView
-                  ? 'Fiscalización y Consulta a Supervisor'
-                  : 'Gestión Operacional del Supervisor'}
+                  ? 'Actividad y Consulta a Supervisor'
+                  : 'Gestión Operativa del Supervisor'}
               </span>
               <h3 className="text-base font-black truncate">{alerta.clasificacionLabel}</h3>
             </div>
@@ -368,10 +370,11 @@ export const GestionSupervisorModal: React.FC<GestionSupervisorModalProps> = ({
                   <button
                     type="button"
                     onClick={() => onOpenOriginalRecord(alerta)}
-                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-[10px] font-black uppercase tracking-wider transition-colors"
+                    className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-[10px] font-black uppercase tracking-wider transition-colors shadow-xs"
+                    title="Abrir registro original para dar seguimiento directo al guardia de turno"
                   >
                     <ExternalLink className="w-3 h-3" />
-                    Ver Registro Original
+                    Registro Original (Guardia)
                   </button>
                 )}
               </div>
@@ -390,33 +393,49 @@ export const GestionSupervisorModal: React.FC<GestionSupervisorModalProps> = ({
               </div>
             </div>
 
-            <div className="p-3 bg-white rounded-xl border border-slate-200/70 text-xs text-slate-700 leading-relaxed whitespace-pre-wrap">
-              {alerta.descripcion}
-            </div>
-
-            {alerta.fotosUrls.length > 0 && (
-              <div>
-                <p className="text-[10px] font-black uppercase tracking-wider text-slate-400 mb-1.5">
-                  Evidencias Fotográficas Originales ({alerta.fotosUrls.length})
-                </p>
-                <div className="flex items-center gap-2 overflow-x-auto pb-1">
-                  {alerta.fotosUrls.map((url, idx) => (
-                    <button
-                      key={idx}
-                      type="button"
-                      onClick={() => setLightboxUrl(url)}
-                      className="w-16 h-16 rounded-xl overflow-hidden border border-slate-200 shrink-0 hover:ring-2 hover:ring-blue-500 transition-all"
-                    >
-                      <img
-                        src={url}
-                        alt={`Evidencia ${idx + 1}`}
-                        className="w-full h-full object-cover"
-                      />
-                    </button>
-                  ))}
-                </div>
+            {/* Zona de Novedad: Estilo Post-it amarillo con miniaturas y acceso a galería */}
+            <div className="bg-amber-50/90 border border-amber-200/90 rounded-2xl p-3.5 text-xs text-amber-950 shadow-xs space-y-2.5">
+              <div className="flex items-center justify-between text-[11px] font-black uppercase tracking-wider text-amber-800/90">
+                <span className="flex items-center gap-1.5">
+                  <span>📌</span> Descripción de la Novedad
+                </span>
+                {alerta.fotosUrls.length > 0 && (
+                  <span className="text-[10px] font-bold text-amber-800 bg-amber-100/90 px-2 py-0.5 rounded-full border border-amber-300/70">
+                    📷 {alerta.fotosUrls.length} {alerta.fotosUrls.length === 1 ? 'fotografía' : 'fotografías'}
+                  </span>
+                )}
               </div>
-            )}
+
+              <div className="leading-relaxed whitespace-pre-wrap font-medium">
+                {alerta.descripcion}
+              </div>
+
+              {alerta.fotosUrls.length > 0 && (
+                <div className="pt-2 border-t border-amber-200/70">
+                  <p className="text-[10px] font-black uppercase tracking-wider text-amber-800/80 mb-2 flex items-center gap-1">
+                    <Camera className="w-3.5 h-3.5 text-amber-700" />
+                    Miniaturas (clic para abrir galería completa):
+                  </p>
+                  <div className="flex items-center gap-2 overflow-x-auto pb-1">
+                    {alerta.fotosUrls.map((url, idx) => (
+                      <button
+                        key={idx}
+                        type="button"
+                        onClick={() => setGalleryIndex(idx)}
+                        className="w-14 h-14 rounded-xl overflow-hidden border border-amber-300 shrink-0 hover:ring-2 hover:ring-amber-500 transition-all cursor-pointer group bg-amber-100 shadow-xs"
+                        title="Clic para ver en la galería de fotos"
+                      >
+                        <img
+                          src={url}
+                          alt={`Fotografía ${idx + 1}`}
+                          className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                        />
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Aviso de Consulta de Jefatura / Administración (Visible especialmente para el Supervisor) */}
@@ -781,18 +800,14 @@ export const GestionSupervisorModal: React.FC<GestionSupervisorModalProps> = ({
         </div>
       </div>
 
-      {/* Lightbox para evidencias fotográficas */}
-      {lightboxUrl && (
-        <div
-          className="fixed inset-0 z-[60] bg-black/85 flex items-center justify-center p-4"
-          onClick={() => setLightboxUrl(null)}
-        >
-          <img
-            src={lightboxUrl}
-            alt="Evidencia ampliada"
-            className="max-w-full max-h-[88vh] rounded-2xl object-contain shadow-2xl"
-          />
-        </div>
+      {/* Galería completa para evidencias fotográficas */}
+      {galleryIndex !== null && alerta.fotosUrls.length > 0 && (
+        <PhotoGalleryModal
+          photos={alerta.fotosUrls}
+          initialIndex={galleryIndex}
+          onClose={() => setGalleryIndex(null)}
+          title={`Evidencias · ${alerta.siteName}`}
+        />
       )}
     </div>
   );

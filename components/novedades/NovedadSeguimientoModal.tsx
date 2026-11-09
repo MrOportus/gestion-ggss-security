@@ -8,7 +8,7 @@
  * FASE 4: componente del guardia. No toca admin view ni reglas.
  */
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import {
   X,
@@ -22,7 +22,9 @@ import {
   ShieldCheck,
   CheckCheck,
   Check,
+  Smartphone,
 } from 'lucide-react';
+import PhotoGalleryModal from '../PhotoGalleryModal';
 import {
   addSeguimiento,
   formatSeguimientoFecha,
@@ -113,8 +115,32 @@ const NovedadSeguimientoModal: React.FC<NovedadSeguimientoModalProps> = ({
 
   // Visor de imagen en pantalla completa
   const [fullScreenImage, setFullScreenImage] = useState<string | null>(null);
+  const [galleryIndex, setGalleryIndex] = useState<number | null>(null);
 
   const bottomRef = useRef<HTMLDivElement>(null);
+
+  // Extracción exhaustiva de fotos adjuntas a la novedad original
+  const fotosOriginales = useMemo(() => {
+    const list: string[] = [];
+    const pushVal = (val: any) => {
+      if (!val) return;
+      if (typeof val === 'string' && val.trim().startsWith('http') && !list.includes(val.trim())) {
+        list.push(val.trim());
+      } else if (typeof val === 'object' && typeof val.url === 'string' && val.url.trim().startsWith('http')) {
+        const u = val.url.trim();
+        if (!list.includes(u)) list.push(u);
+      }
+    };
+
+    const rawNov = novedad as any;
+    if (Array.isArray(rawNov?.evidencias)) rawNov.evidencias.forEach(pushVal);
+    if (Array.isArray(rawNov?.fotos)) rawNov.fotos.forEach(pushVal);
+    if (Array.isArray(rawNov?.fotosUrls)) rawNov.fotosUrls.forEach(pushVal);
+    if (rawNov?.evidenciaUrl) pushVal(rawNov.evidenciaUrl);
+    if (rawNov?.fotoUrl) pushVal(rawNov.fotoUrl);
+    if (rawNov?.foto) pushVal(rawNov.foto);
+    return list;
+  }, [novedad]);
 
   // ── Subscripción en tiempo real al historial de seguimiento ───────────────
   useEffect(() => {
@@ -283,14 +309,56 @@ const NovedadSeguimientoModal: React.FC<NovedadSeguimientoModalProps> = ({
         </span>
       </div>
 
-      {/* Descripcion de la novedad */}
-      <div className="mx-4 md:mx-8 mt-3 md:mt-6 bg-white border border-slate-100 rounded-2xl p-4 md:p-6 shadow-sm shrink-0">
-        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 md:mb-2 md:text-xs">Novedad original</p>
-        <p className="text-sm md:text-base font-bold text-slate-700 leading-relaxed">{novedad.descripcion}</p>
-        <p className="text-[10px] md:text-xs text-slate-400 font-medium mt-1.5 md:mt-2">
+      {/* Banner de comunicación directa con el guardia de turno */}
+      <div className="mx-4 md:mx-8 mt-3 px-3.5 py-2.5 bg-blue-50/90 border border-blue-200/90 rounded-2xl flex items-center gap-2.5 text-xs text-blue-900 shadow-xs shrink-0">
+        <Smartphone size={16} className="text-blue-600 shrink-0" />
+        <div className="leading-tight">
+          <strong>Canal directo con el guardia de turno:</strong> Las notas e indicaciones enviadas en este seguimiento le llegarán en tiempo real a la aplicación móvil del guardia en {novedad.sucursalNombre || 'la instalación'}.
+        </div>
+      </div>
+
+      {/* Descripcion de la novedad en formato Post-It amarillo con fotos integradas */}
+      <div className="mx-4 md:mx-8 mt-2.5 bg-amber-50/90 border border-amber-200/90 rounded-2xl p-4 md:p-5 shadow-xs shrink-0 space-y-2">
+        <div className="flex items-center justify-between text-[10px] font-black uppercase tracking-widest text-amber-800/90">
+          <span>📌 Novedad original</span>
+          {fotosOriginales.length > 0 && (
+            <span className="text-[10px] font-bold text-amber-800 bg-amber-100/90 px-2 py-0.5 rounded-full border border-amber-300/70">
+              📷 {fotosOriginales.length} {fotosOriginales.length === 1 ? 'foto' : 'fotos'}
+            </span>
+          )}
+        </div>
+        <p className="text-sm md:text-base font-medium text-amber-950 leading-relaxed">{novedad.descripcion}</p>
+        <p className="text-[10px] md:text-xs text-amber-800/80 font-medium">
           Por {novedad.autorNombre}
           {novedad.fechaHoraDispositivo ? ` · ${formatSeguimientoFecha(novedad.fechaHoraDispositivo)}` : ''}
         </p>
+
+        {/* Galería de Fotografías Originales de la Novedad */}
+        {fotosOriginales.length > 0 && (
+          <div className="pt-2.5 border-t border-amber-200/70">
+            <p className="text-[10px] font-black text-amber-800/80 uppercase tracking-widest mb-2 flex items-center gap-1.5">
+              <Camera size={13} className="text-amber-700" />
+              Fotografías adjuntas (clic para ampliar galería)
+            </p>
+            <div className="flex items-center gap-2.5 overflow-x-auto pb-1">
+              {fotosOriginales.map((url, idx) => (
+                <button
+                  key={idx}
+                  type="button"
+                  onClick={() => setGalleryIndex(idx)}
+                  className="w-16 h-16 md:w-20 md:h-20 rounded-xl overflow-hidden border border-amber-300 shrink-0 hover:ring-2 hover:ring-amber-500 transition-all cursor-pointer group relative bg-amber-100 shadow-xs"
+                  title="Clic para ampliar fotografía"
+                >
+                  <img
+                    src={url}
+                    alt={`Fotografía ${idx + 1}`}
+                    className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                  />
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* HISTORIAL Y FORMULARIO (Siempre visible en el fondo) */}
@@ -425,13 +493,13 @@ const NovedadSeguimientoModal: React.FC<NovedadSeguimientoModalProps> = ({
             <div className="pt-4 border-t border-slate-100 mt-6 space-y-4">
               <div className="space-y-2">
                 <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">
-                  Mensaje de seguimiento *
+                  Mensaje / Indicación para el guardia de turno *
                 </label>
                 <textarea
                   value={mensaje}
                   onChange={e => setMensaje(e.target.value)}
                   rows={4}
-                  placeholder="Describe el estado actual, acciones realizadas o informacion relevante para el proximo turno."
+                  placeholder="Escriba aquí las instrucciones o indicaciones que recibirá el guardia de turno en su app..."
                   className="w-full px-4 py-3 bg-white border-2 border-slate-200 rounded-2xl focus:border-blue-500 outline-none transition-all font-medium text-slate-700 placeholder-slate-400 resize-none text-sm"
                 />
                 <p className={`text-[10px] font-bold px-1 ${mensaje.trim().length < 5 ? 'text-red-400' : 'text-emerald-500'}`}>
@@ -584,7 +652,7 @@ const NovedadSeguimientoModal: React.FC<NovedadSeguimientoModalProps> = ({
               {enviando ? (
                 <><Loader2 size={18} className="animate-spin" /> Enviando...</>
               ) : (
-                <><Send size={18} /> Enviar Nota</>
+                <><Send size={18} /> Enviar al Guardia</>
               )}
             </button>
             <button
@@ -618,6 +686,16 @@ const NovedadSeguimientoModal: React.FC<NovedadSeguimientoModalProps> = ({
             onClick={(e) => e.stopPropagation()}
           />
         </div>
+      )}
+
+      {/* Galería de Fotografías Originales de la Novedad */}
+      {galleryIndex !== null && fotosOriginales.length > 0 && (
+        <PhotoGalleryModal
+          photos={fotosOriginales}
+          initialIndex={galleryIndex}
+          onClose={() => setGalleryIndex(null)}
+          title={`Fotografías · ${novedad.sucursalNombre || 'Novedad'}`}
+        />
       )}
 
     </div>

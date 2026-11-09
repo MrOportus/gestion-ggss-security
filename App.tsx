@@ -615,7 +615,7 @@ const App: React.FC = () => {
             </span>
           </button>
 
-          {(currentUser.role === 'admin' || currentUser.role === 'supervisor') && (
+          {currentUser.role === 'supervisor' && (
             <button onClick={() => setCurrentView('visitas_supervisor')} className={navItemClass('visitas_supervisor')}>
               <ClipboardCheck size={20} className="text-emerald-600" />
               <span className="font-medium">Visitas de Supervisor</span>
@@ -737,9 +737,14 @@ const App: React.FC = () => {
                 <span className="bg-white px-2 -mt-3 text-[10px] font-black text-slate-300 uppercase tracking-[0.2em]">Gestión Supervisores</span>
               </div>
 
+              <button onClick={() => setCurrentView('visitas_supervisor')} className={navItemClass('visitas_supervisor')}>
+                <ClipboardCheck size={20} className="text-emerald-600" />
+                <span className="font-medium">Visitas de Supervisor</span>
+              </button>
+
               <button onClick={() => setCurrentView('supervisor_dashboard')} className={navItemClass('supervisor_dashboard')}>
                 <ShieldAlert size={20} className="text-indigo-600" />
-                <span className="font-medium">Fiscalización Supervisores</span>
+                <span className="font-medium">Actividad de Supervisores</span>
               </button>
 
               <button onClick={() => setCurrentView('supervisor_mgmt')} className={navItemClass('supervisor_mgmt')}>
@@ -825,7 +830,7 @@ const App: React.FC = () => {
               )}
               <span className="text-[10px] text-slate-400 font-bold uppercase tracking-widest leading-none mt-1 truncate">
                 {currentView === 'dashboard' ? (currentUser.role === 'supervisor' ? 'Dashboard Operacional' : 'Panel General') :
-                  currentView === 'supervisor_dashboard' ? 'Fiscalización Supervisores' :
+                  currentView === 'supervisor_dashboard' ? 'Actividad de Supervisores' :
                   currentView === 'employees' ? 'Empleados' :
                     currentView === 'tasks' ? 'Tareas Recurrentes' :
                       currentView === 'sites' ? 'Sucursales' :
@@ -869,7 +874,7 @@ const App: React.FC = () => {
                 </div>
                 <ChevronRight size={16} className="text-slate-300" />
               </button>
-              {(currentUser.role === 'admin' || currentUser.role === 'supervisor') && (
+              {currentUser.role === 'supervisor' && (
                 <button onClick={() => handleNavChange('visitas_supervisor')} className={mobileNavItemClass('visitas_supervisor')}>
                   <div className="flex items-center gap-3"><ClipboardCheck size={20} className="text-emerald-600" /> Visitas de Supervisor</div>
                   <ChevronRight size={16} className="text-slate-300" />
@@ -981,8 +986,12 @@ const App: React.FC = () => {
 
               {currentUser.role === 'admin' && (
                 <>
+                  <button onClick={() => handleNavChange('visitas_supervisor')} className={mobileNavItemClass('visitas_supervisor')}>
+                    <div className="flex items-center gap-3"><ClipboardCheck size={20} className="text-emerald-600" /> Visitas de Supervisor</div>
+                    <ChevronRight size={16} className="text-slate-300" />
+                  </button>
                   <button onClick={() => handleNavChange('supervisor_dashboard')} className={mobileNavItemClass('supervisor_dashboard')}>
-                    <div className="flex items-center gap-3"><ShieldAlert size={20} className="text-indigo-600" /> Fiscalización Supervisores</div>
+                    <div className="flex items-center gap-3"><ShieldAlert size={20} className="text-indigo-600" /> Actividad de Supervisores</div>
                     <ChevronRight size={16} className="text-slate-300" />
                   </button>
                   <button onClick={() => handleNavChange('supervisor_mgmt')} className={mobileNavItemClass('supervisor_mgmt')}>

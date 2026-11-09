@@ -375,16 +375,21 @@ export function mapNovedadToAlertaItem(
   );
 
   const fotosUrls: string[] = [];
-  if (Array.isArray(rawDoc.evidencias)) {
-    for (const ev of rawDoc.evidencias) {
-      if (ev?.url && !fotosUrls.includes(ev.url)) fotosUrls.push(ev.url);
+  const pushFoto = (val: any) => {
+    if (!val) return;
+    if (typeof val === 'string' && val.trim().startsWith('http') && !fotosUrls.includes(val.trim())) {
+      fotosUrls.push(val.trim());
+    } else if (typeof val === 'object' && typeof val.url === 'string' && val.url.trim().startsWith('http')) {
+      const u = val.url.trim();
+      if (!fotosUrls.includes(u)) fotosUrls.push(u);
     }
-  }
-  if (Array.isArray(rawDoc.fotos)) {
-    for (const f of rawDoc.fotos) {
-      if (typeof f === 'string' && !fotosUrls.includes(f)) fotosUrls.push(f);
-    }
-  }
+  };
+
+  if (Array.isArray(rawDoc.evidencias)) rawDoc.evidencias.forEach(pushFoto);
+  if (Array.isArray(rawDoc.fotos)) rawDoc.fotos.forEach(pushFoto);
+  if (rawDoc.evidenciaUrl) pushFoto(rawDoc.evidenciaUrl);
+  if (rawDoc.fotoUrl) pushFoto(rawDoc.fotoUrl);
+  if (rawDoc.foto) pushFoto(rawDoc.foto);
 
   return {
     uidKey: `novedad_${rawDoc.id}`,

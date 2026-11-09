@@ -65,6 +65,21 @@ describe('gestionIncidenciaService — Complemento Técnico & Dashboard Supervis
       expect(alerta?.estadoOriginal).toBe('REGISTRADA');
     });
 
+    it('extrae fotosUrls de novedades con evidencias como array de URLs o fotos', () => {
+      const novConFotos = {
+        id: 'nov_fotos_1',
+        sucursalId: 10,
+        prioridad: 'alta',
+        descripcion: 'Vehículo mal estacionado',
+        evidencias: ['https://storage.googleapis.com/evidencia1.jpg', 'https://storage.googleapis.com/evidencia2.jpg'],
+      };
+      const alerta = mapNovedadToAlertaItem(novConFotos);
+      expect(alerta?.fotosUrls).toEqual([
+        'https://storage.googleapis.com/evidencia1.jpg',
+        'https://storage.googleapis.com/evidencia2.jpg',
+      ]);
+    });
+
     it('ignora rondas SIN_NOVEDAD y novedades de prioridad informativa o media', () => {
       const normalRound: GuardRound = {
         id: 'r_ok',

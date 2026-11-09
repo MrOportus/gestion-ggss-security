@@ -11,6 +11,7 @@ import {
   AlertTriangle,
   Building2,
   Calendar,
+  Camera,
   CheckCircle2,
   ChevronDown,
   ChevronLeft,
@@ -45,6 +46,7 @@ import {
   subscribeAlertasOperacionales,
 } from '../lib/supervisor/gestionIncidenciaService';
 import { GestionSupervisorModal } from '../components/supervisor/GestionSupervisorModal';
+import PhotoGalleryModal from '../components/PhotoGalleryModal';
 import {
   type NotificacionSupervisor,
   marcarNotificacionLeida,
@@ -55,7 +57,6 @@ import RouteMapModal from '../components/RouteMapModal';
 import NovedadSeguimientoModal from '../components/novedades/NovedadSeguimientoModal';
 import { IniciarSeguimientoModal } from '../components/novedades/IniciarSeguimientoModal';
 import { esEsquemaNuevo } from '../lib/novedades/seguimientoService';
-import ThumbnailImage from '../components/ThumbnailImage';
 import { DEFAULT_SITE_HORARIO, type Employee } from '../types';
 
 const PAGE_SIZE = 10;
@@ -475,7 +476,19 @@ const SupervisorDashboard: React.FC = () => {
   const [selectedOriginalRound, setSelectedOriginalRound] = useState<any | null>(null);
   const [selectedOriginalNovedad, setSelectedOriginalNovedad] = useState<any | null>(null);
   const [novedadToInit, setNovedadToInit] = useState<any | null>(null);
-  const [lightboxPhoto, setLightboxPhoto] = useState<string | null>(null);
+  const [galleryState, setGalleryState] = useState<{
+    photos: string[];
+    index: number;
+    title?: string;
+  } | null>(null);
+
+  const setLightboxPhoto = (url: string | null) => {
+    if (url) {
+      setGalleryState({ photos: [url], index: 0 });
+    } else {
+      setGalleryState(null);
+    }
+  };
 
   const cargarAlertas = useCallback(async () => {
     if (!currentUser) return;
@@ -765,6 +778,19 @@ const SupervisorDashboard: React.FC = () => {
     }
     if (item.origenTipo === 'novedad' && item.originalNovedad) {
       const nov: any = item.originalNovedad;
+      // Inyectar fotosUrls normalizadas para que cualquier modal tenga la lista completa de evidencias
+      const mergedNov = {
+        ...nov,
+        fotosUrls: item.fotosUrls,
+        evidencias:
+          Array.isArray(nov.evidencias) && nov.evidencias.length > 0
+            ? nov.evidencias
+            : item.fotosUrls,
+        fotos:
+          Array.isArray(nov.fotos) && nov.fotos.length > 0
+            ? nov.fotos
+            : item.fotosUrls,
+      };
       if (esEsquemaNuevo(nov)) {
         if (
           nov.requiereSeguimiento ||
@@ -772,9 +798,9 @@ const SupervisorDashboard: React.FC = () => {
           nov.estado === 'en_revision' ||
           nov.estado === 'resuelta'
         ) {
-          setSelectedOriginalNovedad(nov);
+          setSelectedOriginalNovedad(mergedNov);
         } else {
-          setNovedadToInit(nov);
+          setNovedadToInit(mergedNov);
         }
       } else if (item.fotosUrls.length > 0) {
         setLightboxPhoto(item.fotosUrls[0]);
@@ -854,7 +880,7 @@ const SupervisorDashboard: React.FC = () => {
         <div>
           <div className="flex items-center gap-2">
             <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-widest bg-indigo-100 text-indigo-700">
-              {isAdminOrJefe ? 'Vista Global de Fiscalización' : 'Panel Operacional en Vivo'}
+              {isAdminOrJefe ? 'Vista Global de Actividad' : 'Panel Operacional en Vivo'}
             </span>
             <span className="text-[11px] font-bold text-slate-400">
               {visibleSites.length}{' '}
@@ -863,7 +889,7 @@ const SupervisorDashboard: React.FC = () => {
           </div>
           <h1 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight mt-1">
             {isAdminOrJefe
-              ? 'Fiscalización Operacional de Supervisores'
+              ? 'Actividad de Supervisores'
               : 'Dashboard Operacional del Supervisor'}
           </h1>
           <p className="text-xs text-slate-500 font-medium">
@@ -1224,7 +1250,7 @@ const SupervisorDashboard: React.FC = () => {
             <h2 className="text-sm sm:text-base font-black text-slate-900 uppercase tracking-wider flex items-center gap-2">
               <ShieldAlert className="w-5 h-5 text-rose-600" />
               {isAdminOrJefe
-                ? 'Alertas Operacionales y Gestión de Supervisores'
+                ? 'Alertas Operacionales y Actividad de Supervisores'
                 : 'B. Alertas Operacionales y Gestión del Supervisor'}
             </h2>
             <p className="text-xs text-slate-500 font-medium">
@@ -1449,9 +1475,47 @@ const SupervisorDashboard: React.FC = () => {
                     </div>
                   </div>
 
-                  <p className="text-xs text-slate-700 bg-slate-50 rounded-xl p-3 border border-slate-100 leading-relaxed line-clamp-3">
-                    {item.descripcion}
-                  </p>
+                  {/* Zona de Novedad: Post-It Amarillo con miniaturas y acceso directo a galería */}
+                  <div className="bg-amber-50/90 border border-amber-200/90 rounded-2xl p-3.5 text-xs text-amber-950 shadow-xs space-y-2">
+                    <p className="font-medium text-amber-950 leading-relaxed whitespace-pre-wrap line-clamp-4">
+                      {item.descripcion}
+                    </p>
+
+                    {item.fotosUrls.length > 0 && (
+                      <div className="pt-2 border-t border-amber-200/70" onClick={(e) => e.stopPropagation()}>
+                        <div className="flex items-center justify-between mb-1.5">
+                          <span className="text-[10px] font-black uppercase tracking-wider text-amber-800/90 flex items-center gap-1">
+                            <Camera className="w-3.5 h-3.5 text-amber-700" />
+                            {item.fotosUrls.length} {item.fotosUrls.length === 1 ? 'fotografía adjunta' : 'fotografías adjuntas'}
+                          </span>
+                          <span className="text-[9px] font-bold text-amber-700">clic para galería</span>
+                        </div>
+                        <div className="flex items-center gap-2 overflow-x-auto pb-0.5">
+                          {item.fotosUrls.map((url, idx) => (
+                            <button
+                              key={idx}
+                              type="button"
+                              onClick={() => {
+                                setGalleryState({
+                                  photos: item.fotosUrls,
+                                  index: idx,
+                                  title: `${item.siteName} · Fotografías de Novedad`,
+                                });
+                              }}
+                              className="w-12 h-12 rounded-xl overflow-hidden border border-amber-300 shrink-0 hover:ring-2 hover:ring-amber-500 transition-all cursor-pointer group bg-amber-100 shadow-xs"
+                              title="Clic para ver fotografía ampliada en galería"
+                            >
+                              <img
+                                src={url}
+                                alt={`Evidencia ${idx + 1}`}
+                                className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                              />
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
 
                   {/* Consulta de Administración / Jefatura hacia el Supervisor */}
                   {g?.consultaAdmin && (
@@ -1536,9 +1600,10 @@ const SupervisorDashboard: React.FC = () => {
                         type="button"
                         onClick={() => handleOpenOriginalRecord(item)}
                         className="px-3 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-black flex items-center gap-1.5 transition-colors"
+                        title="Abrir seguimiento y comunicar instrucciones al guardia de turno"
                       >
                         <ExternalLink className="w-3.5 h-3.5 text-blue-600" />
-                        Registro Original
+                        Registro Original (Guardia)
                       </button>
 
                       <button
@@ -1645,23 +1710,14 @@ const SupervisorDashboard: React.FC = () => {
         />
       )}
 
-      {/* Visor de Evidencia Fotográfica */}
-      {lightboxPhoto && (
-        <div
-          className="fixed inset-0 z-[100] bg-slate-900/90 backdrop-blur-sm flex items-center justify-center p-4"
-          onClick={() => setLightboxPhoto(null)}
-        >
-          <div
-            className="relative max-w-4xl max-h-[85vh] w-full flex items-center justify-center"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <ThumbnailImage
-              photoUrl={lightboxPhoto}
-              alt="Evidencia Original"
-              className="max-w-full max-h-[85vh] object-contain rounded-2xl"
-            />
-          </div>
-        </div>
+      {/* Galería Fotográfica de Novedades y Rondas */}
+      {galleryState && galleryState.photos.length > 0 && (
+        <PhotoGalleryModal
+          photos={galleryState.photos}
+          initialIndex={galleryState.index}
+          onClose={() => setGalleryState(null)}
+          title={galleryState.title}
+        />
       )}
     </div>
   );
