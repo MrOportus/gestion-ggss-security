@@ -12,6 +12,7 @@ import {
   Building2,
   Calendar,
   Camera,
+  CheckCircle,
   CheckCircle2,
   ChevronDown,
   ChevronLeft,
@@ -30,6 +31,7 @@ import {
   UserCheck,
   Users,
   UserX,
+  X,
   XCircle,
 } from 'lucide-react';
 import { db } from '../lib/firebase';
@@ -43,6 +45,7 @@ import {
   fetchAlertasOperacionalesSupervisor,
   isSiteAllowedForSupervisor,
   normalizeSiteId,
+  resolverAlertaComoAdmin,
   subscribeAlertasOperacionales,
 } from '../lib/supervisor/gestionIncidenciaService';
 import { GestionSupervisorModal } from '../components/supervisor/GestionSupervisorModal';
@@ -440,13 +443,21 @@ const SupervisorDashboard: React.FC = () => {
     'all' | ClasificacionAlertaOperacional
   >('all');
   const [estadoGestionFilter, setEstadoGestionFilter] =
-    useState<EstadoFiltroGestion>('todos');
+    useState<EstadoFiltroGestion>('no_solucionadas');
   const [supervisorFilter, setSupervisorFilter] = useState<string>('all');
   const [onlyJefaturaFilter, setOnlyJefaturaFilter] = useState<boolean>(false);
   const [startDateFilter, setStartDateFilter] = useState<string>('');
   const [endDateFilter, setEndDateFilter] = useState<string>('');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [page, setPage] = useState<number>(1);
+
+  // Resolución directa por Administrador
+  const [alertaParaResolver, setAlertaParaResolver] =
+    useState<AlertaOperacionalItem | null>(null);
+  const [medidasResolucionAdmin, setMedidasResolucionAdmin] = useState<string>('');
+  const [observacionesResolucionAdmin, setObservacionesResolucionAdmin] = useState<string>('');
+  const [isResolvingAlerta, setIsResolvingAlerta] = useState<boolean>(false);
+  const [resolveError, setResolveError] = useState<string | null>(null);
 
   // Colapso/expansión de Área A: Turnos en Vivo (persiste preferencia local para mayor espacio)
   const [isTurnosCollapsed, setIsTurnosCollapsed] = useState<boolean>(() => {
@@ -640,7 +651,23 @@ const SupervisorDashboard: React.FC = () => {
       const estSolucion = tieneGestionSup
         ? item.gestionSupervisor!.fueSolucionado
         : 'sin_gestion';
-      if (estadoGestionFilter !== 'todos' && estSolucion !== estadoGestionFilter) {
+
+      const isSolucionada =
+        estSolucion === 'si' || item.estadoOriginal?.toLowerCase() === 'resuelta';
+
+      if (estadoGestionFilter === 'no_solucionadas') {
+        if (isSolucionada) {
+          return false;
+        }
+      } else if (estadoGestionFilter === 'si') {
+        if (!isSolucionada) {
+          return false;
+        }
+      } else if (estadoGestionFilter === 'sin_gestion') {
+        if (estSolucion !== 'sin_gestion' || isSolucionada) {
+          return false;
+        }
+      } else if (estadoGestionFilter !== 'todos' && estSolucion !== estadoGestionFilter) {
         return false;
       }
 
@@ -729,7 +756,9 @@ const SupervisorDashboard: React.FC = () => {
       0,
     );
     const sinGestion = alertas.filter(
-      (a) => !a.gestionSupervisor || a.gestionSupervisor.tipoRegistro === 'consulta_admin',
+      (a) =>
+        (!a.gestionSupervisor || a.gestionSupervisor.tipoRegistro === 'consulta_admin') &&
+        a.estadoOriginal?.toLowerCase() !== 'resuelta',
     ).length;
     const pendientesDecision = alertas.filter(
       (a) =>
@@ -866,6 +895,13 @@ const SupervisorDashboard: React.FC = () => {
     const supNombre = g?.ultimoSupervisorNombre || g?.supervisorNombre || 'Supervisor';
 
     if (!tieneGestionSup) {
+      if (item.estadoOriginal?.toLowerCase() === 'resuelta') {
+        return (
+          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg text-[10px] font-black uppercase bg-emerald-100 text-emerald-800 border border-emerald-200">
+            <CheckCircle2 className="w-3 h-3" /> Resuelta en Origen
+          </span>
+        );
+      }
       return (
         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-black uppercase bg-slate-100 text-slate-600 border border-slate-200">
           Sin Gestión Supervisor
@@ -957,7 +993,7 @@ const SupervisorDashboard: React.FC = () => {
           onClick={() => {
             setPage(1);
             setEstadoGestionFilter((curr) =>
-              curr === 'sin_gestion' ? 'todos' : 'sin_gestion',
+              curr === 'sin_gestion' ? 'no_solucionadas' : 'sin_gestion',
             );
             setOnlyJefaturaFilter(false);
           }}
@@ -985,7 +1021,7 @@ const SupervisorDashboard: React.FC = () => {
           onClick={() => {
             setPage(1);
             setEstadoGestionFilter((curr) =>
-              curr === 'pendiente' ? 'todos' : 'pendiente',
+              curr === 'pendiente' ? 'no_solucionadas' : 'pendiente',
             );
             setOnlyJefaturaFilter(false);
           }}
@@ -1013,7 +1049,7 @@ const SupervisorDashboard: React.FC = () => {
           onClick={() => {
             setPage(1);
             setOnlyJefaturaFilter((v) => !v);
-            setEstadoGestionFilter('todos');
+            setEstadoGestionFilter('no_solucionadas');
           }}
           className={`text-left p-3.5 rounded-2xl border transition-all cursor-pointer ${
             onlyJefaturaFilter
@@ -1374,11 +1410,12 @@ const SupervisorDashboard: React.FC = () => {
             onChange={(e) => setEstadoGestionFilter(e.target.value as EstadoFiltroGestion)}
             className="px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
           >
-            <option value="todos">Estado gestión: Todos</option>
+            <option value="no_solucionadas">No solucionadas (Pendientes)</option>
+            <option value="si">Solucionadas</option>
             <option value="sin_gestion">Sin gestión registrada</option>
             <option value="pendiente">Pendiente de gestión</option>
             <option value="no">No solucionado</option>
-            <option value="si">Solucionado</option>
+            <option value="todos">Estado gestión: Todos</option>
           </select>
 
           {/* Filtro por Supervisor (Exclusivo Vista Administrativa) o Fecha */}
@@ -1465,6 +1502,9 @@ const SupervisorDashboard: React.FC = () => {
               );
               const fechaSupISO =
                 g?.fechaUltimaGestionSupervisorISO || g?.fechaGestionISO;
+              const isItemSolucionado =
+                (tieneGestionSupervisor && g!.fueSolucionado === 'si') ||
+                item.estadoOriginal?.toLowerCase() === 'resuelta';
               return (
                 <div
                   key={item.uidKey}
@@ -1476,7 +1516,7 @@ const SupervisorDashboard: React.FC = () => {
                       setSelectedAlertaForGestion(item);
                     }
                   }}
-                  className={`rounded-2xl border bg-white hover:border-indigo-300 hover:shadow-md p-4 transition-all shadow-xs space-y-3 cursor-pointer ${
+                  className={`rounded-2xl border bg-white hover:border-indigo-300 hover:shadow-md p-3.5 sm:p-4 transition-all shadow-xs space-y-3 cursor-pointer ${
                     (unreadByAlerta.get(item.uidKey) || 0) > 0
                       ? 'border-indigo-400 ring-2 ring-indigo-200/80'
                       : g?.consultaAdmin?.pendienteRespuesta && isSupervisor
@@ -1485,7 +1525,7 @@ const SupervisorDashboard: React.FC = () => {
                   }`}
                 >
                   <div className="flex flex-wrap items-start justify-between gap-2">
-                    <div className="flex flex-wrap items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
                       {renderClasificacionBadge(item.clasificacion)}
                       {renderEstadoGestionBadge(item)}
                       {(unreadByAlerta.get(item.uidKey) || 0) > 0 && (
@@ -1505,8 +1545,8 @@ const SupervisorDashboard: React.FC = () => {
                       </span>
                     </div>
 
-                    <span className="text-xs font-bold text-slate-400 flex items-center gap-1">
-                      <Calendar className="w-3.5 h-3.5" />
+                    <span className="text-[11px] sm:text-xs font-bold text-slate-400 flex items-center gap-1 shrink-0">
+                      <Calendar className="w-3.5 h-3.5 shrink-0" />
                       {item.fechaHoraISO
                         ? new Date(item.fechaHoraISO).toLocaleString('es-CL', {
                             day: '2-digit',
@@ -1634,7 +1674,7 @@ const SupervisorDashboard: React.FC = () => {
 
                   {/* Acciones: Ver Registro Original y Consultar/Gestionar */}
                   <div
-                    className="flex flex-wrap items-center justify-between gap-2 pt-1"
+                    className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 pt-2 border-t border-slate-100"
                     onClick={(e) => e.stopPropagation()}
                   >
                     <div className="flex items-center gap-2">
@@ -1642,41 +1682,69 @@ const SupervisorDashboard: React.FC = () => {
                         <button
                           type="button"
                           onClick={() => setLightboxPhoto(item.fotosUrls[0])}
-                          className="text-[11px] font-black text-blue-600 hover:underline"
+                          className="text-[11px] font-black text-blue-600 hover:underline flex items-center gap-1"
                         >
-                          📷 {item.fotosUrls.length}{' '}
+                          <span>📷</span> {item.fotosUrls.length}{' '}
                           {item.fotosUrls.length === 1 ? 'evidencia' : 'evidencias'}
                         </button>
                       )}
                     </div>
 
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => handleOpenOriginalRecord(item)}
-                        className="px-3 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-black flex items-center gap-1.5 transition-colors"
-                        title="Abrir seguimiento y comunicar instrucciones al guardia de turno"
-                      >
-                        <ExternalLink className="w-3.5 h-3.5 text-blue-600" />
-                        Registro Original (Guardia)
-                      </button>
+                    <div className="flex flex-col sm:flex-row sm:items-center gap-2 w-full sm:w-auto">
+                      <div className="grid grid-cols-2 sm:flex sm:items-center gap-2 w-full sm:w-auto">
+                        <button
+                          type="button"
+                          onClick={() => handleOpenOriginalRecord(item)}
+                          className="px-2.5 sm:px-3 py-2 sm:py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-black flex items-center justify-center gap-1.5 transition-colors w-full sm:w-auto shadow-xs"
+                          title="Abrir seguimiento y comunicar instrucciones al guardia de turno"
+                        >
+                          <ExternalLink className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                          <span className="truncate">Registro Guardia</span>
+                        </button>
 
-                      <button
-                        type="button"
-                        onClick={() => setSelectedAlertaForGestion(item)}
-                        className={`px-3.5 py-1.5 rounded-xl text-white text-xs font-black flex items-center gap-1.5 shadow-xs transition-colors ${
-                          isAdminOrJefe
-                            ? 'bg-indigo-600 hover:bg-indigo-700'
-                            : 'bg-slate-900 hover:bg-slate-800'
-                        }`}
-                      >
-                        <ClipboardCheck className="w-3.5 h-3.5 text-indigo-200" />
-                        {isAdminOrJefe
-                          ? 'Consultar a Supervisor / Historial'
-                          : tieneGestionSupervisor
-                          ? 'Gestionar / Historial'
-                          : 'Registrar Gestión'}
-                      </button>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedAlertaForGestion(item)}
+                          className={`px-2.5 sm:px-3.5 py-2 sm:py-1.5 rounded-xl text-white text-xs font-black flex items-center justify-center gap-1.5 shadow-xs transition-colors w-full sm:w-auto ${
+                            isAdminOrJefe
+                              ? 'bg-indigo-600 hover:bg-indigo-700'
+                              : 'bg-slate-900 hover:bg-slate-800'
+                          }`}
+                        >
+                          <ClipboardCheck className="w-3.5 h-3.5 text-indigo-200 shrink-0" />
+                          <span className="truncate">
+                            {isAdminOrJefe
+                              ? 'Consultar / Historial'
+                              : tieneGestionSupervisor
+                              ? 'Historial Gestión'
+                              : 'Registrar Gestión'}
+                          </span>
+                        </button>
+                      </div>
+
+                      {isAdminOrJefe && (
+                        isItemSolucionado ? (
+                          <span className="px-3 py-2 sm:py-1.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-black flex items-center justify-center gap-1.5 w-full sm:w-auto">
+                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                            Resuelta
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setAlertaParaResolver(item);
+                              setMedidasResolucionAdmin('');
+                              setObservacionesResolucionAdmin('');
+                              setResolveError(null);
+                            }}
+                            className="px-3.5 py-2 sm:py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black flex items-center justify-center gap-1.5 shadow-xs transition-colors w-full sm:w-auto"
+                            title="Marcar como resuelta por Administración"
+                          >
+                            <CheckCircle className="w-3.5 h-3.5 text-white shrink-0" />
+                            Resolver Novedad
+                          </button>
+                        )
+                      )}
                     </div>
                   </div>
                 </div>
@@ -1791,6 +1859,155 @@ const SupervisorDashboard: React.FC = () => {
           onClose={() => setGalleryState(null)}
           title={galleryState.title}
         />
+      )}
+
+      {/* Modal de Resolución Directa de Alerta por Administrador */}
+      {alertaParaResolver && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl max-w-lg w-full overflow-hidden shadow-2xl border border-slate-100 animate-in zoom-in-95 duration-200 flex flex-col max-h-[90vh]">
+            <div className="bg-gradient-to-r from-emerald-600 to-teal-700 px-6 py-4 text-white flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-white/20 rounded-xl backdrop-blur-xs">
+                  <CheckCircle2 className="w-5 h-5 text-white" />
+                </div>
+                <div>
+                  <h3 className="font-black text-sm uppercase tracking-wide">
+                    Marcar Alerta como Resuelta
+                  </h3>
+                  <p className="text-emerald-100 text-xs">
+                    {alertaParaResolver.siteName}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!isResolvingAlerta) {
+                    setAlertaParaResolver(null);
+                    setMedidasResolucionAdmin('');
+                    setObservacionesResolucionAdmin('');
+                    setResolveError(null);
+                  }
+                }}
+                className="text-white/80 hover:text-white p-1 rounded-lg hover:bg-white/10 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault();
+                if (!currentUser?.uid || !alertaParaResolver) return;
+                setIsResolvingAlerta(true);
+                setResolveError(null);
+                try {
+                  await resolverAlertaComoAdmin({
+                    origenTipo: alertaParaResolver.origenTipo,
+                    origenId: alertaParaResolver.origenId,
+                    siteId: alertaParaResolver.siteId,
+                    siteName: alertaParaResolver.siteName,
+                    adminUid: currentUser.uid,
+                    adminNombre: currentActorName || 'Administración',
+                    adminRole: currentUser.role || 'admin',
+                    medidasTomadas:
+                      medidasResolucionAdmin.trim() || 'Novedad marcada como resuelta por Administración.',
+                    observaciones: observacionesResolucionAdmin.trim() || undefined,
+                    prevResumen: alertaParaResolver.gestionSupervisor,
+                  });
+                  setAlertaParaResolver(null);
+                  setMedidasResolucionAdmin('');
+                  setObservacionesResolucionAdmin('');
+                } catch (err: any) {
+                  console.error('Error al resolver alerta:', err);
+                  setResolveError(err?.message || 'Error al resolver la alerta.');
+                } finally {
+                  setIsResolvingAlerta(false);
+                }
+              }}
+              className="p-4 sm:p-6 space-y-4 overflow-y-auto"
+            >
+              <div className="bg-amber-50 border border-amber-200/80 rounded-2xl p-3.5 text-xs text-amber-950 space-y-1">
+                <div className="flex items-center justify-between text-[10px] font-black uppercase text-amber-800">
+                  <span>{alertaParaResolver.clasificacionLabel}</span>
+                  <span>Reportado por: {alertaParaResolver.trabajadorNombre}</span>
+                </div>
+                <p className="font-medium whitespace-pre-wrap">{alertaParaResolver.descripcion}</p>
+              </div>
+
+              <div>
+                <label className="block text-xs font-black uppercase tracking-wider text-slate-700 mb-1">
+                  Medidas adoptadas / Justificación de la resolución *
+                </label>
+                <textarea
+                  required
+                  rows={3}
+                  value={medidasResolucionAdmin}
+                  onChange={(e) => setMedidasResolucionAdmin(e.target.value)}
+                  placeholder="Describa brevemente las medidas adoptadas o la justificación para dar por resuelta esta alerta..."
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white text-xs font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-black uppercase tracking-wider text-slate-700 mb-1">
+                  Observaciones adicionales (opcional)
+                </label>
+                <input
+                  type="text"
+                  value={observacionesResolucionAdmin}
+                  onChange={(e) => setObservacionesResolucionAdmin(e.target.value)}
+                  placeholder="Detalles complementarios..."
+                  className="w-full px-3.5 py-2 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white text-xs font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                />
+              </div>
+
+              {resolveError && (
+                <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-xs font-bold text-red-700">
+                  {resolveError}
+                </div>
+              )}
+
+              <p className="text-[11px] text-slate-500">
+                Esta acción registrará la gestión auditable con estado Solucionado
+                {alertaParaResolver.origenTipo === 'novedad' ? ' y actualizará el registro de la novedad a Resuelta.' : '.'}
+              </p>
+
+              <div className="flex flex-col-reverse sm:flex-row sm:items-center sm:justify-end gap-2 sm:gap-3 pt-2">
+                <button
+                  type="button"
+                  disabled={isResolvingAlerta}
+                  onClick={() => {
+                    setAlertaParaResolver(null);
+                    setMedidasResolucionAdmin('');
+                    setObservacionesResolucionAdmin('');
+                    setResolveError(null);
+                  }}
+                  className="w-full sm:w-auto px-4 py-2.5 rounded-xl border border-slate-200 text-xs font-black text-slate-600 hover:bg-slate-50 transition-colors text-center"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={isResolvingAlerta || !medidasResolucionAdmin.trim()}
+                  className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-black uppercase tracking-wider flex items-center justify-center gap-2 shadow-lg shadow-emerald-600/20 transition-all text-center"
+                >
+                  {isResolvingAlerta ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Resolviendo...
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle2 className="w-4 h-4" />
+                      Confirmar Resolución
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
       )}
     </div>
   );

@@ -174,6 +174,14 @@ export function validarBorrador(draft: VisitaDraft): ErrorValidacion[] {
     }
     if (ln.dejoConstancia === null) {
       errores.push({ seccion: 'libroNovedades', mensaje: 'Responda si se dejó constancia en el libro de novedades.' });
+    } else if (ln.dejoConstancia === true) {
+      const fotosConstancia = draft.fotos.filter(f => f.ambito === 'constancia_libro');
+      if (fotosConstancia.length === 0) {
+        errores.push({
+          seccion: 'libroNovedades',
+          mensaje: 'Debe subir la fotografía de la constancia realizada en el libro de novedades.',
+        });
+      }
     }
   }
 
@@ -434,6 +442,8 @@ export function fotosDeVisita(v: VisitaSupervisorDoc) {
   return {
     visita: todas.filter(f => f.ambito === 'visita'),
     observacion: todas.filter(f => f.ambito === 'observacion'),
+    libro_novedades: todas.filter(f => f.ambito === 'libro_novedades'),
+    constancia_libro: todas.filter(f => f.ambito === 'constancia_libro'),
     total: todas.length,
   };
 }

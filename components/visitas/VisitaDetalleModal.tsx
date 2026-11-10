@@ -265,9 +265,21 @@ const VisitaDetalleModal: React.FC<Props> = ({ visita: v, onClose, openSeguimien
                 {v.libroNovedades.observacion && (
                   <Row label="Observación" value={v.libroNovedades.observacion} />
                 )}
+                {fotos.libro_novedades.length > 0 && (
+                  <div>
+                    <span className="text-xs font-bold text-slate-500 uppercase">Fotografías del libro</span>
+                    <div className="mt-1.5"><Galeria items={fotos.libro_novedades} /></div>
+                  </div>
+                )}
                 <div>
                   <span className="text-xs font-bold text-slate-500 uppercase">¿Se dejó constancia?</span>
                   <div className="mt-1"><SiNo v={v.libroNovedades.dejoConstancia} /></div>
+                  {fotos.constancia_libro.length > 0 && (
+                    <div className="mt-2.5 p-3 rounded-2xl bg-amber-50 border border-amber-200">
+                      <span className="text-xs font-black text-amber-900 uppercase">Fotografía de la constancia</span>
+                      <div className="mt-1.5"><Galeria items={fotos.constancia_libro} /></div>
+                    </div>
+                  )}
                 </div>
               </div>
             </Section>

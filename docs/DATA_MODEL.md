@@ -128,8 +128,9 @@ Este documento define la estructura de datos persistente en **Cloud Firestore**,
   - `siteId` *(number | string)*: Sucursal auditada.
   - `fechaHora` *(string, ISO)*: Timestamp de la auditoría.
   - `estado` *(string)*: `'conforme' | 'con_observaciones'`.
-  - `respuestasChecklist` *(object)*: Evaluación de uniforme, libro, libro de novedades, puesto.
-  - `fotosEvidencia` *(array de strings)*: URLs en Bunny.net.
+  - `respuestasChecklist` *(object)*: Evaluación de uniforme, libro de asistencia, libro de novedades, puesto.
+  - `libroNovedades` *(object)*: `{ estado: 'ok' | 'con_observacion', observacion?: string, dejoConstancia: boolean }`.
+  - `fotos` *(Record<string, FotoVisitaRemota>)*: URLs en Firebase Storage con ámbito (`'visita' | 'observacion' | 'libro_novedades' | 'constancia_libro'`). Si `dejoConstancia` es `true`, es obligatoria la foto con ámbito `'constancia_libro'`.
   - `compromisos` *(string, opcional)*: Acuerdos fijados con la guardia o el cliente.
 - **Subcolección `seguimientos/{seguimientoId}`:**
   - `creadoPor` *(string)*: UID del usuario que registra el avance.

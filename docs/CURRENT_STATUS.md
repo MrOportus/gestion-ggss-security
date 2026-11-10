@@ -27,7 +27,8 @@ El sistema se encuentra en un estado funcional estable y operativo. La versión 
 - **Control de Asistencia:** Marcaje geolocalizado en faena con soporte completo de la **Regla de Turno Nocturno** (toda la jornada 19:30-07:30 se almacena bajo la fecha de inicio).
 - **Modo Offline Resiliente:** Encolamiento automático en `GGSS_Offline_DB` (`localforage`) cuando el guardia pierde señal en faena, con sincronización idempotente al recuperar red.
 - **Rondas de Vigilancia:** Foreground Service en Android que mantiene el rastreo GPS con el teléfono bloqueado y subida directa de fotografías a Bunny.net Object Storage para evitar costos de egress.
-- **Visitas de Supervisor:** Checklists de auditoría en terreno y seguimiento de compromisos con el cliente.
+- **Visitas de Supervisor:** Checklists de auditoría en terreno y seguimiento de compromisos con el cliente. Soporte de registro fotográfico para el libro de novedades (con o sin observación) y constancia obligatoria en caso afirmativo.
+- **Bandeja de Actividad de Supervisores:** Monitoreo y resolución administrativa de alertas/novedades operacionales con filtro predeterminado de novedades no solucionadas (pendientes) y auditoría inmutable en `historialGestion`.
 
 ### 2.4 Aplicación Móvil Nativa (Android)
 - **Compilación Exitosa:** APK generado y disponible en la raíz del proyecto ([`SistemaAspro-v6.1.0.apk`](file:///e:/proyectos%20AntiGravity/gesti%C3%B3n-ggss-security/SistemaAspro-v6.1.0.apk)) y en el directorio Gradle ([`android/app/build/outputs/apk/debug/app-debug.apk`](file:///e:/proyectos%20AntiGravity/gesti%C3%B3n-ggss-security/android/app/build/outputs/apk/debug/app-debug.apk)).

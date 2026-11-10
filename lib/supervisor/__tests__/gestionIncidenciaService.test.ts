@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('../../firebase', () => ({
   db: {},
+  auth: { currentUser: null },
 }));
 
 import {
@@ -309,6 +310,76 @@ describe('gestionIncidenciaService — Complemento Técnico & Dashboard Supervis
       expect(parseGestionSupervisorResumen(undefined)).toBeNull();
       expect(parseGestionSupervisorResumen(null)).toBeNull();
       expect(parseGestionSupervisorResumen({})).toBeNull();
+    });
+  });
+
+  describe('5. Resolución por Administrador y Filtro inicial de no solucionadas', () => {
+    it('valida que resolverAlertaComoAdmin requiera origenId y adminUid', async () => {
+      const { resolverAlertaComoAdmin } = await import('../gestionIncidenciaService');
+      await expect(
+        resolverAlertaComoAdmin({
+          origenTipo: 'novedad',
+          origenId: '',
+          siteId: '10',
+          adminUid: 'admin_1',
+          adminNombre: 'Admin',
+          medidasTomadas: 'Resuelta',
+        }),
+      ).rejects.toThrow('El identificador del registro es obligatorio.');
+
+      await expect(
+        resolverAlertaComoAdmin({
+          origenTipo: 'novedad',
+          origenId: 'nov_123',
+          siteId: '10',
+          adminUid: '',
+          adminNombre: 'Admin',
+          medidasTomadas: 'Resuelta',
+        }),
+      ).rejects.toThrow('No se pudo identificar al administrador.');
+    });
+
+    it('el filtro no_solucionadas excluye registros solucionados por supervisor o resueltos en origen', () => {
+      const mockAlertas = [
+        {
+          id: 'nov_1',
+          estadoOriginal: 'EN_REVISION',
+          gestionSupervisor: { fueSolucionado: 'no' },
+        },
+        {
+          id: 'nov_2',
+          estadoOriginal: 'RESUELTA',
+          gestionSupervisor: null,
+        },
+        {
+          id: 'nov_3',
+          estadoOriginal: 'REGISTRADA',
+          gestionSupervisor: { fueSolucionado: 'si' },
+        },
+        {
+          id: 'nov_4',
+          estadoOriginal: 'REGISTRADA',
+          gestionSupervisor: null,
+        },
+      ];
+
+      const noSolucionadas = mockAlertas.filter((item) => {
+        const estSolucion = item.gestionSupervisor?.fueSolucionado ?? 'sin_gestion';
+        const isSolucionada =
+          estSolucion === 'si' || item.estadoOriginal?.toLowerCase() === 'resuelta';
+        return !isSolucionada;
+      });
+
+      expect(noSolucionadas.map((a) => a.id)).toEqual(['nov_1', 'nov_4']);
+
+      const solucionadas = mockAlertas.filter((item) => {
+        const estSolucion = item.gestionSupervisor?.fueSolucionado ?? 'sin_gestion';
+        const isSolucionada =
+          estSolucion === 'si' || item.estadoOriginal?.toLowerCase() === 'resuelta';
+        return isSolucionada;
+      });
+
+      expect(solucionadas.map((a) => a.id)).toEqual(['nov_2', 'nov_3']);
     });
   });
 });

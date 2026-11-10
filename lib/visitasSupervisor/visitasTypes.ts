@@ -8,7 +8,7 @@
 export type EstadoCargo = 'ok' | 'observacion' | 'faltante';
 export type ResultadoVisita = 'sin_novedades' | 'con_observaciones' | 'con_novedad';
 export type PrioridadNovedad = 'informativa' | 'requiere_atencion' | 'urgente';
-export type AmbitoFoto = 'visita' | 'observacion';
+export type AmbitoFoto = 'visita' | 'observacion' | 'libro_novedades' | 'constancia_libro';
 
 // ─── Checklist (preparado para checklist por sucursal en fases futuras) ───────
 

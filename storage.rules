@@ -8,10 +8,20 @@ service firebase.storage {
         firestore.get(/databases/(default)/documents/Colaboradores/$(request.auth.uid)).data.role == 'admin';
     }
 
-    // Carpeta de evidencias (fotos de rondas/asistencia)
+    // Carpeta de evidencias (fotos de rondas/asistencia/visitas de supervisor)
     match /evidencias/{userId}/{allPaths=**} {
-      allow write: if request.auth != null && request.auth.uid == userId;
+      allow write: if request.auth != null;
       allow read: if request.auth != null;
+    }
+
+    // Visitas de Supervisor (fotos de visitas, libros de novedades y constancias)
+    match /visitas/{allPaths=**} {
+      allow read, write: if request.auth != null;
+    }
+
+    // Evidencias y fotos de Seguimiento de Visitas
+    match /visitas_seguimientos/{allPaths=**} {
+      allow read, write: if request.auth != null;
     }
 
     // Documentos Originales (Subidos por Admin)

@@ -21,6 +21,7 @@ import {
   type AlertaOperacionalItem,
   enviarConsultaASupervisor,
   registrarGestionSupervisor,
+  resolverAlertaComoAdmin,
   subscribeHistorialGestion,
 } from '../../lib/supervisor/gestionIncidenciaService';
 import { useAppStore } from '../../store/useAppStore';
@@ -65,9 +66,11 @@ export const GestionSupervisorModal: React.FC<GestionSupervisorModalProps> = ({
   const [motivoNoSolucionado, setMotivoNoSolucionado] = useState('');
   const [requiereIntervencionJefatura, setRequiereIntervencionJefatura] = useState(false);
 
-  // Estado formulario Administrador / Jefatura ("Enviar a Supervisor")
+  // Estado formulario Administrador / Jefatura ("Enviar a Supervisor" y "Resolver")
   const [selectedPrompts, setSelectedPrompts] = useState<string[]>([]);
   const [consultaTextoLibre, setConsultaTextoLibre] = useState('');
+  const [showAdminResolver, setShowAdminResolver] = useState(false);
+  const [medidasResolucionAdmin, setMedidasResolucionAdmin] = useState('');
 
   const [isSaving, setIsSaving] = useState(false);
   const [historial, setHistorial] = useState<GestionSupervisorEntry[]>([]);
@@ -92,6 +95,8 @@ export const GestionSupervisorModal: React.FC<GestionSupervisorModalProps> = ({
     setMotivoNoSolucionado('');
     setSelectedPrompts([]);
     setConsultaTextoLibre('');
+    setShowAdminResolver(false);
+    setMedidasResolucionAdmin('');
 
     let active = true;
     setLoadingHistorial(true);
@@ -147,6 +152,9 @@ export const GestionSupervisorModal: React.FC<GestionSupervisorModalProps> = ({
   const isAdminView =
     currentUser.role === 'admin' || currentUser.role === 'jefe_operaciones';
   const isSupervisorView = currentUser.role === 'supervisor';
+  const isAlertaSolucionada =
+    alerta.gestionSupervisor?.fueSolucionado === 'si' ||
+    alerta.estadoOriginal?.toLowerCase() === 'resuelta';
 
   const toggleQuickPrompt = (promptText: string) => {
     setSelectedPrompts((prev) =>
@@ -281,6 +289,57 @@ export const GestionSupervisorModal: React.FC<GestionSupervisorModalProps> = ({
         err?.message || 'Error al enviar la consulta al supervisor.',
         'error',
       );
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  // --- Handler para marcar como resuelta directamente por Administrador ---
+  const handleAdminResolverSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!medidasResolucionAdmin.trim()) {
+      showNotification('Debe ingresar las medidas o justificación de resolución.', 'warning');
+      return;
+    }
+    setIsSaving(true);
+    try {
+      await resolverAlertaComoAdmin({
+        origenTipo: alerta.origenTipo,
+        origenId: alerta.origenId,
+        siteId: alerta.siteId,
+        siteName: alerta.siteName,
+        adminUid: currentUser.id,
+        adminNombre: currentUser.name,
+        adminRole: currentUser.role,
+        medidasTomadas: medidasResolucionAdmin.trim(),
+        prevResumen: alerta.gestionSupervisor,
+      });
+
+      showNotification('Novedad/Alerta marcada como resuelta exitosamente.', 'success');
+      setShowAdminResolver(false);
+      setMedidasResolucionAdmin('');
+      const nowISO = new Date().toISOString();
+      onSaved({
+        ...alerta,
+        estadoOriginal: alerta.origenTipo === 'novedad' ? 'resuelta' : alerta.estadoOriginal,
+        gestionSupervisor: {
+          ultimaGestionId: `gest_${Date.now()}`,
+          tipoRegistro: 'gestion_supervisor',
+          fueSolucionado: 'si',
+          medidasTomadas: medidasResolucionAdmin.trim(),
+          requiereIntervencionJefatura: false,
+          supervisorUid: currentUser.id,
+          supervisorNombre: currentUser.name,
+          ultimoSupervisorUid: currentUser.id,
+          ultimoSupervisorNombre: currentUser.name,
+          fechaGestion: nowISO,
+          fechaGestionISO: nowISO,
+          fechaUltimaGestionSupervisorISO: nowISO,
+        },
+      });
+      onClose();
+    } catch (err: any) {
+      showNotification(err?.message || 'Error al resolver la alerta.', 'error');
     } finally {
       setIsSaving(false);
     }
@@ -471,98 +530,165 @@ export const GestionSupervisorModal: React.FC<GestionSupervisorModalProps> = ({
             </div>
           )}
 
-          {/* --- VISTA ADMINISTRACIÓN / JEFATURA: Enviar Consulta al Supervisor Asignado --- */}
+          {/* --- VISTA ADMINISTRACIÓN / JEFATURA: Resolución Directa y Consulta a Supervisor --- */}
           {isAdminView && (
-            <form
-              onSubmit={handleAdminConsultaSubmit}
-              className="space-y-4 bg-white rounded-2xl border border-indigo-200 p-4 sm:p-5 shadow-sm"
-            >
-              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-                <div>
-                  <h4 className="text-xs font-black uppercase tracking-wider text-indigo-950 flex items-center gap-1.5">
-                    <MessageSquarePlus className="w-4 h-4 text-indigo-600" />
-                    Consultar o Requerir Estado al Supervisor Asignado
-                  </h4>
-                  <p className="text-[11px] text-slate-500 font-medium mt-0.5">
-                    Seleccione una consulta rápida y/o escriba indicaciones para que sean leídas por el supervisor de <strong className="text-slate-700">{alerta.siteName}</strong>.
-                  </p>
+            <>
+              {isAlertaSolucionada ? (
+                <div className="flex items-center gap-2 p-3.5 bg-emerald-50 border border-emerald-200 rounded-2xl text-emerald-900 text-xs font-bold shadow-xs">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>Esta alerta/novedad ya se encuentra marcada como solucionada.</span>
                 </div>
-              </div>
+              ) : (
+                <div className="bg-emerald-50/70 border border-emerald-200 rounded-2xl p-4 shadow-xs space-y-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <h5 className="text-xs font-black text-emerald-950 uppercase tracking-wide flex items-center gap-1.5">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                        Resolución Administrativa
+                      </h5>
+                      <p className="text-[11px] text-emerald-800 font-medium">
+                        ¿Esta situación ya fue subsanada? Puede marcarla como resuelta directamente.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setShowAdminResolver((v) => !v)}
+                      className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black uppercase tracking-wider flex items-center gap-1.5 shadow-sm transition-all shrink-0"
+                    >
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      {showAdminResolver ? 'Cancelar' : 'Marcar Resuelta'}
+                    </button>
+                  </div>
 
-              {/* Botones rápidos de consulta */}
-              <div>
-                <label className="block text-[11px] font-black uppercase tracking-wider text-slate-700 mb-2">
-                  Consultas Rápidas (clic para agregar)
-                </label>
-                <div className="flex flex-wrap gap-2">
-                  {ADMIN_QUICK_PROMPTS.map((promptText) => {
-                    const isSelected = selectedPrompts.includes(promptText);
-                    return (
-                      <button
-                        key={promptText}
-                        type="button"
-                        onClick={() => toggleQuickPrompt(promptText)}
-                        className={`px-3 py-2 rounded-xl text-xs font-black border transition-all flex items-center gap-1.5 ${
-                          isSelected
-                            ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm shadow-indigo-600/20'
-                            : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-indigo-50 hover:border-indigo-200'
-                        }`}
-                      >
-                        {isSelected && <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />}
-                        {promptText}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* Campo de texto libre */}
-              <div>
-                <label className="block text-[11px] font-black uppercase tracking-wider text-slate-700 mb-1">
-                  Detalle o consulta adicional (Campo de texto libre)
-                </label>
-                <textarea
-                  rows={3}
-                  value={consultaTextoLibre}
-                  onChange={(e) => setConsultaTextoLibre(e.target.value)}
-                  placeholder="Escriba aquí instrucciones o detalles adicionales para el supervisor asignado..."
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white text-xs font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                />
-              </div>
-
-              {/* Vista previa del mensaje compuesto */}
-              {composedAdminMessage && (
-                <div className="p-3 rounded-xl bg-indigo-50/70 border border-indigo-100 text-xs text-indigo-950">
-                  <span className="font-black uppercase text-[10px] text-indigo-600 block mb-0.5">
-                    Mensaje que recibirá el supervisor:
-                  </span>
-                  {composedAdminMessage}
+                  {showAdminResolver && (
+                    <form onSubmit={handleAdminResolverSubmit} className="pt-2 border-t border-emerald-200/80 space-y-3">
+                      <div>
+                        <label className="block text-[11px] font-black uppercase tracking-wider text-emerald-950 mb-1">
+                          Medidas adoptadas / Justificación de la resolución *
+                        </label>
+                        <textarea
+                          required
+                          rows={2}
+                          value={medidasResolucionAdmin}
+                          onChange={(e) => setMedidasResolucionAdmin(e.target.value)}
+                          placeholder="Indique las medidas adoptadas o justificación para dar por resuelta esta alerta..."
+                          className="w-full px-3 py-2 rounded-xl border border-emerald-300 bg-white text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500 font-medium"
+                        />
+                      </div>
+                      <div className="flex items-center justify-end gap-2">
+                        <button
+                          type="button"
+                          disabled={isSaving}
+                          onClick={() => setShowAdminResolver(false)}
+                          className="px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-50"
+                        >
+                          Cancelar
+                        </button>
+                        <button
+                          type="submit"
+                          disabled={isSaving || !medidasResolucionAdmin.trim()}
+                          className="px-4 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-black uppercase flex items-center gap-1.5 shadow-sm"
+                        >
+                          {isSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
+                          Confirmar y Marcar Resuelta
+                        </button>
+                      </div>
+                    </form>
+                  )}
                 </div>
               )}
 
-              <div className="flex items-center justify-between pt-2">
-                <span className="text-[10px] font-bold text-slate-400">
-                  * Quedará visible en la bandeja del supervisor asignado y en el historial auditable.
-                </span>
-                <button
-                  type="submit"
-                  disabled={isSaving || !composedAdminMessage.trim()}
-                  className="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-xs font-black uppercase tracking-wider flex items-center gap-2 shadow-lg shadow-indigo-600/20 transition-all"
-                >
-                  {isSaving ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      Enviando...
-                    </>
-                  ) : (
-                    <>
-                      <Send className="w-4 h-4" />
-                      Enviar a Supervisor
-                    </>
-                  )}
-                </button>
-              </div>
-            </form>
+              <form
+                onSubmit={handleAdminConsultaSubmit}
+                className="space-y-4 bg-white rounded-2xl border border-indigo-200 p-4 sm:p-5 shadow-sm"
+              >
+                <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                  <div>
+                    <h4 className="text-xs font-black uppercase tracking-wider text-indigo-950 flex items-center gap-1.5">
+                      <MessageSquarePlus className="w-4 h-4 text-indigo-600" />
+                      Consultar o Requerir Estado al Supervisor Asignado
+                    </h4>
+                    <p className="text-[11px] text-slate-500 font-medium mt-0.5">
+                      Seleccione una consulta rápida y/o escriba indicaciones para que sean leídas por el supervisor de <strong className="text-slate-700">{alerta.siteName}</strong>.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Botones rápidos de consulta */}
+                <div>
+                  <label className="block text-[11px] font-black uppercase tracking-wider text-slate-700 mb-2">
+                    Consultas Rápidas (clic para agregar)
+                  </label>
+                  <div className="flex flex-wrap gap-2">
+                    {ADMIN_QUICK_PROMPTS.map((promptText) => {
+                      const isSelected = selectedPrompts.includes(promptText);
+                      return (
+                        <button
+                          key={promptText}
+                          type="button"
+                          onClick={() => toggleQuickPrompt(promptText)}
+                          className={`px-3 py-2 rounded-xl text-xs font-black border transition-all flex items-center gap-1.5 ${
+                            isSelected
+                              ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm shadow-indigo-600/20'
+                              : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-indigo-50 hover:border-indigo-200'
+                          }`}
+                        >
+                          {isSelected && <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />}
+                          {promptText}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Campo de texto libre */}
+                <div>
+                  <label className="block text-[11px] font-black uppercase tracking-wider text-slate-700 mb-1">
+                    Detalle o consulta adicional (Campo de texto libre)
+                  </label>
+                  <textarea
+                    rows={3}
+                    value={consultaTextoLibre}
+                    onChange={(e) => setConsultaTextoLibre(e.target.value)}
+                    placeholder="Escriba aquí instrucciones o detalles adicionales para el supervisor asignado..."
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white text-xs font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+
+                {/* Vista previa del mensaje compuesto */}
+                {composedAdminMessage && (
+                  <div className="p-3 rounded-xl bg-indigo-50/70 border border-indigo-100 text-xs text-indigo-950">
+                    <span className="font-black uppercase text-[10px] text-indigo-600 block mb-0.5">
+                      Mensaje que recibirá el supervisor:
+                    </span>
+                    {composedAdminMessage}
+                  </div>
+                )}
+
+                <div className="flex items-center justify-between pt-2">
+                  <span className="text-[10px] font-bold text-slate-400">
+                    * Quedará visible en la bandeja del supervisor asignado y en el historial auditable.
+                  </span>
+                  <button
+                    type="submit"
+                    disabled={isSaving || !composedAdminMessage.trim()}
+                    className="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-xs font-black uppercase tracking-wider flex items-center gap-2 shadow-lg shadow-indigo-600/20 transition-all"
+                  >
+                    {isSaving ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Enviando...
+                      </>
+                    ) : (
+                      <>
+                        <Send className="w-4 h-4" />
+                        Enviar a Supervisor
+                      </>
+                    )}
+                  </button>
+                </div>
+              </form>
+            </>
           )}
 
           {/* --- VISTA SUPERVISOR: Registrar Intervención de Supervisor ("Guardar Gestión") --- */}

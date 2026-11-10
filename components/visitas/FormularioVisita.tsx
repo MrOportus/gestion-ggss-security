@@ -212,6 +212,8 @@ const FormularioVisita: React.FC<Props> = ({ draft, supervisorNombre, updateDraf
   const cargos = resumenCargos(draft);
   const fotosVisita = draft.fotos.filter(f => f.ambito === 'visita');
   const fotosObs = draft.fotos.filter(f => f.ambito === 'observacion');
+  const fotosLibroNov = draft.fotos.filter(f => f.ambito === 'libro_novedades');
+  const fotosConstancia = draft.fotos.filter(f => f.ambito === 'constancia_libro');
   const errSec = (s: ErrorValidacion['seccion']) => errores.some(e => e.seccion === s);
   const e = draft.entrevista;
   const la = draft.libroAsistencia ?? { revisado: null, estado: null, observacion: '' };
@@ -547,7 +549,24 @@ const FormularioVisita: React.FC<Props> = ({ draft, supervisorNombre, updateDraf
               </Campo>
             </div>
           )}
-          <div className="space-y-2 pt-2 border-t-2 border-slate-100">
+
+          {/* Carga de fotografía del estado del libro cuando se indica OK o Con observación */}
+          {ln.estado && (
+            <div className="space-y-2 pt-2 animate-in fade-in duration-200">
+              <p className="text-xs font-bold text-slate-600 uppercase tracking-wide">
+                Fotografía del libro de novedades
+              </p>
+              <BotonFoto ambito="libro_novedades" texto="📷 FOTOGRAFÍA DEL LIBRO" />
+              {fotosLibroNov.length > 0 && (
+                <p className="text-sm font-black text-slate-800">
+                  Fotos del libro: {fotosLibroNov.length}
+                </p>
+              )}
+              <Miniaturas fotos={fotosLibroNov} />
+            </div>
+          )}
+
+          <div className="space-y-3 pt-3 border-t-2 border-slate-100">
             <Pregunta>¿Se dejó constancia?</Pregunta>
             <SiNoButtons
               idPrefix="libro-nov-const"
@@ -560,6 +579,29 @@ const FormularioVisita: React.FC<Props> = ({ draft, supervisorNombre, updateDraf
                 }
               }))}
             />
+
+            {/* Si la respuesta es SI, debe subir la foto de la constancia realizada en el libro */}
+            {ln.dejoConstancia === true && (
+              <div className="space-y-2 pt-2 animate-in fade-in duration-200 bg-amber-50/80 p-3.5 rounded-2xl border-2 border-amber-300">
+                <div className="flex items-center gap-1.5 text-amber-900 font-black text-xs uppercase tracking-wide">
+                  <span>📸 Fotografía de la constancia (Obligatoria) *</span>
+                </div>
+                <p className="text-xs font-medium text-amber-800">
+                  Suba la fotografía legible de la constancia escrita en el libro de novedades.
+                </p>
+                <BotonFoto ambito="constancia_libro" texto="📷 FOTOGRAFÍA DE LA CONSTANCIA" principal />
+                {fotosConstancia.length > 0 ? (
+                  <p className="text-sm font-black text-emerald-700 flex items-center gap-1">
+                    ✓ Constancia adjunta ({fotosConstancia.length} foto{fotosConstancia.length > 1 ? 's' : ''})
+                  </p>
+                ) : (
+                  <p className="text-xs font-bold text-red-600">
+                    * Debe adjuntar la fotografía de la constancia para poder enviar el reporte.
+                  </p>
+                )}
+                <Miniaturas fotos={fotosConstancia} />
+              </div>
+            )}
           </div>
         </Card>
 

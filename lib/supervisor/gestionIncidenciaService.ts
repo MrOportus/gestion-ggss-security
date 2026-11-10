@@ -30,7 +30,7 @@ import {
   where,
   writeBatch,
 } from 'firebase/firestore';
-import { db } from '../firebase';
+import { auth, db } from '../firebase';
 import type {
   ConsultaAdminResumen,
   EstadoSolucionSupervisor,
@@ -53,7 +53,13 @@ export type ClasificacionAlertaOperacional =
   | 'novedad_critica'
   | 'novedad_alta';
 
-export type EstadoFiltroGestion = 'todos' | 'sin_gestion' | 'si' | 'no' | 'pendiente';
+export type EstadoFiltroGestion =
+  | 'todos'
+  | 'no_solucionadas'
+  | 'sin_gestion'
+  | 'si'
+  | 'no'
+  | 'pendiente';
 
 /** Elemento unificado de Alerta Operacional (sin duplicar documento en BD) */
 export interface AlertaOperacionalItem {
@@ -530,6 +536,147 @@ export async function registrarGestionSupervisor(
       await updateDoc(parentRef, parentUpdate);
     } else {
       throw err;
+    }
+  }
+
+  return { gestionId };
+}
+
+export interface ResolverAlertaAdminParams {
+  origenTipo: 'ronda' | 'novedad';
+  origenId: string;
+  siteId: string | number;
+  siteName?: string;
+  adminUid: string;
+  adminNombre: string;
+  adminRole?: 'admin' | 'jefe_operaciones' | string;
+  medidasTomadas: string;
+  observaciones?: string;
+  prevResumen?: GestionSupervisorResumen | null;
+}
+
+/**
+ * Permite al Administrador o Jefatura de Operaciones marcar una alerta o novedad como resuelta.
+ * Registra la gestión auditable con estado 'si' (Solucionado) y actualiza el documento padre.
+ * Si es una novedad, además sincroniza el estado de la novedad a 'resuelta' y añade el seguimiento de cierre.
+ */
+export async function resolverAlertaComoAdmin(
+  params: ResolverAlertaAdminParams,
+): Promise<{ gestionId: string }> {
+  if (!params.origenId || !params.origenId.trim()) {
+    throw new Error('El identificador del registro es obligatorio.');
+  }
+  const effectiveAdminUid = auth.currentUser?.uid || params.adminUid;
+  if (!effectiveAdminUid || !effectiveAdminUid.trim()) {
+    throw new Error('No se pudo identificar al administrador.');
+  }
+  const effectiveAdminNombre =
+    params.adminNombre || auth.currentUser?.displayName || 'Administración';
+
+  const parentCollectionName = params.origenTipo === 'ronda' ? RONDAS_COL : NOVEDADES_COL;
+  const gestionId = `gest_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+
+  const parentRef = doc(db, parentCollectionName, params.origenId);
+  const historialRef = doc(
+    collection(db, parentCollectionName, params.origenId, HISTORIAL_GESTION_SUBCOL),
+    gestionId,
+  );
+
+  const officialTimestamp = serverTimestamp();
+  const nowISO = new Date().toISOString();
+  const medidas =
+    params.medidasTomadas.trim() || 'Novedad marcada como resuelta por Administración.';
+
+  const historialDoc: Record<string, unknown> = {
+    id: gestionId,
+    origenTipo: params.origenTipo,
+    origenId: params.origenId,
+    siteId: normalizeSiteId(params.siteId),
+    siteName: params.siteName || '',
+    tipoRegistro: 'gestion_supervisor',
+    fueSolucionado: 'si',
+    medidasTomadas: medidas,
+    observaciones: params.observaciones?.trim() || '',
+    motivoNoSolucionado: '',
+    requiereIntervencionJefatura: false,
+    supervisorUid: effectiveAdminUid,
+    supervisorNombre: effectiveAdminNombre,
+    fechaGestion: officialTimestamp,
+  };
+
+  const resumen: Record<string, unknown> = {
+    ultimaGestionId: gestionId,
+    tipoRegistro: 'gestion_supervisor',
+    fueSolucionado: 'si',
+    medidasTomadas: medidas,
+    observaciones: params.observaciones?.trim() || '',
+    motivoNoSolucionado: '',
+    requiereIntervencionJefatura: false,
+    supervisorUid: effectiveAdminUid,
+    supervisorNombre: effectiveAdminNombre,
+    ultimoSupervisorUid: effectiveAdminUid,
+    ultimoSupervisorNombre: effectiveAdminNombre,
+    fechaGestion: officialTimestamp,
+    fechaUltimaGestionSupervisorISO: nowISO,
+  };
+
+  if (params.prevResumen?.consultaAdmin) {
+    resumen.consultaAdmin = {
+      ...params.prevResumen.consultaAdmin,
+      pendienteRespuesta: false,
+    };
+  }
+
+  // 1. Escritura de Gestión del Supervisor en el documento padre
+  // Cumple con la regla de seguridad 'hasOnly(["gestionSupervisor"])' (Caso 1 de firestore.rules)
+  const parentGestionUpdate = {
+    gestionSupervisor: resumen,
+  };
+
+  try {
+    const batch = writeBatch(db);
+    batch.set(historialRef, historialDoc);
+    batch.update(parentRef, parentGestionUpdate);
+    await batch.commit();
+  } catch (err: any) {
+    if (err?.code === 'permission-denied') {
+      await updateDoc(parentRef, parentGestionUpdate);
+    } else {
+      throw err;
+    }
+  }
+
+  // 2. Si es una novedad, sincronizar el estado nativo a 'resuelta' y registrar en el hilo de seguimiento
+  // Cumple con la regla de seguridad de seguimiento y modificación de estado (!hasAny(["gestionSupervisor"]))
+  if (params.origenTipo === 'novedad') {
+    try {
+      const { addSeguimiento } = await import('../novedades/seguimientoService');
+      await addSeguimiento(
+        {
+          novedadId: params.origenId,
+          usuarioId: effectiveAdminUid,
+          usuarioNombre: effectiveAdminNombre,
+          rol: params.adminRole || 'admin',
+          mensaje: medidas,
+        },
+        'resolucion',
+      );
+    } catch (segErr) {
+      console.warn('[resolverAlertaComoAdmin] No se pudo agregar seguimiento de resolución:', segErr);
+      try {
+        await updateDoc(parentRef, {
+          estado: 'resuelta',
+          requiereSeguimiento: false,
+          fechaResolucion: nowISO,
+          resueltoPorNombre: effectiveAdminNombre,
+          resueltoPorUid: effectiveAdminUid,
+          resueltoPorRol: params.adminRole || 'admin',
+          notaResolucion: medidas,
+          actualizadoEn: officialTimestamp,
+        });
+      } catch (fallbackErr) {
+        console.warn('[resolverAlertaComoAdmin] Error al actualizar estado de novedad:', fallbackErr);
+      }
     }
   }
 

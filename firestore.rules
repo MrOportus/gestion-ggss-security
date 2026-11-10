@@ -192,7 +192,7 @@ service cloud.firestore {
         // Caso 1: Registro de Gestión del Supervisor (independiente: solo modifica gestionSupervisor)
         (
           request.resource.data.diff(resource.data).affectedKeys().hasOnly(['gestionSupervisor']) &&
-          (isAdmin() || isSupervisorAssignedToSite(resource.data.siteId)) &&
+          (isAdmin() || isJefeOperaciones() || isSupervisorAssignedToSite(resource.data.siteId)) &&
           isValidGestionSupervisorPayload(request.resource.data.gestionSupervisor)
         ) ||
         // Caso 2: Flujo original de Rondas (sin tocar gestionSupervisor ni campos protegidos de un tercero)
@@ -214,7 +214,7 @@ service cloud.firestore {
           isSupervisor()
         );
         allow create: if request.auth != null &&
-          (isAdmin() || isSupervisorAssignedToSite(request.resource.data.siteId)) &&
+          (isAdmin() || isJefeOperaciones() || isSupervisorAssignedToSite(request.resource.data.siteId)) &&
           isValidGestionSupervisorPayload(request.resource.data) &&
           request.resource.data.origenTipo == 'ronda' &&
           request.resource.data.origenId == roundId;
@@ -479,7 +479,7 @@ service cloud.firestore {
         // Caso 1: Registro de Gestión del Supervisor (independiente: solo modifica gestionSupervisor)
         (
           request.resource.data.diff(resource.data).affectedKeys().hasOnly(['gestionSupervisor']) &&
-          (isAdmin() || isSupervisorAssignedToNovedadData(resource.data)) &&
+          (isAdmin() || isJefeOperaciones() || isSupervisorAssignedToNovedadData(resource.data)) &&
           isValidGestionSupervisorPayload(request.resource.data.gestionSupervisor)
         ) ||
         // Caso 2: Flujo original de seguimiento / acuse de lectura (protege campos originales y gestionSupervisor)
@@ -504,6 +504,22 @@ service cloud.firestore {
             isSupervisorAssignedToNovedadData(resource.data) ||
             (isColaborador() && !isMandante())
           )
+        ) ||
+        // Caso 3: Resolución administrativa directa (permite modificar gestionSupervisor y metadatos de resolución simultáneamente)
+        (
+          (isAdmin() || isJefeOperaciones()) &&
+          !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+            'autorUid',
+            'colaboradorId',
+            'sucursalId',
+            'siteId',
+            'evidencias',
+            'fotos',
+            'fechaHoraEvento',
+            'fechaEvento',
+            'horaEvento',
+            'creadoEn'
+          ])
         )
       );
       allow delete: if false;
@@ -516,7 +532,7 @@ service cloud.firestore {
           isSupervisor()
         );
         allow create: if request.auth != null &&
-          (isAdmin() || isSupervisorAssignedToSite(request.resource.data.siteId)) &&
+          (isAdmin() || isJefeOperaciones() || isSupervisorAssignedToSite(request.resource.data.siteId)) &&
           isValidGestionSupervisorPayload(request.resource.data) &&
           request.resource.data.origenTipo == 'novedad' &&
           request.resource.data.origenId == docId;
@@ -573,17 +589,17 @@ service cloud.firestore {
     // admin y jefe de operaciones leen todas. El update solo permite completar
     // el mapa de fotos (subida diferida offline-first). Nunca se borra.
     match /visitasSupervisor/{visitId} {
-      allow read: if request.auth != null && (isAdmin() || isSupervisor() || isJefeOperaciones());
-      allow create: if request.auth != null && (isAdmin() || isSupervisor() || isJefeOperaciones());
-      allow update: if request.auth != null && (isAdmin() || isSupervisor() || isJefeOperaciones());
+      allow read: if request.auth != null && (isAdmin() || isSupervisor() || isJefeOperaciones() || isColaborador());
+      allow create: if request.auth != null && (isAdmin() || isSupervisor() || isJefeOperaciones() || isColaborador());
+      allow update: if request.auth != null && (isAdmin() || isSupervisor() || isJefeOperaciones() || isColaborador());
       allow delete: if false;
 
       match /seguimientos/{seguimientoId} {
-        allow read: if request.auth != null && (isAdmin() || isSupervisor() || isJefeOperaciones());
-        allow create: if request.auth != null && (isAdmin() || isSupervisor() || isJefeOperaciones());
+        allow read: if request.auth != null && (isAdmin() || isSupervisor() || isJefeOperaciones() || isColaborador());
+        allow create: if request.auth != null && (isAdmin() || isSupervisor() || isJefeOperaciones() || isColaborador());
         // Inmutable salvo el acuse de lectura del supervisor (solo campos de lectura,
         // por alguien distinto al autor del mensaje).
-        allow update: if request.auth != null && (isAdmin() || isSupervisor() || isJefeOperaciones())
+        allow update: if request.auth != null && (isAdmin() || isSupervisor() || isJefeOperaciones() || isColaborador())
           && resource.data.autorUid != request.auth.uid
           && request.resource.data.diff(resource.data).affectedKeys()
                .hasOnly(['leidoPorSupervisor', 'leidoEn', 'leidoPorNombre', 'leidoPorUid'])
