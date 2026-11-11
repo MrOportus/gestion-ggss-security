@@ -1,6 +1,7 @@
 
 export type Role = 'admin' | 'supervisor' | 'worker' | 'mandante' | 'jefe_operaciones' | 'rrhh';
 export type EstadoOperativoColaborador = 'en_servicio' | 'reserva' | 'inactivo' | 'por_revisar';
+export type MandanteViewMode = 'auto' | 'con_rondas' | 'sin_rondas';
 
 export interface User {
   uid: string;
@@ -79,7 +80,8 @@ export interface Employee {
   fcmTokens?: string[]; // Para notificaciones push
   forceLogout?: boolean; // Para cerrar sesión remota
   lastForceLogout?: string; // ISO timestamp
-  assignedSites?: number[]; // IDs of sites assigned to a supervisor
+  assignedSites?: number[]; // IDs of sites assigned to a supervisor o mandante
+  mandanteViewMode?: MandanteViewMode; // Preferencia de panel en Portal Mandante ('auto' | 'con_rondas' | 'sin_rondas')
   signatureUrl?: string | null; // Base64 data URL representing the signature
   signatureUpdatedAt?: string | null; // ISO timestamp of when signature was registered/updated
 }

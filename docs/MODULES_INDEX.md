@@ -19,8 +19,8 @@ Este índice detalla cada módulo funcional de ASPRO, sus archivos de entrada, c
 | **Rondas de Seguridad** | `pages/RoundsAdminPage.tsx` | `admin`, `supervisor` | `Rondas`, `Sucursales` | **Implementado:** Monitoreo de rondas (filtrado por sucursales asignadas en vista supervisor), visualización de rutas sobre mapas Leaflet y verificación de evidencias. |
 | **Visitas de Supervisor** | `pages/VisitasSupervisorPage.tsx` | `supervisor`, `admin` | `visitasSupervisor`, subcol. `seguimientos`, `Sucursales` | **Implementado:** Formularios de auditoría en terreno, checklists por instalación y geolocalización. |
 | **Libro de Novedades** | `pages/AdminLibroNovedadesPage.tsx` | `admin`, `supervisor` | `novedades`, subcol. `seguimientos`, `Sucursales` | **Implementado:** Bitácora digital de eventos, incidencias graves/leves y seguimiento con responsables. |
-| **Portal Mandante** | `pages/MandanteView.tsx` | `mandante`, `admin` | `Sucursales`, `Asistencia`, `Rondas`, `novedades` | **Implementado:** Portal exclusivo para clientes contratantes con información filtrada por faena. |
-| **Gestión Mandantes** | `pages/MandanteManagement.tsx` | `admin` | `Sucursales`, `Colaboradores` | **Implementado:** Creación y asignación de usuarios clientes mandantes a sucursales autorizadas. |
+| **Portal Mandante** | `pages/MandanteView.tsx` | `mandante`, `admin` | `Sucursales`, `Asistencia`, `Rondas`, `novedades`, `asistencia_manual` | **Implementado:** Portal ejecutivo en tiempo real con vista dual adaptativa (`con_rondas` y `sin_rondas`), modal interactivo de novedades/accesos (personas y vehículos), cobertura operativa y exportación PDF. |
+| **Gestión Mandantes** | `pages/MandanteManagement.tsx` | `admin` | `Sucursales`, `Colaboradores` | **Implementado:** Asignación de sucursales autorizadas y selector de modo de vista (`auto`, `con_rondas`, `sin_rondas`) para clientes mandantes. |
 | **Préstamos y Anticipos** | `pages/LoansPage.tsx` | `admin` | `Anticipos`, `Prestamos`, `Colaboradores` | **Implementado:** Solicitudes, autorizaciones, cuotas y reportes financieros de personal. |
 | **Instalaciones / Faenas** | `pages/SitesPage.tsx` | `admin` | `Sucursales` | **Implementado:** Catálogo de puestos, geocercas GPS, horarios operativos y flags de rondas. |
 | **Tareas de Supervisor** | `pages/SupervisorManagement.tsx` | `admin`, `supervisor` | `SupervisorTasks`, `RecurringSupervisorTasks`, `SupervisorSubTasks` | **Implementado:** Planificación y verificación de tareas operativas y rondas de supervisión. |
@@ -64,6 +64,8 @@ Este índice detalla cada módulo funcional de ASPRO, sus archivos de entrada, c
 
 ## 3. Servicios Core (`lib/`)
 
+- **`lib/mandante/mandanteMetricsService.ts`:** Servicio puro para el Portal Mandante: resolución del modo de vista (`auto` / `con_rondas` / `sin_rondas`), cálculo de duración promedio excluyendo rondas `> 25 min`, rendimiento por guardia/día, cobertura de servicio (`Asistencia`), filtrado de accesos de personas/vehículos (`novedades`) y normalización de novedades.
+- **`components/mandante/`:** Componentes ejecutivos del Portal Mandante (`NovedadesResumenModal.tsx`, `RendimientoRondasCard.tsx`, `MandanteReportes.tsx`, `mandanteUiConstants.ts`).
 - **`lib/contratos/localContractTemplateService.ts`:** Servicio que administra la sincronización de plantillas DOCX entre Firestore y Firebase Storage, con fallback a IndexedDB y migración transparente.
 - **`lib/contratos/sueldoMinimoLegalService.ts`:** Validador en tiempo real del sueldo mínimo legal en Chile, con detección de jornada parcial, advertencias y cálculo proporcional.
 - **`lib/SyncManager.ts` & `lib/SyncQueueService.ts`:** Orquestador de la cola offline en IndexedDB con reintentos idempotentes al recuperar conectividad.

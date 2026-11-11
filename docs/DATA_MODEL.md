@@ -26,6 +26,8 @@ Este documento define la estructura de datos persistente en **Cloud Firestore**,
   - `fechaTerminoContrato` *(string, ISO)*: Fecha de término (obligatoria en Plazo Fijo).
   - `isActive` *(boolean)*: Estado operativo del trabajador.
   - `fcmToken` *(string, opcional)*: Token para notificaciones push en Android/iOS o Web.
+  - `assignedSites` *(string[] | number[], opcional)*: Lista de IDs de sucursales autorizadas para usuarios con rol `mandante` (o supervisores).
+  - `mandanteViewMode` *(string, opcional)*: Preferencia de vista para el Portal Mandante (`'auto' | 'con_rondas' | 'sin_rondas'`). Por defecto `'auto'` deduce el modo según `rondasEnabled` de las sucursales asignadas.
 
 ### 1.2 `Contratos` (Registro Histórico y Vigente de Contratos)
 - **ID de Documento:** `contratoId` (auto-generado o prefijado `contrato_{timestamp}_{random}`).

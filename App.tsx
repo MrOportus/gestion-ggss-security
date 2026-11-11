@@ -577,6 +577,7 @@ const App: React.FC = () => {
     return (
       <>
         <MandanteView />
+        <GlobalOverlay />
         {renderFcmDebugOverlay()}
       </>
     );
