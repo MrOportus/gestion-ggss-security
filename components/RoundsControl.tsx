@@ -22,7 +22,7 @@ import {
 } from 'lucide-react';
 import { GuardRound } from '../types';
 import { noSleep } from '../lib/noSleep';
-import { compressImage } from '../lib/imageUtils';
+import { captureAndCompressPhoto, compressImage, blobToDataUrl, ImageWatermarkData } from '../lib/imageUtils';
 import { roundsDB, PendingEvidence } from '../lib/roundsDB';
 import { Capacitor } from '@capacitor/core';
 import { Camera as CapacitorCamera } from '@capacitor/camera';
@@ -419,21 +419,20 @@ const RoundsControl: React.FC<RoundsControlProps> = ({ onBack }) => {
             const pendingEvidences: PendingEvidence[] = await roundsDB.getPendingEvidences(roundId);
             if (pendingEvidences.length > 0) {
                 console.log(`[RoundsControl] Encolando ${pendingEvidences.length} evidencias para sincronización...`);
+                const useBlobPayload = SyncQueueService.supportsBlobPayloads();
                 for (const ev of pendingEvidences) {
-                    // Convert Blob → base64 for the SyncQueue (localforage stores JSON)
-                    const base64 = await new Promise<string>((res, rej) => {
-                        const reader = new FileReader();
-                        reader.onloadend = () => res(reader.result as string);
-                        reader.onerror = rej;
-                        reader.readAsDataURL(ev.blob);
-                    });
-                    await SyncQueueService.enqueue('UPLOAD_EVIDENCE', {
+                    const payload: Record<string, any> = {
                         roundId,
-                        photoBase64: base64,
                         lat: ev.lat,
                         lng: ev.lng,
                         timestamp: ev.timestamp,
-                    }, currentUser!.uid);
+                    };
+                    if (useBlobPayload) {
+                        payload.photoBlob = ev.blob;
+                    } else {
+                        payload.photoBase64 = await blobToDataUrl(ev.blob);
+                    }
+                    await SyncQueueService.enqueue('UPLOAD_EVIDENCE', payload, currentUser!.uid);
                 }
                 // Clean IDB now that items are safely in the sync queue
                 await roundsDB.clearPendingEvidences(roundId);
@@ -456,11 +455,62 @@ const RoundsControl: React.FC<RoundsControlProps> = ({ onBack }) => {
         }
     };
 
+    const persistCompressedEvidence = useCallback(async (compressedBlob: Blob) => {
+        if (!activeRound) return;
+        const roundId = activeRound.id;
+        const captureTimestamp = new Date().toISOString();
+        const photoLat = currentPos?.coords.latitude ?? 0;
+        const photoLng = currentPos?.coords.longitude ?? 0;
+
+        const idbKey = await roundsDB.savePendingEvidence({
+            roundId,
+            blob: compressedBlob,
+            lat: photoLat,
+            lng: photoLng,
+            timestamp: captureTimestamp,
+        });
+
+        const blobUrl = URL.createObjectURL(compressedBlob);
+        setLocalEvidences(prev => [
+            ...prev,
+            { idbKey, blobUrl, lat: photoLat, lng: photoLng, timestamp: captureTimestamp },
+        ]);
+
+        showNotification(`Foto ${localEvidences.length + 1} guardada ✓`, 'success');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [activeRound, currentPos, localEvidences.length]);
+
+    const buildWatermarkData = useCallback((): ImageWatermarkData => {
+        const roundId = activeRound?.id ?? 'RND';
+        const photoLat = currentPos?.coords.latitude ?? 0;
+        const photoLng = currentPos?.coords.longitude ?? 0;
+        const now = new Date();
+        const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+        const dateStr = now.toLocaleDateString('es-CL', { day: '2-digit', month: 'short', year: 'numeric' }).replace(/\./g, '');
+        const dayStr = now.toLocaleDateString('es-CL', { weekday: 'short' }).replace(/\./g, '');
+        const locationName = site?.name ?? 'Ubicación Protegida';
+        const coordsStr = photoLat !== 0
+            ? `${photoLat.toFixed(7)}, ${photoLng.toFixed(7)}`
+            : 'GPS No disponible';
+        const verifyCode = `${roundId.slice(-4).toUpperCase()}${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
+
+        return {
+            time: timeStr,
+            date: dateStr,
+            day: dayStr.charAt(0).toUpperCase() + dayStr.slice(1),
+            location: locationName,
+            coords: coordsStr,
+            verifyCode,
+        };
+    }, [activeRound?.id, currentPos, site?.name]);
+
     const handlePhotoClick = async () => {
+        if (!activeRound || loading) return;
+
         if (Capacitor.isNativePlatform()) {
             try {
                 const permStatus = await CapacitorCamera.requestPermissions({
-                    permissions: ['camera', 'photos']
+                    permissions: ['camera']
                 });
                 if (permStatus.camera !== 'granted') {
                     showNotification("Se requiere permiso de cámara para tomar evidencias.", "error");
@@ -470,73 +520,34 @@ const RoundsControl: React.FC<RoundsControlProps> = ({ onBack }) => {
                 console.error("Error solicitando permisos de cámara nativa:", err);
             }
         }
-        fileInputRef.current?.click();
+
+        setLoading(true);
+        try {
+            const compressedBlob = await captureAndCompressPhoto({
+                source: 'camera',
+                quality: 0.7,
+                maxWidth: 1024,
+                getWatermarkData: buildWatermarkData,
+            });
+            if (compressedBlob) {
+                await persistCompressedEvidence(compressedBlob);
+            }
+        } catch (err) {
+            console.error('[RoundsControl] Error al capturar/procesar foto:', err);
+            showNotification('Error al guardar foto', 'error');
+        } finally {
+            setLoading(false);
+        }
     };
 
-    /**
-     * OFFLINE-FIRST photo handler.
-     *
-     * Flow during an active round:
-     *   1. Compress + watermark (canvas, local only)
-     *   2. Save Blob to IndexedDB → get IDB key
-     *   3. Create a revocable blob: URL for instant preview
-     *   4. Append to localEvidences (the counter's source of truth)
-     *
-     * NO Firestore / Firebase Storage calls happen here.
-     * Everything is flushed to the cloud in confirmStopRound().
-     */
     const handleFileChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (!file || !activeRound) return;
 
         setLoading(true);
-        const roundId = activeRound.id;
-        const captureTimestamp = new Date().toISOString();
-
-        // Snapshot GPS coords at capture time (non-blocking)
-        const photoLat = currentPos?.coords.latitude ?? 0;
-        const photoLng = currentPos?.coords.longitude ?? 0;
-
         try {
-            // ── 1. Build watermark data ───────────────────────────────────────
-            const now = new Date();
-            const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
-            const dateStr = now.toLocaleDateString('es-CL', { day: '2-digit', month: 'short', year: 'numeric' }).replace(/\./g, '');
-            const dayStr  = now.toLocaleDateString('es-CL', { weekday: 'short' }).replace(/\./g, '');
-            const locationName = site?.name ?? 'Ubicación Protegida';
-            const coordsStr = photoLat !== 0
-                ? `${photoLat.toFixed(7)}, ${photoLng.toFixed(7)}`
-                : 'GPS No disponible';
-            const verifyCode = `${roundId.slice(-4).toUpperCase()}${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
-
-            // ── 2. Compress + watermark (pure canvas — no network) ────────────
-            const compressedBlob = await compressImage(file, 0.7, 1024, {
-                time: timeStr,
-                date: dateStr,
-                day: dayStr.charAt(0).toUpperCase() + dayStr.slice(1),
-                location: locationName,
-                coords: coordsStr,
-                verifyCode,
-            });
-
-            // ── 3. Persist Blob to IndexedDB (offline-safe) ───────────────────
-            const idbKey = await roundsDB.savePendingEvidence({
-                roundId,
-                blob: compressedBlob,
-                lat: photoLat,
-                lng: photoLng,
-                timestamp: captureTimestamp,
-            });
-
-            // ── 4. Update local counter immediately (no Firestore involved) ───
-            const blobUrl = URL.createObjectURL(compressedBlob);
-            setLocalEvidences(prev => [
-                ...prev,
-                { idbKey, blobUrl, lat: photoLat, lng: photoLng, timestamp: captureTimestamp },
-            ]);
-
-            showNotification(`Foto ${localEvidences.length + 1} guardada ✓`, 'success');
-
+            const compressedBlob = await compressImage(file, 0.7, 1024, buildWatermarkData());
+            await persistCompressedEvidence(compressedBlob);
         } catch (err) {
             console.error('[RoundsControl] Error al procesar foto:', err);
             showNotification('Error al guardar foto', 'error');
@@ -545,7 +556,7 @@ const RoundsControl: React.FC<RoundsControlProps> = ({ onBack }) => {
             if (e.target) e.target.value = '';
         }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [activeRound, currentPos, site?.name, localEvidences.length]);
+    }, [activeRound, buildWatermarkData, persistCompressedEvidence]);
 
     const formatTime = (seconds: number) => {
         const hrs = Math.floor(seconds / 3600);

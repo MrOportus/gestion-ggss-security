@@ -73,6 +73,65 @@ export const roundsDB = {
         });
     },
 
+    /**
+     * Delete GPS points associated with a verified-synced or finalized round.
+     */
+    async clearPointsForRound(roundId: string): Promise<number> {
+        if (!roundId) return 0;
+        const db = await this.open();
+        return new Promise<number>((resolve, reject) => {
+            const tx = db.transaction(this.storeName, 'readwrite');
+            const store = tx.objectStore(this.storeName);
+            const req = store.openCursor();
+            let deletedCount = 0;
+
+            req.onsuccess = (e: any) => {
+                const cursor: IDBCursorWithValue | null = e.target.result;
+                if (cursor) {
+                    const val = cursor.value;
+                    if (val && val.roundId === roundId) {
+                        cursor.delete();
+                        deletedCount++;
+                    }
+                    cursor.continue();
+                }
+            };
+
+            tx.oncomplete = () => resolve(deletedCount);
+            tx.onerror = () => reject(tx.error);
+        });
+    },
+
+    /**
+     * Delete orphan GPS points strictly older than cutoffIso while preserving active round points.
+     */
+    async clearPointsOlderThan(cutoffIso: string, excludeRoundId?: string | null): Promise<number> {
+        const db = await this.open();
+        return new Promise<number>((resolve, reject) => {
+            const tx = db.transaction(this.storeName, 'readwrite');
+            const store = tx.objectStore(this.storeName);
+            const req = store.openCursor();
+            const cutoffTime = new Date(cutoffIso).getTime();
+            let deletedCount = 0;
+
+            req.onsuccess = (e: any) => {
+                const cursor: IDBCursorWithValue | null = e.target.result;
+                if (cursor) {
+                    const val = cursor.value;
+                    const itemTime = val?.timestamp ? new Date(val.timestamp).getTime() : NaN;
+                    if (!isNaN(itemTime) && itemTime < cutoffTime && (!excludeRoundId || val.roundId !== excludeRoundId)) {
+                        cursor.delete();
+                        deletedCount++;
+                    }
+                    cursor.continue();
+                }
+            };
+
+            tx.oncomplete = () => resolve(deletedCount);
+            tx.onerror = () => reject(tx.error);
+        });
+    },
+
     // ─── Pending Evidences (Offline-First Photo Buffer) ───────────────────────
 
     /**

@@ -33,7 +33,7 @@ import {
 } from 'firebase/firestore';
 import { db } from '../firebase';
 import { SyncQueueService, QueueItem } from '../SyncQueueService';
-import { compressImage } from '../imageUtils';
+import { compressImage, blobToDataUrl, dataUrlToBlob } from '../imageUtils';
 import { construirDocumentoVisita, fechaLocalISO } from './visitasLogic';
 import {
   AmbitoFoto,
@@ -125,30 +125,34 @@ export async function obtenerUbicacionVisita(timeoutMs = 12000): Promise<Ubicaci
 
 // ─── Fotos ───────────────────────────────────────────────────────────────────
 
-function blobToDataUrl(blob: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const r = new FileReader();
-    r.onloadend = () => resolve(r.result as string);
-    r.onerror = reject;
-    r.readAsDataURL(blob);
-  });
-}
-
-/** Comprime (misma utilidad que el resto de la app) y devuelve la foto lista para el borrador. */
-export async function procesarFotoVisita(file: File, visitId: string, ambito: AmbitoFoto): Promise<FotoVisitaLocal> {
-  let dataUrl: string;
-  try {
-    dataUrl = await blobToDataUrl(await compressImage(file, 0.6, 1024));
-  } catch {
-    // Si la compresión falla, usar el archivo original antes que perder la evidencia
-    dataUrl = await blobToDataUrl(file);
+/** Envuelve un Blob ya comprimido (Camera/Gallery) en el modelo local del borrador. */
+export async function crearFotoVisitaDesdeBlob(
+  compressedBlob: Blob,
+  visitId: string,
+  ambito: AmbitoFoto
+): Promise<FotoVisitaLocal> {
+  const id = `${visitId}_f${Date.now()}${Math.random().toString(36).substring(2, 5)}`;
+  const capturadoEn = new Date().toISOString();
+  if (SyncQueueService.supportsBlobPayloads()) {
+    return {
+      id,
+      blob: compressedBlob,
+      ambito,
+      capturadoEn,
+    };
   }
   return {
-    id: `${visitId}_f${Date.now()}${Math.random().toString(36).substring(2, 5)}`,
-    dataUrl,
+    id,
+    dataUrl: await blobToDataUrl(compressedBlob),
     ambito,
-    capturadoEn: new Date().toISOString(),
+    capturadoEn,
   };
+}
+
+/** Comprime obligatoriamente (sin fallback sin comprimir) y devuelve la foto lista para el borrador. */
+export async function procesarFotoVisita(file: File, visitId: string, ambito: AmbitoFoto): Promise<FotoVisitaLocal> {
+  const compressedBlob = await compressImage(file, 0.6, 1024);
+  return crearFotoVisitaDesdeBlob(compressedBlob, visitId, ambito);
 }
 
 // ─── Envío offline-first ─────────────────────────────────────────────────────
@@ -177,13 +181,34 @@ export async function encolarVisita(draft: VisitaDraft, supervisorNombre: string
   }
 
   // Fotos DESPUÉS del documento (la cola se procesa en orden cronológico)
+  const useBlobPayload = SyncQueueService.supportsBlobPayloads();
   for (let i = 0; i < draft.fotos.length; i++) {
     const f = draft.fotos[i];
     const opFoto = `visitafoto_${f.id}`;
     if (existentes.has(opFoto)) continue;
+    const basePayload = {
+      visitId: draft.visitId,
+      fotoId: f.id,
+      ambito: f.ambito,
+      orden: i,
+      capturadoEn: f.capturadoEn,
+    };
+    let mediaPayload: Record<string, any>;
+    if (f.blob instanceof Blob) {
+      mediaPayload = useBlobPayload
+        ? { photoBlob: f.blob }
+        : { photoBase64: await blobToDataUrl(f.blob) };
+    } else if (f.dataUrl) {
+      mediaPayload = useBlobPayload
+        ? { photoBlob: await dataUrlToBlob(f.dataUrl) }
+        : { photoBase64: f.dataUrl };
+    } else {
+      console.warn(`[Visitas] Foto ${f.id} sin datos binarios ni dataUrl. Omitiendo.`);
+      continue;
+    }
     await SyncQueueService.enqueue(
       ACTION_UPLOAD_FOTO_VISITA as any,
-      { visitId: draft.visitId, fotoId: f.id, photoBase64: f.dataUrl, ambito: f.ambito, orden: i, capturadoEn: f.capturadoEn },
+      { ...basePayload, ...mediaPayload },
       draft.supervisorUid,
       opFoto
     );
@@ -244,19 +269,28 @@ export async function sincronizarDocumentoVisita(item: QueueItem): Promise<void>
 /** Devuelve true si la foto se procesó (o se descartó por corrupta) y el item puede marcarse completado. */
 export async function sincronizarFotoVisita(
   item: QueueItem,
-  uploadBase64: (b64: string, path: string) => Promise<string>,
+  uploadBase64: (data: string | Blob, path: string) => Promise<string>,
   fallbackUid: string
 ): Promise<void> {
-  const { visitId, fotoId, photoBase64, ambito, orden, capturadoEn } = item.payload;
-  if (!photoBase64 || typeof photoBase64 !== 'string' || photoBase64.length < 100) {
+  const { visitId, fotoId, photoBase64, photoBlob, ambito, orden, capturadoEn } = item.payload;
+  const mediaData: string | Blob | null =
+    photoBlob instanceof Blob && photoBlob.size >= 50
+      ? photoBlob
+      : typeof photoBase64 === 'string' && photoBase64.length >= 100
+        ? photoBase64
+        : null;
+  if (!mediaData) {
     console.error(`[Visitas] Foto ${fotoId} corrupta. Descartando.`);
     return;
   }
   const owner = item.userId || fallbackUid;
-  const ext = photoBase64.startsWith('data:image/webp') ? 'webp' : 'jpg';
+  const ext =
+    mediaData instanceof Blob
+      ? (mediaData.type.includes('webp') ? 'webp' : 'jpg')
+      : (mediaData.startsWith('data:image/webp') ? 'webp' : 'jpg');
   // Ruta bajo evidencias/{uid}/ → ya permitida por storage.rules (no requiere cambios)
   const path = `evidencias/${owner}/visitas/${visitId}/${fotoId}.${ext}`;
-  const url = await uploadBase64(photoBase64, path);
+  const url = await uploadBase64(mediaData, path);
   await updateDoc(doc(db, VISITAS_COLLECTION, visitId), {
     [`fotos.${fotoId}`]: { url, ambito, orden, capturadoEn },
   });

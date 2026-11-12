@@ -21,6 +21,7 @@ import {
   SeguimientoBaseParams,
 } from '../../lib/visitasSupervisor/seguimientoVisitasService';
 import { useAppStore } from '../../store/useAppStore';
+import { captureAndCompressPhoto } from '../../lib/imageUtils';
 import type { VisitaSupervisorDoc, SeguimientoVisita } from '../../lib/visitasSupervisor/visitasTypes';
 
 const ROL_LABEL: Record<string, string> = {
@@ -75,8 +76,16 @@ const VisitaSeguimientoModal: React.FC<VisitaSeguimientoModalProps> = ({ visita,
   // Modo: 'ver' | 'resolver'
   const [modo, setModo] = useState<'ver' | 'resolver'>('ver');
   const [mensaje, setMensaje] = useState('');
-  const [foto, setFoto] = useState<string | null>(null);       // preview base64
-  const [fotoBlob, setFotoBlob] = useState<File | null>(null); // para subir
+  const [foto, setFoto] = useState<string | null>(null);       // blob URL preview
+  const [fotoBlob, setFotoBlob] = useState<Blob | null>(null); // Blob comprimido para subir
+
+  useEffect(() => {
+    return () => {
+      if (foto && foto.startsWith('blob:')) {
+        try { URL.revokeObjectURL(foto); } catch { /* noop */ }
+      }
+    };
+  }, [foto]);
   const [enviando, setEnviando] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -146,22 +155,20 @@ const VisitaSeguimientoModal: React.FC<VisitaSeguimientoModalProps> = ({ visita,
     }
   }, [seguimientos, loadingHilo]);
 
-  const handleAgregarFoto = (source: 'camera' | 'gallery') => {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = 'image/*';
-    if (source === 'camera') input.capture = 'environment';
-    input.onchange = (e: any) => {
-      const file: File = e.target.files?.[0];
-      if (!file) return;
-      const reader = new FileReader();
-      reader.onload = (ev) => {
-        setFoto(ev.target?.result as string);
-        setFotoBlob(file);
-      };
-      reader.readAsDataURL(file);
-    };
-    input.click();
+  const handleAgregarFoto = async (source: 'camera' | 'gallery') => {
+    try {
+      const compressedBlob = await captureAndCompressPhoto({
+        source,
+        quality: 0.7,
+        maxWidth: 1024,
+      });
+      if (!compressedBlob) return;
+      setFoto(URL.createObjectURL(compressedBlob));
+      setFotoBlob(compressedBlob);
+    } catch (err) {
+      console.warn('[VisitaSeguimiento] Error al capturar/comprimir foto:', err);
+      showNotification('No se pudo procesar la fotografía. Intente de nuevo.', 'error');
+    }
   };
 
   const handleEnviar = async (tipo: 'comentario' | 'resolucion') => {
@@ -185,10 +192,10 @@ const VisitaSeguimientoModal: React.FC<VisitaSeguimientoModalProps> = ({ visita,
         let fotoUrl: string | undefined;
         let fotoPath: string | undefined;
 
-        if (foto && fotoBlob) {
+        if (fotoBlob) {
           const ext = fotoBlob.type.includes('webp') ? 'webp' : 'jpg';
           fotoPath = `visitas_seguimientos/${visita.id}/${Date.now()}_${usuario.uid}.${ext}`;
-          fotoUrl = await uploadBase64(foto, fotoPath);
+          fotoUrl = await uploadBase64(fotoBlob, fotoPath);
         }
 
         const params: SeguimientoBaseParams = {

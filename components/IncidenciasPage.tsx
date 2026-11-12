@@ -23,7 +23,7 @@ import {
 } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import { SyncQueueService } from '../lib/SyncQueueService';
-import { compressImage } from '../lib/imageUtils';
+import { captureAndCompressPhoto, blobToDataUrl } from '../lib/imageUtils';
 import { useNetworkStatus } from '../hooks/useNetworkStatus';
 import {
   RegistroTipo,
@@ -264,53 +264,43 @@ const IncidenciasPage: React.FC<IncidenciasPageProps> = ({ onBack, activeLog, cu
       return;
     }
     try {
-      const input = document.createElement('input');
-      input.type = 'file';
-      input.accept = 'image/*';
-      if (source === 'camera') input.capture = 'environment';
-      input.onchange = async (e: any) => {
-        const file: File = e.target.files?.[0];
-        if (!file) return;
-        try {
-          // Barrera de compresión: reduce fotos de 12MB a ~150KB en JPEG optimizado
-          const compressedBlob = await compressImage(file, 0.7, 1024);
-          const reader = new FileReader();
-          reader.onload = (ev) => {
-            const dataUrl = ev.target?.result as string;
-            setForm(f => ({
-              ...f,
-              fotos: [...f.fotos, dataUrl],
-              fotosBlob: [...f.fotosBlob, compressedBlob],
-            }));
-          };
-          reader.readAsDataURL(compressedBlob);
-        } catch (compErr) {
-          console.warn('[IncidenciasPage] Fallback a archivo original por error de compresión:', compErr);
-          const reader = new FileReader();
-          reader.onload = (ev) => {
-            const dataUrl = ev.target?.result as string;
-            setForm(f => ({
-              ...f,
-              fotos: [...f.fotos, dataUrl],
-              fotosBlob: [...f.fotosBlob, file],
-            }));
-          };
-          reader.readAsDataURL(file);
-        }
-      };
-      input.click();
+      const compressedBlob = await captureAndCompressPhoto({
+        source,
+        quality: 0.7,
+        maxWidth: 1024,
+      });
+      if (!compressedBlob) return;
+
+      const previewUrl = URL.createObjectURL(compressedBlob);
+      setForm(f => ({
+        ...f,
+        fotos: [...f.fotos, previewUrl],
+        fotosBlob: [...f.fotosBlob, compressedBlob],
+      }));
     } catch (err: any) {
-      console.warn('[IncidenciasPage] Error al obtener foto:', err);
-      showNotification('No se pudo obtener la fotografía.', 'error');
+      console.warn('[IncidenciasPage] Error al capturar/comprimir foto:', err);
+      showNotification('No se pudo procesar la fotografía. Intente de nuevo.', 'error');
     }
   };
 
+  const revokePreviewUrls = (urls: string[]) => {
+    urls.forEach(url => {
+      if (url && url.startsWith('blob:')) {
+        try { URL.revokeObjectURL(url); } catch { /* noop */ }
+      }
+    });
+  };
+
   const handleEliminarFoto = (idx: number) => {
-    setForm(f => ({
-      ...f,
-      fotos: f.fotos.filter((_, i) => i !== idx),
-      fotosBlob: f.fotosBlob.filter((_, i) => i !== idx),
-    }));
+    setForm(f => {
+      const target = f.fotos[idx];
+      if (target) revokePreviewUrls([target]);
+      return {
+        ...f,
+        fotos: f.fotos.filter((_, i) => i !== idx),
+        fotosBlob: f.fotosBlob.filter((_, i) => i !== idx),
+      };
+    });
   };
 
   // ── Validación del formulario ────────────────────────────────────────────
@@ -356,21 +346,15 @@ const IncidenciasPage: React.FC<IncidenciasPageProps> = ({ onBack, activeLog, cu
       const registroId = await addRegistroNovedad(data);
 
       // ── 3. Encolar fotos (si las hay) como UPLOAD_NOVEDAD_PHOTO ─────────
-      //    Convertir cada Blob a base64 en memoria (sin red) y encolar.
+      //    Usar Blob nativo en IndexedDB (evita sobrecarga +33% Base64), con fallback Base64 si IDB no soporta Blobs.
       if (form.fotosBlob.length > 0) {
+        const useBlobPayload = SyncQueueService.supportsBlobPayloads();
         for (let i = 0; i < form.fotosBlob.length; i++) {
           const blob = form.fotosBlob[i];
-          const base64 = await new Promise<string>((res, rej) => {
-            const reader = new FileReader();
-            reader.onloadend = () => res(reader.result as string);
-            reader.onerror = rej;
-            reader.readAsDataURL(blob);
-          });
-          await SyncQueueService.enqueue('UPLOAD_NOVEDAD_PHOTO', {
-            registroId,
-            photoBase64: base64,
-            photoIndex: i,
-          }, currentUser!.uid);
+          const payload = useBlobPayload
+            ? { registroId, photoBlob: blob, photoIndex: i }
+            : { registroId, photoBase64: await blobToDataUrl(blob), photoIndex: i };
+          await SyncQueueService.enqueue('UPLOAD_NOVEDAD_PHOTO', payload, currentUser!.uid);
         }
       }
 
@@ -380,14 +364,17 @@ const IncidenciasPage: React.FC<IncidenciasPageProps> = ({ onBack, activeLog, cu
 
       setTimeout(() => {
         setSubmitSuccess(false);
-        setForm({
-          tipoRegistro: 'novedad',
-          categoria: '',
-          descripcion: '',
-          ubicacionInstalacion: '',
-          prioridad: 'informativa',
-          fotos: [],
-          fotosBlob: [],
+        setForm(prev => {
+          revokePreviewUrls(prev.fotos);
+          return {
+            tipoRegistro: 'novedad',
+            categoria: '',
+            descripcion: '',
+            ubicacionInstalacion: '',
+            prioridad: 'informativa',
+            fotos: [],
+            fotosBlob: [],
+          };
         });
         setVista('lista');
         // Refrescar lista desde Firestore solo si hay red; si no, la lista local ya tiene el item
@@ -405,14 +392,17 @@ const IncidenciasPage: React.FC<IncidenciasPageProps> = ({ onBack, activeLog, cu
   };
 
   const handleNuevoRegistro = () => {
-    setForm({
-      tipoRegistro: 'novedad',
-      categoria: '',
-      descripcion: '',
-      ubicacionInstalacion: '',
-      prioridad: 'informativa',
-      fotos: [],
-      fotosBlob: [],
+    setForm(prev => {
+      revokePreviewUrls(prev.fotos);
+      return {
+        tipoRegistro: 'novedad',
+        categoria: '',
+        descripcion: '',
+        ubicacionInstalacion: '',
+        prioridad: 'informativa',
+        fotos: [],
+        fotosBlob: [],
+      };
     });
     setSubmitError(null);
     setSubmitSuccess(false);

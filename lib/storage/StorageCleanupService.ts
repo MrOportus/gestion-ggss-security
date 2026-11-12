@@ -31,6 +31,8 @@ export interface StorageCleanupReport {
   capgoBundlesDeleted: number;
   capgoBundlesRetained: string[];
   roundEvidencesDeleted: number;
+  roundPointsDeleted?: number;
+  syncQueueCompactedRemoved?: number;
   permanentErrorsDeleted: number;
   abandonedDraftsDeleted: number;
   migrationBackupCleared: boolean;
@@ -40,6 +42,7 @@ export interface StorageCleanupReport {
 }
 
 export const STORAGE_RETENTION_DAYS = 15;
+export const OFFLINE_CACHE_RETENTION_DAYS = 14;
 export const STORAGE_RETENTION_MS = STORAGE_RETENTION_DAYS * 24 * 60 * 60 * 1000;
 export const CLEANUP_INTERVAL_MS = 24 * 60 * 60 * 1000; // Máximo 1 vez cada 24 horas
 export const LAST_CLEANUP_KEY = 'GGSS_LAST_STORAGE_CLEANUP_TS';
@@ -220,16 +223,51 @@ export const StorageCleanupService = {
   },
 
   /**
-   * 6. Limpieza de turnos antiguos de más de 3 días en OfflineCache.
+   * 6. Limpieza de turnos antiguos (> 14 días offline) en OfflineCache.
    */
-  async cleanExpiredShiftCache(): Promise<{ cleaned: boolean; error?: string }> {
+  async cleanExpiredShiftCache(retentionDays = OFFLINE_CACHE_RETENTION_DAYS): Promise<{ cleaned: boolean; deleted?: number; error?: string }> {
     try {
-      await OfflineCache.cleanOldShifts();
-      return { cleaned: true };
+      const deleted = await OfflineCache.cleanOldShifts(retentionDays);
+      return { cleaned: true, deleted };
     } catch (err: any) {
       const msg = err?.message || String(err);
       console.warn('[StorageCleanup] Error en módulo de turnos en caché:', msg);
       return { cleaned: false, error: msg };
+    }
+  },
+
+  /**
+   * 7. Limpieza de puntos GPS huérfanos en RoundsOfflineDB.pendingPoints.
+   */
+  async cleanOrphanRoundPoints(
+    retentionDays = STORAGE_RETENTION_DAYS,
+    activeRoundId?: string | null
+  ): Promise<{ deleted: number; error?: string }> {
+    try {
+      const { cutoffIso } = this.getCutoffDate(retentionDays);
+      const deleted = await roundsDB.clearPointsOlderThan(cutoffIso, activeRoundId);
+      if (deleted > 0) {
+        console.log(`[StorageCleanup] Purgados ${deleted} puntos GPS huérfanos (> ${retentionDays} días).`);
+      }
+      return { deleted };
+    } catch (err: any) {
+      const msg = err?.message || String(err);
+      console.warn('[StorageCleanup] Error en módulo de puntos GPS de rondas:', msg);
+      return { deleted: 0, error: msg };
+    }
+  },
+
+  /**
+   * 8. Compactación segura de duplicados históricos UPDATE_ROUND en SyncQueueService.
+   */
+  async compactSyncQueue(): Promise<{ removed: number; error?: string }> {
+    try {
+      const res = await SyncQueueService.compactPendingUpdateRounds();
+      return { removed: res.removed };
+    } catch (err: any) {
+      const msg = err?.message || String(err);
+      console.warn('[StorageCleanup] Error compactando cola offline:', msg);
+      return { removed: 0, error: msg };
     }
   },
 
@@ -298,9 +336,17 @@ export const StorageCleanupService = {
     const migrationRes = await this.cleanMigrationBackupSafe(retentionDays);
     if (migrationRes.error) errors.push(`MigrationBackup: ${migrationRes.error}`);
 
-    // 6. Turnos en caché
-    const shiftRes = await this.cleanExpiredShiftCache();
+    // 6. Turnos en caché (>14 días)
+    const shiftRes = await this.cleanExpiredShiftCache(OFFLINE_CACHE_RETENTION_DAYS);
     if (shiftRes.error) errors.push(`ShiftCache: ${shiftRes.error}`);
+
+    // 7. Puntos GPS huérfanos en pendingPoints (>15 días, protege ronda activa)
+    const pointsRes = await this.cleanOrphanRoundPoints(retentionDays, options?.activeRoundId);
+    if (pointsRes.error) errors.push(`RoundPoints: ${pointsRes.error}`);
+
+    // 8. Compactación de UPDATE_ROUND duplicados heredados
+    const compactRes = await this.compactSyncQueue();
+    if (compactRes.error) errors.push(`QueueCompact: ${compactRes.error}`);
 
     const durationMs = Date.now() - startTime;
     const report: StorageCleanupReport = {
@@ -310,6 +356,8 @@ export const StorageCleanupService = {
       capgoBundlesDeleted: capgoRes.deleted,
       capgoBundlesRetained: capgoRes.retained,
       roundEvidencesDeleted: roundsRes.deleted,
+      roundPointsDeleted: pointsRes.deleted,
+      syncQueueCompactedRemoved: compactRes.removed,
       permanentErrorsDeleted: errorsRes.deleted,
       abandonedDraftsDeleted: draftsRes.deleted,
       migrationBackupCleared: migrationRes.cleared,

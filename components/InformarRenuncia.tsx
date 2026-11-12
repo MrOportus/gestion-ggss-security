@@ -1,6 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { useAppStore } from '../store/useAppStore';
 import { normalizeText } from '../lib/textUtils';
+import { compressImage, blobToDataUrl } from '../lib/imageUtils';
 import { Search, X, ArrowLeft, Camera, FileText, Send } from 'lucide-react';
 
 interface InformarRenunciaProps {
@@ -138,16 +139,18 @@ const InformarRenuncia: React.FC<InformarRenunciaProps> = ({ onBack }) => {
                   accept="image/*"
                   multiple
                   className="hidden"
-                  onChange={(e) => {
-                    const files = e.target.files;
-                    if (files) {
-                      Array.from(files).forEach(file => {
-                        const reader = new FileReader();
-                        reader.onload = () => {
-                          setResignationAttachments(prev => [...prev, reader.result as string]);
-                        };
-                        reader.readAsDataURL(file);
-                      });
+                  onChange={async (e) => {
+                    const files = e.target.files ? Array.from(e.target.files) : [];
+                    e.target.value = '';
+                    for (const file of files) {
+                      try {
+                        const compressed = await compressImage(file, 0.7, 1024);
+                        const dataUrl = await blobToDataUrl(compressed);
+                        setResignationAttachments(prev => [...prev, dataUrl]);
+                      } catch (err) {
+                        console.warn('[InformarRenuncia] Error al comprimir imagen:', err);
+                        showNotification('No se pudo procesar una fotografía.', 'error');
+                      }
                     }
                   }}
                 />

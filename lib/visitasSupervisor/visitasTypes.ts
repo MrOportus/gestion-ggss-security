@@ -49,7 +49,8 @@ export interface UbicacionVisita {
 
 export interface FotoVisitaLocal {
   id: string;
-  dataUrl: string; // base64 comprimido
+  blob?: Blob;      // blob comprimido (sin sobrecarga +33% de Base64)
+  dataUrl?: string; // legacy Base64 o fallback si el navegador no soporta Blob en IndexedDB
   ambito: AmbitoFoto;
   capturadoEn: string; // ISO
 }

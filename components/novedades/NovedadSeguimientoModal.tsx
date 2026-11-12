@@ -34,6 +34,7 @@ import {
   subscribeSeguimientos,
 } from '../../lib/novedades/seguimientoService';
 import { useAppStore } from '../../store/useAppStore';
+import { captureAndCompressPhoto } from '../../lib/imageUtils';
 import type { RegistroNovedad, SeguimientoNovedad, SeguimientoTipo } from '../../types';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -109,8 +110,16 @@ const NovedadSeguimientoModal: React.FC<NovedadSeguimientoModalProps> = ({
   // Modo: 'ver' | 'resolver'
   const [modo, setModo] = useState<'ver' | 'resolver'>('ver');
   const [mensaje, setMensaje] = useState('');
-  const [foto, setFoto] = useState<string | null>(null);       // preview base64
-  const [fotoBlob, setFotoBlob] = useState<File | null>(null); // para subir
+  const [foto, setFoto] = useState<string | null>(null);       // blob URL preview
+  const [fotoBlob, setFotoBlob] = useState<Blob | null>(null); // Blob comprimido para subir
+
+  useEffect(() => {
+    return () => {
+      if (foto && foto.startsWith('blob:')) {
+        try { URL.revokeObjectURL(foto); } catch { /* noop */ }
+      }
+    };
+  }, [foto]);
   const [enviando, setEnviando] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -198,22 +207,20 @@ const NovedadSeguimientoModal: React.FC<NovedadSeguimientoModalProps> = ({
   }, [seguimientos, loadingHilo]);
 
   // ── Seleccionar foto ──────────────────────────────────────────────────────
-  const handleAgregarFoto = (source: 'camera' | 'gallery') => {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = 'image/*';
-    if (source === 'camera') input.capture = 'environment';
-    input.onchange = (e: any) => {
-      const file: File = e.target.files?.[0];
-      if (!file) return;
-      const reader = new FileReader();
-      reader.onload = (ev) => {
-        setFoto(ev.target?.result as string);
-        setFotoBlob(file);
-      };
-      reader.readAsDataURL(file);
-    };
-    input.click();
+  const handleAgregarFoto = async (source: 'camera' | 'gallery') => {
+    try {
+      const compressedBlob = await captureAndCompressPhoto({
+        source,
+        quality: 0.7,
+        maxWidth: 1024,
+      });
+      if (!compressedBlob) return;
+      setFoto(URL.createObjectURL(compressedBlob));
+      setFotoBlob(compressedBlob);
+    } catch (err) {
+      console.warn('[NovedadSeguimiento] Error al capturar/comprimir foto:', err);
+      setError('No se pudo procesar la fotografía. Intente de nuevo.');
+    }
   };
 
   // ── Enviar seguimiento (normal o resolucion) ──────────────────────────────
@@ -237,11 +244,11 @@ const NovedadSeguimientoModal: React.FC<NovedadSeguimientoModalProps> = ({
       let fotoUrl: string | undefined;
       let fotoPath: string | undefined;
 
-      // Subir foto si existe
-      if (foto && fotoBlob) {
+      // Subir foto comprimida directamente como Blob (sin re-convertir desde Base64)
+      if (fotoBlob) {
         const ext = fotoBlob.type.includes('webp') ? 'webp' : 'jpg';
         fotoPath = `seguimientos/${novedad.id}/${Date.now()}_${usuario.uid}.${ext}`;
-        fotoUrl = await uploadBase64(foto, fotoPath);
+        fotoUrl = await uploadBase64(fotoBlob, fotoPath);
       }
 
       const params: SeguimientoBaseParams = {

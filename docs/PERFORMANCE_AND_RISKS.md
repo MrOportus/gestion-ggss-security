@@ -18,21 +18,28 @@ Este documento consolida los hallazgos técnicos respecto a cuellos de botella d
 ### 1.2 Múltiples Listeners Concurrentes en Tiempo Real
 - **Problema:** El store mantiene hasta 6 listeners `onSnapshot` abiertos simultáneamente sobre colecciones como `TurnosDiarios`, `Anticipos`, `Prestamos`, `Rondas` y `documents`.
 - **Impacto:** En dispositivos móviles de gama media o baja (usados habitualmente por personal en faena), múltiples WebSockets abiertos generan consumo excesivo de memoria RAM y drenaje acelerado de batería.
+- **Mitigación aplicada:** Se añadieron límites (`limit(100)`) en listeners de `documents` no-admin (`store/useAppStore.ts`), `SupervisorTasks`, `SupervisorSubTasks` y `Prestamos`, y `limit(50)` en consultas de `novedades` (seguimiento) y `company_documents` en `pages/WorkerAttendance.tsx`.
 - **Recomendación:** Desactivar listeners pasivos en vistas que no estén activas en pantalla (desuscribirse al desmontar la vista o cambiar de módulo).
 
 ---
 
 ## 2. Almacenamiento Local y Persistencia Offline
 
-### 2.1 Retención de Evidencias Fotográficas Huérfanas (`roundsDB.ts`)
-- **Problema:** Durante la ejecución de una ronda, las fotografías se almacenan como `Blob` binarios dentro del store `pendingEvidences` de IndexedDB.
-- **Impacto:** Si la aplicación se cierra inesperadamente por el sistema operativo, o el usuario desinstala o reinicia la app sin presionar "Finalizar Ronda", estos objetos binarios de alta resolución quedan retenidos en el almacenamiento local del teléfono indefinidamente sin un mecanismo de purga por expiración (*TTL*).
-- **Recomendación:** Implementar una rutina de limpieza al inicio de sesión que elimine evidencias huérfanas con más de 48 horas de antigüedad.
+### 2.1 Evidencias Fotográficas y Puntos GPS en Rondas (`lib/roundsDB.ts` + `lib/storage/StorageCleanupService.ts`)
+- **Problema original:** Durante una ronda, las fotos (`pendingEvidences`) y puntos GPS (`pendingPoints`) quedaban en `RoundsOfflineDB` sin purga de `pendingPoints` ni protección de ronda activa en arranque; además `<input type="file" capture="environment">` en Android WebView (`BridgeWebChromeClient.showImageCapturePicker()`) dejaba los JPEG originales sin comprimir de forma permanente en `/Android/data/com.ggss.security/files/Pictures/` y varias rutas hacían fallback al archivo crudo sin comprimir o guardaban cadenas Base64 redundantes (`+33%`).
+- **Mitigación aplicada vía OTA:**
+  1. **Captura Nativa Segura Unificada (`lib/imageUtils.ts`):** `captureAndCompressPhoto` y `captureAndCompressPhotos` unifican cámara/galería en todos los módulos (`RoundsControl.tsx`, `WorkerAttendance.tsx`, `IncidenciasPage.tsx`, `FormularioVisita.tsx`, `visitasService.ts`, `NovedadSeguimientoModal.tsx`, `VisitaSeguimientoModal.tsx`, `InformarRenuncia.tsx`), decodifican mediante `URL.createObjectURL` (sin duplicar Base64 en RAM), fuerzan compresión JPEG (`maxWidth: 1024`) sin fallbacks crudos y, en Android nativo, usan `@capacitor/camera` (`Camera.getPhoto` con `CameraResultType.DataUrl` y `saveToGallery: false`) para que `LegacyCameraFlow.deleteImageFile()` elimine el archivo temporal nativo al retornar la foto.
+  2. **Limpieza de `pendingPoints` y Retención Offline 14 días (`lib/roundsDB.ts`, `lib/OfflineCache.ts`, `lib/storage/StorageCleanupService.ts`):** `roundsDB.clearPointsForRound(roundId)` elimina puntos GPS tras confirmar sincronización `COMPLETED` en `processSyncQueue()`, `roundsDB.clearPointsOlderThan(cutoffIso, activeRoundId)` depura huérfanos `>15` días protegiendo la ronda activa (`App.tsx` pasa `activeRoundId`), y `OfflineCache.cleanOldShifts(14)` preserva `14` días de historial offline de turnos.
+- **Limitación Nativa Residual (Requiere APK si se desea purga histórica):** Ningún plugin compilado en el APK base (`6.0.0`) expone listado o borrado de archivos previos acumulados en `/Android/data/com.ggss.security/files/Pictures/`. Los nuevos disparos vía `Camera.getPhoto` ya no acumulan allí, pero el histórico previo a la OTA permanece hasta una eventual actualización nativa aprobada.
 
-### 2.2 Agotamiento de Reintentos en la Cola Offline (`SyncQueueService.ts`)
-- **Problema:** La cola de sincronización offline define `MAX_RETRIES = 10`. Si una petición falla 10 veces continuas por problemas de payload o conectividad deficiente, queda en estado de estancamiento silencioso (*silent failure*).
-- **Impacto:** El guardia asume que su marcaje fue enviado, pero el registro queda congelado en IndexedDB sin alertar visualmente al usuario ni al administrador.
-- **Recomendación:** Crear un banner o alerta en el perfil del guardia cuando existan elementos que hayan superado el umbral de reintentos con opción de "Reintentar ahora" o reportar al supervisor.
+### 2.2 Cola de Sincronización Offline y Payloads Binarios (`lib/SyncQueueService.ts` + `store/useAppStore.ts`)
+- **Problemas originales:** Cada punto GPS durante una ronda generaba un ítem `UPDATE_ROUND` completo (`O(N²)` en `sync_queue`), los ítems de foto siempre serializaban Base64 (`+33%`), errores tras `MAX_RETRIES = 10` quedaban en estado `ERROR` sin recuperación de `SYNCING` colgados por cierre abrupto, y la cola multiusuario requiere monitoreo visual.
+- **Mitigación aplicada vía OTA:**
+  - `SyncQueueService.enqueue('UPDATE_ROUND', ...)` realiza coalescencia O(1) fusionando actualizaciones pendientes/error no en vuelo de la misma ronda y usuario.
+  - `SyncQueueService.compactPendingUpdateRounds()` (ejecutada al inicio de `processSyncQueue()` y en `StorageCleanupService.compactSyncQueue()`) consolida duplicados históricos cronológicamente.
+  - `SyncQueueService.recoverStaleSyncingItems()` restablece ítems dejados en `SYNCING` >2 minutos tras cierres abruptos de la app.
+  - Lectura y almacenamiento dual (`photoBlob || photoBase64`) mediante `SyncQueueService.supportsBlobPayloads()` + `uploadBytes` directo para `Blob` en `useAppStore.uploadBase64`, preservando retrocompatibilidad completa con colas previas.
+- **Recomendación pendiente:** Añadir indicador visual en UI para ítems que superaron `MAX_RETRIES = 10` (`status === 'ERROR'`) o permanecen en `needs_recovery_review`.
 
 ---
 

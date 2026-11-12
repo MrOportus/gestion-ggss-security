@@ -48,7 +48,7 @@ import type { RegistroNovedad } from '../types';
 import RoundsControl from '../components/RoundsControl';
 import IncidenciasPage from '../components/IncidenciasPage';
 import MarketTurnos from '../components/MarketTurnos';
-import { compressImage } from '../lib/imageUtils';
+import { captureAndCompressPhoto } from '../lib/imageUtils';
 import { evaluateNocturnalClosure } from '../lib/phase5/nocturnalClosure';
 import MyExtraShifts from '../components/MyExtraShifts';
 import MyFixedShifts from '../components/MyFixedShifts';
@@ -120,6 +120,14 @@ const WorkerAttendance: React.FC = () => {
   const [novedadNota, setNovedadNota] = useState('');
   const [novedadFoto, setNovedadFoto] = useState<string | null>(null);
 
+  useEffect(() => {
+    return () => {
+      if (novedadFoto && novedadFoto.startsWith('blob:')) {
+        try { URL.revokeObjectURL(novedadFoto); } catch { /* noop */ }
+      }
+    };
+  }, [novedadFoto]);
+
   // ── Badge de mensajes no leídos en novedades del guardia ─────────────
   const [unreadWorkerTotal, setUnreadWorkerTotal] = useState(0);
 
@@ -130,7 +138,8 @@ const WorkerAttendance: React.FC = () => {
     const q = query(
       collection(db, 'novedades'),
       where('autorUid', '==', currentUser.uid),
-      where('requiereSeguimiento', '==', true)
+      where('requiereSeguimiento', '==', true),
+      limit(50)
     );
     const unsub = onSnapshot(q, (snap) => {
       let total = 0;
@@ -157,7 +166,7 @@ const WorkerAttendance: React.FC = () => {
   useEffect(() => {
     if (step === 'company_docs') {
       setLoadingCorporateDocs(true);
-      const q = query(collection(db, 'company_documents'), orderBy('createdAt', 'desc'));
+      const q = query(collection(db, 'company_documents'), orderBy('createdAt', 'desc'), limit(50));
       const unsubscribe = onSnapshot(q, (snapshot) => {
         const docs: CompanyDocument[] = [];
         snapshot.forEach((docSnap) => {
@@ -781,11 +790,11 @@ const WorkerAttendance: React.FC = () => {
       let fotoUrl;
       let fotoPath;
 
-      if (novedadFoto && novedadFotoBlob) {
+      if (novedadFotoBlob) {
         const uploadBase64 = useAppStore.getState().uploadBase64;
         const ext = novedadFotoBlob.type.includes('webp') ? 'webp' : 'jpg';
         fotoPath = `seguimientos/${nov.id}/${Date.now()}_${employee!.id}.${ext}`;
-        fotoUrl = await uploadBase64(novedadFoto, fotoPath);
+        fotoUrl = await uploadBase64(novedadFotoBlob, fotoPath);
       }
 
       await addSeguimiento({
@@ -819,34 +828,21 @@ const WorkerAttendance: React.FC = () => {
     }
   };
 
-  const handleAgregarFotoNovedad = (source: 'camera' | 'gallery') => {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = 'image/*';
-    if (source === 'camera') input.capture = 'environment';
-    input.onchange = async (e: any) => {
-      const file: File = e.target.files?.[0];
-      if (!file) return;
-      try {
-        // Barrera de compresión: reduce fotos de 12MB a ~150KB en JPEG optimizado
-        const compressedBlob = await compressImage(file, 0.7, 1024);
-        const reader = new FileReader();
-        reader.onload = (ev) => {
-          setNovedadFoto(ev.target?.result as string);
-          setNovedadFotoBlob(compressedBlob);
-        };
-        reader.readAsDataURL(compressedBlob);
-      } catch (compErr) {
-        console.warn('[WorkerAttendance] Fallback a archivo original por error de compresión:', compErr);
-        const reader = new FileReader();
-        reader.onload = (ev) => {
-          setNovedadFoto(ev.target?.result as string);
-          setNovedadFotoBlob(file);
-        };
-        reader.readAsDataURL(file);
-      }
-    };
-    input.click();
+  const handleAgregarFotoNovedad = async (source: 'camera' | 'gallery') => {
+    try {
+      const compressedBlob = await captureAndCompressPhoto({
+        source,
+        quality: 0.7,
+        maxWidth: 1024,
+      });
+      if (!compressedBlob) return;
+      const previewUrl = URL.createObjectURL(compressedBlob);
+      setNovedadFoto(previewUrl);
+      setNovedadFotoBlob(compressedBlob);
+    } catch (compErr) {
+      console.warn('[WorkerAttendance] Error al capturar/comprimir foto:', compErr);
+      showNotification('No se pudo procesar la fotografía. Intente de nuevo.', 'error');
+    }
   };
 
   const handleEjecutarCierre = async () => {

@@ -21,13 +21,71 @@ const syncQueue = localforage.createInstance({
     storeName: 'sync_queue'
 });
 
+// IDs en transmisión activa para impedir coalescing/mutación concurrente mientras processSyncQueue sube el ítem
+const inFlightIds = new Set<string>();
+
 /** Genera un operationId único y determinista */
 function generateOperationId(): string {
     return `op_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
 }
 
 export const SyncQueueService = {
+    /**
+     * Indica si el driver activo de IndexedDB/localforage soporta almacenamiento binario de Blobs
+     * (evita inflar payloads un +33% convirtiendo Blobs a Base64).
+     */
+    supportsBlobPayloads(): boolean {
+        try {
+            const driver = typeof syncQueue.driver === 'function' ? syncQueue.driver() : null;
+            if (driver === localforage.LOCALSTORAGE) return false;
+            return typeof Blob !== 'undefined' && typeof indexedDB !== 'undefined';
+        } catch {
+            return false;
+        }
+    },
+
     async enqueue(actionType: QueueItem['actionType'], payload: any, userId: string, operationId?: string): Promise<QueueItem> {
+        // Coalescing O(1) para UPDATE_ROUND: fusiona actualizaciones GPS y de estado
+        // pendientes de la misma ronda sin generar crecimiento O(N²) en IndexedDB.
+        if (actionType === 'UPDATE_ROUND' && payload?.id) {
+            let existingMatch: QueueItem | null = null;
+            await syncQueue.iterate((value: QueueItem) => {
+                if (
+                    value.actionType === 'UPDATE_ROUND' &&
+                    value.userId === userId &&
+                    value.payload?.id === payload.id &&
+                    value.status !== 'SYNCING' &&
+                    !inFlightIds.has(value.id) &&
+                    value.retryCount < MAX_RETRIES &&
+                    (value.status === 'PENDING' || value.status === 'ERROR')
+                ) {
+                    if (!existingMatch || new Date(value.timestamp).getTime() >= new Date(existingMatch.timestamp).getTime()) {
+                        existingMatch = value;
+                    }
+                }
+            });
+
+            if (existingMatch) {
+                const updated: QueueItem = {
+                    ...(existingMatch as QueueItem),
+                    payload: {
+                        ...(existingMatch as QueueItem).payload,
+                        id: payload.id,
+                        data: {
+                            ...((existingMatch as QueueItem).payload?.data || {}),
+                            ...(payload.data || {}),
+                        },
+                    },
+                    status: 'PENDING',
+                    retryCount: 0,
+                    lastError: undefined,
+                    timestamp: (existingMatch as QueueItem).timestamp,
+                };
+                await syncQueue.setItem(updated.id, updated);
+                return updated;
+            }
+        }
+
         const id = `sq_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
         const item: QueueItem = {
             id,
@@ -43,6 +101,72 @@ export const SyncQueueService = {
         await syncQueue.setItem(id, item);
         console.log(`[SyncQueue] Enqueued action: ${actionType} (ID: ${id}, opId: ${item.operationId}, user: ${userId})`);
         return item;
+    },
+
+    /**
+     * Compacta múltiples operaciones UPDATE_ROUND duplicadas ya almacenadas para una misma ronda
+     * (recupera espacio histórico acumulado O(N²) de versiones OTA anteriores sin perder puntos ni orden).
+     */
+    async compactPendingUpdateRounds(): Promise<{ merged: number; removed: number }> {
+        const items: QueueItem[] = [];
+        await syncQueue.iterate((value: QueueItem) => {
+            if (
+                value.actionType === 'UPDATE_ROUND' &&
+                value.payload?.id &&
+                value.status !== 'SYNCING' &&
+                !inFlightIds.has(value.id) &&
+                value.retryCount < MAX_RETRIES &&
+                (value.status === 'PENDING' || value.status === 'ERROR')
+            ) {
+                items.push(value);
+            }
+        });
+
+        const groups = new Map<string, QueueItem[]>();
+        for (const item of items) {
+            const key = `${item.userId || ''}::${item.payload.id}`;
+            const list = groups.get(key) || [];
+            list.push(item);
+            groups.set(key, list);
+        }
+
+        let merged = 0;
+        let removed = 0;
+
+        for (const group of groups.values()) {
+            if (group.length <= 1) continue;
+            group.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+
+            // Conserva el primer slot cronológico (garantiza orden tras ADD_ROUND) con la suma ordenada de datos
+            const keeper = group[0];
+            let mergedData: Record<string, any> = {};
+            for (const g of group) {
+                mergedData = { ...mergedData, ...(g.payload?.data || {}) };
+            }
+
+            const compactedKeeper: QueueItem = {
+                ...keeper,
+                payload: {
+                    ...keeper.payload,
+                    data: mergedData,
+                },
+                status: 'PENDING',
+                retryCount: 0,
+                lastError: undefined,
+            };
+
+            await syncQueue.setItem(compactedKeeper.id, compactedKeeper);
+            for (let i = 1; i < group.length; i++) {
+                await syncQueue.removeItem(group[i].id);
+                removed++;
+            }
+            merged++;
+        }
+
+        if (removed > 0) {
+            console.log(`[SyncQueue] Compactados ${merged} grupos UPDATE_ROUND, eliminados ${removed} duplicados.`);
+        }
+        return { merged, removed };
     },
 
     /**
@@ -139,22 +263,49 @@ export const SyncQueueService = {
     },
 
     async markCompleted(id: string): Promise<void> {
+        inFlightIds.delete(id);
         await syncQueue.removeItem(id);
         console.log(`[SyncQueue] Marked completed and removed: ${id}`);
     },
 
     async markSyncing(item: QueueItem): Promise<void> {
+        inFlightIds.add(item.id);
         item.status = 'SYNCING';
+        item.lastAttemptAt = new Date().toISOString();
         await syncQueue.setItem(item.id, item);
     },
 
     async incrementRetry(item: QueueItem, error?: string): Promise<void> {
+        inFlightIds.delete(item.id);
         item.retryCount += 1;
         item.status = item.retryCount >= MAX_RETRIES ? 'ERROR' : 'PENDING';
         item.lastError = error || item.lastError;
         item.lastAttemptAt = new Date().toISOString();
         await syncQueue.setItem(item.id, item);
         console.warn(`[SyncQueue] Retry ${item.retryCount}/${MAX_RETRIES} para item ${item.id} (${item.actionType}): ${error || ''}`);
+    },
+
+    /**
+     * Recupera ítems que quedaron en SYNCING por cierre abrupto de app (> 2 min sin progreso)
+     * cuando no están siendo procesados en la sesión actual.
+     */
+    async recoverStaleSyncingItems(userId?: string, staleMs = 2 * 60 * 1000): Promise<number> {
+        const now = Date.now();
+        const toReset: QueueItem[] = [];
+        await syncQueue.iterate((value: QueueItem) => {
+            if (value.status !== 'SYNCING' || inFlightIds.has(value.id)) return;
+            if (userId && value.userId && value.userId !== userId) return;
+            const refTs = value.lastAttemptAt || value.timestamp;
+            const age = refTs ? now - new Date(refTs).getTime() : staleMs + 1;
+            if (isNaN(age) || age > staleMs) {
+                value.status = 'PENDING';
+                toReset.push(value);
+            }
+        });
+        for (const item of toReset) {
+            await syncQueue.setItem(item.id, item);
+        }
+        return toReset.length;
     },
 
     async clearQueue(): Promise<void> {

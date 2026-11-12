@@ -132,10 +132,14 @@ const App: React.FC = () => {
     };
   }, []);
 
-  // Limpieza automática no bloqueante de almacenamiento local Android (retención 15 días)
+  // Limpieza automática no bloqueante de almacenamiento local Android (retención 14+ días)
   useEffect(() => {
     const timer = setTimeout(() => {
-      StorageCleanupService.runDailyCleanup().catch(err => {
+      const state = useAppStore.getState();
+      const activeRoundId = state.guardRounds.find(
+        r => r.workerId === state.currentUser?.uid && r.status === 'IN_PROGRESS'
+      )?.id;
+      StorageCleanupService.runDailyCleanup({ activeRoundId }).catch(err => {
         console.warn('[App] Error no crítico en limpieza de almacenamiento:', err);
       });
     }, 15000); // Diferido 15s para no competir con login, red o render inicial

@@ -70,16 +70,16 @@ export const OfflineCache = {
 
     // ── Limpieza de cache antiguo ────────────────────────────────────
 
-    /** Elimina entradas de turnos que sean de fechas anteriores a hoy - 3 días */
-    async cleanOldShifts(): Promise<void> {
-        const threeDaysAgo = new Date();
-        threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
+    /** Elimina entradas de turnos que superen la ventana de retención offline (por defecto 14 días) */
+    async cleanOldShifts(retentionDays = 14): Promise<number> {
+        const cutoff = new Date();
+        cutoff.setDate(cutoff.getDate() - retentionDays);
         
         const keysToRemove: string[] = [];
         await offlineCache.iterate((value: any, key: string) => {
             if (key.startsWith('shift_') && value?.cachedAt) {
                 const cachedDate = new Date(value.cachedAt);
-                if (cachedDate < threeDaysAgo) {
+                if (!isNaN(cachedDate.getTime()) && cachedDate < cutoff) {
                     keysToRemove.push(key);
                 }
             }
@@ -90,7 +90,8 @@ export const OfflineCache = {
         }
         
         if (keysToRemove.length > 0) {
-            console.log(`[OfflineCache] Limpiados ${keysToRemove.length} turnos antiguos.`);
+            console.log(`[OfflineCache] Limpiados ${keysToRemove.length} turnos antiguos (>${retentionDays} días).`);
         }
+        return keysToRemove.length;
     }
 };

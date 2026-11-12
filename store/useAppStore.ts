@@ -185,7 +185,7 @@ interface AppState {
   updateLoan: (id: string, data: Partial<Loan>) => Promise<void>;
   deleteLoan: (id: string) => Promise<void>;
   uploadLoanPdf: (file: File, filename: string) => Promise<string>;
-  uploadBase64: (base64String: string, path: string) => Promise<string>;
+  uploadBase64: (data: string | Blob, path: string) => Promise<string>;
   // Digital Document Actions
   fetchDigitalDocuments: () => Promise<void>;
   addDigitalDocument: (doc: Omit<DigitalDocument, 'id' | 'createdAt' | 'status'>) => Promise<string>;
@@ -282,6 +282,8 @@ export const useAppStore = create<AppState>()(
         set({ isSyncing: true });
 
         try {
+          await SyncQueueService.recoverStaleSyncingItems(userId);
+          await SyncQueueService.compactPendingUpdateRounds();
           let pending = await SyncQueueService.getPending(userId);
           
           while (pending.length > 0) {
@@ -295,6 +297,8 @@ export const useAppStore = create<AppState>()(
             }
 
             try {
+              await SyncQueueService.markSyncing(item);
+
               if (item.actionType === 'ADD_ROUND') {
                 await setDoc(doc(db, "Rondas", item.payload.id), item.payload);
                 await SyncQueueService.markCompleted(item.id);
@@ -303,29 +307,38 @@ export const useAppStore = create<AppState>()(
               } else if (item.actionType === 'UPDATE_ROUND') {
                 await updateDoc(doc(db, "Rondas", item.payload.id), item.payload.data);
                 await SyncQueueService.markCompleted(item.id);
+                if (item.payload?.data?.status === 'COMPLETED') {
+                  try {
+                    const { roundsDB } = await import('../lib/roundsDB');
+                    await roundsDB.clearPointsForRound(item.payload.id);
+                  } catch { /* non-blocking verified post-sync cleanup */ }
+                }
                 console.log(`[SyncQueue] UPDATE_ROUND ${item.payload.id} sincronizado.`);
 
               } else if (item.actionType === 'UPLOAD_EVIDENCE') {
-                const { roundId, photoBase64, lat, lng, timestamp } = item.payload;
+                const { roundId, photoBase64, photoBlob, lat, lng, timestamp } = item.payload;
+                let blob: Blob | null = photoBlob instanceof Blob && photoBlob.size > 0 ? photoBlob : null;
 
-                if (!photoBase64 || typeof photoBase64 !== 'string' || photoBase64.length < 100) {
-                  console.error(`[SyncQueue] UPLOAD_EVIDENCE ${item.id}: payload base64 corrupto o vacío. Descartando.`, { len: photoBase64?.length });
-                  await SyncQueueService.markCompleted(item.id);
-                  continue;
+                if (!blob) {
+                  if (!photoBase64 || typeof photoBase64 !== 'string' || photoBase64.length < 100) {
+                    console.error(`[SyncQueue] UPLOAD_EVIDENCE ${item.id}: payload corrupto o vacío. Descartando.`, { len: photoBase64?.length });
+                    await SyncQueueService.markCompleted(item.id);
+                    continue;
+                  }
+                  const res = await fetch(photoBase64);
+                  blob = await res.blob();
                 }
 
-                console.log(`[SyncQueue] Subiendo foto a Bunny.net para ronda ${roundId}, base64 len: ${photoBase64.length}`);
-                
-                const isWebP = photoBase64.startsWith('data:image/webp');
+                const mimeType = blob.type || (typeof photoBase64 === 'string' && photoBase64.startsWith('data:image/webp') ? 'image/webp' : 'image/jpeg');
+                const isWebP = mimeType.includes('webp');
                 const ext = isWebP ? 'webp' : 'jpg';
                 const ownerUid = item.userId || userId;
                 const fileName = `foto_${item.operationId}_${Date.now()}.${ext}`;
                 const folder = `evidencias/${ownerUid}/${roundId}`;
                 const contentType = isWebP ? 'image/webp' : 'image/jpeg';
-                
-                const res = await fetch(photoBase64);
-                const blob = await res.blob();
-                
+
+                console.log(`[SyncQueue] Subiendo foto a Bunny.net para ronda ${roundId}, bytes: ${blob.size}`);
+
                 const generateBunnyUploadUrl = httpsCallable<{fileName: string, folder: string, contentType: string}, {uploadUrl: string, finalUrl: string}>(functions, 'generateBunnyUploadUrl');
                 const bunnyRes = await generateBunnyUploadUrl({ fileName, folder, contentType });
                 const { uploadUrl, finalUrl } = bunnyRes.data;
@@ -358,19 +371,25 @@ export const useAppStore = create<AppState>()(
                 console.log(`[SyncQueue] ADD_NOVEDAD ${registroId} sincronizado.`);
 
               } else if (item.actionType === 'UPLOAD_NOVEDAD_PHOTO') {
-                const { registroId, photoBase64, photoIndex } = item.payload;
+                const { registroId, photoBase64, photoBlob, photoIndex } = item.payload;
+                const mediaPayload: Blob | string | null =
+                  photoBlob instanceof Blob && photoBlob.size > 0
+                    ? photoBlob
+                    : (typeof photoBase64 === 'string' && photoBase64.length >= 100 ? photoBase64 : null);
 
-                if (!photoBase64 || typeof photoBase64 !== 'string' || photoBase64.length < 100) {
-                  console.error(`[SyncQueue] UPLOAD_NOVEDAD_PHOTO ${item.id}: base64 corrupto. Descartando.`);
+                if (!mediaPayload) {
+                  console.error(`[SyncQueue] UPLOAD_NOVEDAD_PHOTO ${item.id}: payload de imagen corrupto o vacío. Descartando.`);
                   await SyncQueueService.markCompleted(item.id);
                   continue;
                 }
 
-                const isWebP = photoBase64.startsWith('data:image/webp');
+                const isWebP = mediaPayload instanceof Blob
+                  ? mediaPayload.type.includes('webp')
+                  : mediaPayload.startsWith('data:image/webp');
                 const ext = isWebP ? 'webp' : 'jpg';
                 const ownerUid = item.userId || userId;
                 const fileName = `novedades/${ownerUid}/${registroId}/foto_${photoIndex}_${item.operationId}.${ext}`;
-                const downloadUrl = await get().uploadBase64(photoBase64, fileName);
+                const downloadUrl = await get().uploadBase64(mediaPayload, fileName);
 
                 await updateDoc(doc(db, 'novedades', registroId), {
                   evidencias: arrayUnion(downloadUrl)
@@ -2326,16 +2345,23 @@ export const useAppStore = create<AppState>()(
         }
       },
 
-      uploadBase64: async (base64String, path) => {
+      uploadBase64: async (data, path) => {
         try {
-          console.log(`Zustand: Iniciando uploadBase64 a ${path}...`);
           const storageRef = ref(storage, path);
+          if (data instanceof Blob) {
+            const contentType = data.type || 'image/jpeg';
+            const metadata = { contentType, ...STORAGE_CACHE_METADATA };
+            const snapshot = await uploadBytes(storageRef, data, metadata);
+            return await getDownloadURL(snapshot.ref);
+          }
+
+          console.log(`Zustand: Iniciando uploadBase64 a ${path}...`);
           // Detectar contentType dinámicamente del data URL (soporta WebP, JPEG, PNG)
-          let contentType = 'image/webp'; // Default optimizado
-          const match = base64String.match(/^data:(image\/\w+);/);
+          let contentType = 'image/jpeg';
+          const match = data.match(/^data:(image\/\w+);/);
           if (match) contentType = match[1];
           const metadata = { contentType, ...STORAGE_CACHE_METADATA };
-          const snapshot = await uploadString(storageRef, base64String, 'data_url', metadata);
+          const snapshot = await uploadString(storageRef, data, 'data_url', metadata);
           const url = await getDownloadURL(snapshot.ref);
           return url;
         } catch (error: any) {
@@ -2361,7 +2387,8 @@ export const useAppStore = create<AppState>()(
             q = query(
               collection(db, "documents"),
               where("assignedTo", "==", currentUser.uid),
-              orderBy("createdAt", "desc")
+              orderBy("createdAt", "desc"),
+              limit(100)
             );
           }
 

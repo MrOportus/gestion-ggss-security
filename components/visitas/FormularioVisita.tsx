@@ -31,7 +31,8 @@ import {
   validarBorrador,
   ErrorValidacion,
 } from '../../lib/visitasSupervisor/visitasLogic';
-import { obtenerUbicacionVisita, procesarFotoVisita } from '../../lib/visitasSupervisor/visitasService';
+import { obtenerUbicacionVisita, crearFotoVisitaDesdeBlob } from '../../lib/visitasSupervisor/visitasService';
+import { captureAndCompressPhotos } from '../../lib/imageUtils';
 import { ResultadoBadge, SiNoButtons, EstadoObservacionButtons, formatearHora } from './visitasUi';
 
 type DraftUpdater = (fn: (d: VisitaDraft) => VisitaDraft) => void;
@@ -70,20 +71,26 @@ const Campo: React.FC<{ label: string; children: React.ReactNode }> = ({ label, 
   </label>
 );
 
-/** Abre cámara o galería con el mismo mecanismo (input file) que usa IncidenciasPage */
-function seleccionarArchivos(opts: { camara: boolean; multiple: boolean }): Promise<File[]> {
-  return new Promise(resolve => {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = 'image/*';
-    if (opts.camara) input.capture = 'environment';
-    if (opts.multiple) input.multiple = true;
-    input.onchange = () => resolve(Array.from(input.files ?? []));
-    // Si el usuario cancela, el evento 'cancel' resuelve vacío
-    input.addEventListener('cancel', () => resolve([]));
-    input.click();
-  });
-}
+/** Renderiza la miniatura desde Blob (sin guardar Base64 en el borrador) o dataUrl legacy */
+const MiniaturaFotoVisita: React.FC<{ foto: FotoVisitaLocal }> = ({ foto }) => {
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!(foto.blob instanceof Blob)) {
+      setBlobUrl(null);
+      return;
+    }
+    const url = URL.createObjectURL(foto.blob);
+    setBlobUrl(url);
+    return () => {
+      try { URL.revokeObjectURL(url); } catch { /* noop */ }
+    };
+  }, [foto.blob]);
+
+  const src = blobUrl || foto.dataUrl || '';
+  if (!src) return null;
+  return <img src={src} alt="Miniatura de fotografía" className="w-full h-full object-cover" />;
+};
 
 // ─── Componente principal ─────────────────────────────────────────────────────
 
@@ -121,11 +128,18 @@ const FormularioVisita: React.FC<Props> = ({ draft, supervisorNombre, updateDraf
   const agregarFotos = async (ambito: AmbitoFoto, camara: boolean) => {
     if (procesandoFoto) return;
     try {
-      const archivos = await seleccionarArchivos({ camara, multiple: !camara });
-      if (archivos.length === 0) return;
       setProcesandoFoto(true);
+      const blobs = await captureAndCompressPhotos({
+        source: camara ? 'camera' : 'gallery',
+        quality: 0.6,
+        maxWidth: 1024,
+        multiple: !camara,
+      });
+      if (blobs.length === 0) return;
       const nuevas: FotoVisitaLocal[] = [];
-      for (const f of archivos) nuevas.push(await procesarFotoVisita(f, draft.visitId, ambito));
+      for (const blob of blobs) {
+        nuevas.push(await crearFotoVisitaDesdeBlob(blob, draft.visitId, ambito));
+      }
       updateDraft(d => ({ ...d, fotos: [...d.fotos, ...nuevas] }));
     } catch (e) {
       console.warn('[Visitas] Error con fotografía:', e);
@@ -249,7 +263,7 @@ const FormularioVisita: React.FC<Props> = ({ draft, supervisorNombre, updateDraf
         {fotos.map(f => (
           <div key={f.id} className="space-y-1">
             <div className="aspect-square rounded-xl overflow-hidden border-2 border-slate-300 bg-slate-100">
-              <img src={f.dataUrl} alt="Miniatura de fotografía" className="w-full h-full object-cover" />
+              <MiniaturaFotoVisita foto={f} />
             </div>
             <button
               type="button"
