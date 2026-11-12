@@ -284,8 +284,9 @@ export const useAppStore = create<AppState>()(
         try {
           await SyncQueueService.recoverStaleSyncingItems(userId);
           await SyncQueueService.compactPendingUpdateRounds();
+          const failedIdsInRun = new Set<string>();
           let pending = await SyncQueueService.getPending(userId);
-          
+
           while (pending.length > 0) {
             console.log(`[SyncQueue] Procesando ${pending.length} elementos pendientes para usuario ${userId}...`);
 
@@ -371,30 +372,50 @@ export const useAppStore = create<AppState>()(
                 console.log(`[SyncQueue] ADD_NOVEDAD ${registroId} sincronizado.`);
 
               } else if (item.actionType === 'UPLOAD_NOVEDAD_PHOTO') {
-                const { registroId, photoBase64, photoBlob, photoIndex } = item.payload;
-                const mediaPayload: Blob | string | null =
-                  photoBlob instanceof Blob && photoBlob.size > 0
-                    ? photoBlob
-                    : (typeof photoBase64 === 'string' && photoBase64.length >= 100 ? photoBase64 : null);
+                const { registroId, photoBase64, photoBlob, photoIndex, uploadedUrl } = item.payload;
+                let downloadUrl: string | undefined =
+                  typeof uploadedUrl === 'string' && uploadedUrl.startsWith('https://')
+                    ? uploadedUrl
+                    : undefined;
 
-                if (!mediaPayload) {
-                  console.error(`[SyncQueue] UPLOAD_NOVEDAD_PHOTO ${item.id}: payload de imagen corrupto o vacío. Descartando.`);
-                  await SyncQueueService.markCompleted(item.id);
-                  continue;
+                if (!downloadUrl) {
+                  const mediaPayload: Blob | string | null =
+                    photoBlob instanceof Blob && photoBlob.size > 0
+                      ? photoBlob
+                      : (typeof photoBase64 === 'string' && photoBase64.length >= 100 ? photoBase64 : null);
+
+                  if (!mediaPayload) {
+                    console.error(`[SyncQueue] UPLOAD_NOVEDAD_PHOTO ${item.id}: payload de imagen corrupto o vacío. Descartando.`);
+                    await SyncQueueService.markCompleted(item.id);
+                    continue;
+                  }
+
+                  const isWebP = mediaPayload instanceof Blob
+                    ? mediaPayload.type.includes('webp')
+                    : mediaPayload.startsWith('data:image/webp');
+                  const ext = isWebP ? 'webp' : 'jpg';
+                  const ownerUid = item.userId || userId;
+                  const fileName = `novedades/${ownerUid}/${registroId}/foto_${photoIndex}_${item.operationId}.${ext}`;
+                  downloadUrl = await get().uploadBase64(mediaPayload, fileName);
+
+                  // Evitar re-subir el binario a Storage si falla solo el updateDoc posterior
+                  item.payload = { ...item.payload, uploadedUrl: downloadUrl };
+                  await SyncQueueService.markSyncing(item);
                 }
-
-                const isWebP = mediaPayload instanceof Blob
-                  ? mediaPayload.type.includes('webp')
-                  : mediaPayload.startsWith('data:image/webp');
-                const ext = isWebP ? 'webp' : 'jpg';
-                const ownerUid = item.userId || userId;
-                const fileName = `novedades/${ownerUid}/${registroId}/foto_${photoIndex}_${item.operationId}.${ext}`;
-                const downloadUrl = await get().uploadBase64(mediaPayload, fileName);
 
                 await updateDoc(doc(db, 'novedades', registroId), {
                   evidencias: arrayUnion(downloadUrl)
                 });
                 await SyncQueueService.markCompleted(item.id);
+                set(state => ({
+                  novedades: (state.novedades || []).map((n: any) => {
+                    if (n.id !== registroId) return n;
+                    const existing: string[] = Array.isArray(n.evidencias) ? n.evidencias : [];
+                    return existing.includes(downloadUrl!)
+                      ? n
+                      : { ...n, evidencias: [...existing, downloadUrl!] };
+                  })
+                }));
                 console.log(`[SyncQueue] UPLOAD_NOVEDAD_PHOTO ${item.id} sincronizado. URL: ${downloadUrl}`);
 
               } else if (item.actionType === 'ADD_VISITA_SUPERVISOR') {
@@ -413,13 +434,14 @@ export const useAppStore = create<AppState>()(
 
             } catch (err: any) {
               console.error(`[SyncQueue] Error procesando item ${item.id} (${item.actionType}):`, err);
+              failedIdsInRun.add(item.id);
               await SyncQueueService.incrementRetry(item, err?.message || String(err));
               // Each operation fails independently — continue with the next item.
             }
           } // End of for loop
           
-          // Re-evaluate pending for this user
-          pending = await SyncQueueService.getPending(userId);
+          // Re-evaluate pending for this user (excluding items that already failed in this pass)
+          pending = (await SyncQueueService.getPending(userId)).filter(p => !failedIdsInRun.has(p.id));
         } // End of while loop
         
         } finally {

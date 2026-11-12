@@ -164,6 +164,9 @@ const IncidenciasPage: React.FC<IncidenciasPageProps> = ({ onBack, activeLog, cu
   });
 
   const [fotoSeleccionada, setFotoSeleccionada] = useState<string | null>(null);
+  const [failedImages, setFailedImages] = useState<Record<string, boolean>>({});
+  const [imageRetryCount, setImageRetryCount] = useState<Record<string, number>>({});
+  const prevIsSyncingRef = useRef(isSyncing);
 
   // Sucursal activa: preferir la del turno activo, sino la asignada
   const sucursalActiva = activeLog?.siteId ?? currentSite?.id;
@@ -209,6 +212,11 @@ const IncidenciasPage: React.FC<IncidenciasPageProps> = ({ onBack, activeLog, cu
       const visibles = hayMas ? docs.slice(0, PAGE_SIZE) : docs;
       const items = visibles.map(parseDocToItem).filter(Boolean) as RegistroListItem[];
       setRegistros(items);
+      setRegistroDetalle(prev => {
+        if (!prev) return prev;
+        const updated = items.find(item => item.id === prev.id);
+        return updated || prev;
+      });
       setHayMasRegistros(hayMas);
       setLastDocSnapshot(visibles.length > 0 ? visibles[visibles.length - 1] : null);
     } catch (err) {
@@ -250,10 +258,15 @@ const IncidenciasPage: React.FC<IncidenciasPageProps> = ({ onBack, activeLog, cu
     cargarRegistros();
   }, [cargarRegistros]);
 
-  // Actualizar contador de pendientes al montar y cuando cambia el estado de sincronización
+  // Actualizar contador de pendientes y refrescar registros al finalizar sincronización
   useEffect(() => {
     SyncQueueService.getPendingCount(currentUser?.uid).then(setPendingCount).catch(() => {});
-  }, [isSyncing, currentUser]);
+    const wasSyncing = prevIsSyncingRef.current;
+    prevIsSyncingRef.current = isSyncing;
+    if (wasSyncing && !isSyncing && connected) {
+      cargarRegistros();
+    }
+  }, [isSyncing, currentUser, connected, cargarRegistros]);
 
   // ── Resetear prioridad según tipo (eliminado porque siempre es novedad) ──
 
@@ -356,6 +369,8 @@ const IncidenciasPage: React.FC<IncidenciasPageProps> = ({ onBack, activeLog, cu
             : { registroId, photoBase64: await blobToDataUrl(blob), photoIndex: i };
           await SyncQueueService.enqueue('UPLOAD_NOVEDAD_PHOTO', payload, currentUser!.uid);
         }
+        // Asegurar que la cola procese las fotos si ADD_NOVEDAD ya terminó su ciclo
+        void useAppStore.getState().processSyncQueue();
       }
 
       // ── 4. Éxito inmediato ────────────────────────────────────────
@@ -560,15 +575,48 @@ const IncidenciasPage: React.FC<IncidenciasPageProps> = ({ onBack, activeLog, cu
                 Fotografías ({registroDetalle.evidencias.length})
               </p>
               <div className="grid grid-cols-3 gap-2">
-                {registroDetalle.evidencias.map((url, i) => (
-                  <button 
-                    key={i} 
-                    onClick={() => setFotoSeleccionada(url)}
-                    className="w-full h-24 p-0 border-0 rounded-xl overflow-hidden focus:outline-none active:scale-95 transition-transform"
-                  >
-                    <img src={url} alt={`Evidencia ${i + 1}`} className="w-full h-full object-cover border border-slate-100" />
-                  </button>
-                ))}
+                {registroDetalle.evidencias.map((url, i) => {
+                  const imgKey = `${registroDetalle.id}:${i}`;
+                  const isFailed = !!failedImages[imgKey];
+                  const retryAttempt = imageRetryCount[imgKey] || 0;
+                  const imgSrc = retryAttempt > 0
+                    ? `${url}${url.includes('?') ? '&' : '?'}retry=${retryAttempt}`
+                    : url;
+
+                  if (isFailed) {
+                    return (
+                      <button
+                        key={i}
+                        type="button"
+                        onClick={() => {
+                          setFailedImages(prev => ({ ...prev, [imgKey]: false }));
+                          setImageRetryCount(prev => ({ ...prev, [imgKey]: (prev[imgKey] || 0) + 1 }));
+                        }}
+                        className="w-full h-24 p-2 rounded-xl border border-slate-200 bg-slate-50 flex flex-col items-center justify-center gap-1 text-slate-500 active:scale-95 transition-transform"
+                      >
+                        <RefreshCw size={18} className="text-blue-500" />
+                        <span className="text-[10px] font-bold leading-tight text-center">Reintentar foto</span>
+                      </button>
+                    );
+                  }
+
+                  return (
+                    <button
+                      key={i}
+                      type="button"
+                      onClick={() => setFotoSeleccionada(url)}
+                      className="w-full h-24 p-0 border-0 rounded-xl overflow-hidden focus:outline-none active:scale-95 transition-transform bg-slate-100"
+                    >
+                      <img
+                        src={imgSrc}
+                        alt={`Evidencia ${i + 1}`}
+                        loading="lazy"
+                        onError={() => setFailedImages(prev => ({ ...prev, [imgKey]: true }))}
+                        className="w-full h-full object-cover border border-slate-100"
+                      />
+                    </button>
+                  );
+                })}
               </div>
             </div>
           )}

@@ -520,6 +520,23 @@ service cloud.firestore {
             'horaEvento',
             'creadoEn'
           ])
+        ) ||
+        // Caso 4: Adjuntar evidencias fotográficas subidas por el autor (append-only)
+        (
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['evidencias']) &&
+          isColaborador() &&
+          !isMandante() &&
+          resource.data.autorUid == request.auth.uid &&
+          request.resource.data.evidencias is list &&
+          request.resource.data.evidencias.size() <= 10 &&
+          (
+            !('evidencias' in resource.data) ||
+            resource.data.evidencias == null ||
+            (
+              resource.data.evidencias is list &&
+              request.resource.data.evidencias.hasAll(resource.data.evidencias)
+            )
+          )
         )
       );
       allow delete: if false;
