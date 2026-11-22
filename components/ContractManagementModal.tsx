@@ -42,6 +42,12 @@ function normalizeContractType(raw?: string): string {
   return 'Plazo Fijo';
 }
 
+/** Obra y Faena e Indefinido no tienen fecha de término: permanecen vigentes hasta que finalice la obra o el vínculo. */
+function isOpenEndedContractType(tipo?: string): boolean {
+  const lower = (tipo || '').toLowerCase();
+  return lower.includes('indefinido') || lower.includes('faena') || lower.includes('obra');
+}
+
 export const ContractManagementModal: React.FC<Props> = ({
   isOpen,
   onClose,
@@ -112,7 +118,7 @@ export const ContractManagementModal: React.FC<Props> = ({
         sucursalId: contratoToEdit.sucursalId || '0',
         tipo: contratoToEdit.tipo || 'Plazo Fijo',
         fechaInicio: contratoToEdit.fechaInicio || '',
-        fechaTermino: contratoToEdit.fechaTermino || '',
+        fechaTermino: isOpenEndedContractType(contratoToEdit.tipo) ? '' : (contratoToEdit.fechaTermino || ''),
         cargo: contratoToEdit.cargo || DEFAULT_CARGO,
         jornada: contratoToEdit.jornada || '45 horas semanales',
         estado: contratoToEdit.estado || 'vigente',
@@ -155,7 +161,7 @@ export const ContractManagementModal: React.FC<Props> = ({
         sucursalId: resolvedSite,
         tipo: resolvedTipo,
         fechaInicio: resolvedStart,
-        fechaTermino: resolvedEnd,
+        fechaTermino: isOpenEndedContractType(resolvedTipo) ? '' : resolvedEnd,
         cargo: DEFAULT_CARGO,
         jornada: contratoAnterior?.jornada || '45 horas semanales',
         estado: 'vigente',
@@ -201,6 +207,8 @@ export const ContractManagementModal: React.FC<Props> = ({
     );
     const latestContract = existingContracts[0] || null;
 
+    const resolvedTipo = normalizeContractType(latestContract?.tipo || emp.tipoContrato || formData.tipo);
+
     setFormData(prev => ({
       ...prev,
       sucursalId:
@@ -209,15 +217,16 @@ export const ContractManagementModal: React.FC<Props> = ({
           : emp.currentSiteId
           ? String(emp.currentSiteId)
           : prev.sucursalId || '0',
-      tipo: normalizeContractType(latestContract?.tipo || emp.tipoContrato || prev.tipo),
+      tipo: resolvedTipo,
       fechaInicio:
         latestContract?.fechaInicio ||
         emp.fechaInicioContrato?.split('T')[0] ||
         prev.fechaInicio,
-      fechaTermino:
-        latestContract?.fechaTermino ||
-        emp.fechaTerminoContrato?.split('T')[0] ||
-        prev.fechaTermino,
+      fechaTermino: isOpenEndedContractType(resolvedTipo)
+        ? ''
+        : latestContract?.fechaTermino ||
+          emp.fechaTerminoContrato?.split('T')[0] ||
+          prev.fechaTermino,
       cargo: DEFAULT_CARGO
     }));
   };
@@ -259,6 +268,13 @@ export const ContractManagementModal: React.FC<Props> = ({
     if (type === 'checkbox') {
       const checked = (e.target as HTMLInputElement).checked;
       setFormData(prev => ({ ...prev, [name]: checked }));
+    } else if (name === 'tipo') {
+      // Obra y Faena / Indefinido: sin fecha de término (se limpia cualquier fecha previa)
+      setFormData(prev => ({
+        ...prev,
+        tipo: value,
+        fechaTermino: isOpenEndedContractType(value) ? '' : prev.fechaTermino
+      }));
     } else {
       setFormData(prev => ({ ...prev, [name]: value }));
     }
@@ -298,8 +314,8 @@ export const ContractManagementModal: React.FC<Props> = ({
       return;
     }
 
-    const isIndefinido = formData.tipo.toLowerCase().includes('indefinido');
-    if (!isIndefinido && !formData.fechaTermino) {
+    const sinFechaTermino = isOpenEndedContractType(formData.tipo);
+    if (!sinFechaTermino && !formData.fechaTermino) {
       setError('Debes indicar la fecha de término del contrato para visualizar su vencimiento en el dashboard.');
       return;
     }
@@ -634,20 +650,24 @@ export const ContractManagementModal: React.FC<Props> = ({
                 <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1 flex items-center gap-1">
                   <Calendar size={13} className="text-blue-600" />
                   Fecha de Término
-                  {!formData.tipo.toLowerCase().includes('indefinido') ? (
+                  {!isOpenEndedContractType(formData.tipo) && (
                     <span className="text-red-500 font-bold">*</span>
-                  ) : (
-                    <span className="text-slate-400 font-normal text-[10px]">(Opcional)</span>
                   )}
                 </label>
-                <input
-                  type="date"
-                  name="fechaTermino"
-                  value={formData.fechaTermino}
-                  onChange={handleChange}
-                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-xs font-semibold text-slate-800 focus:border-blue-500 focus:bg-white focus:outline-none"
-                  required={!formData.tipo.toLowerCase().includes('indefinido')}
-                />
+                {isOpenEndedContractType(formData.tipo) ? (
+                  <div className="w-full rounded-xl border border-dashed border-slate-200 bg-slate-100 px-3.5 py-2.5 text-xs font-semibold text-slate-500">
+                    Sin fecha de término
+                  </div>
+                ) : (
+                  <input
+                    type="date"
+                    name="fechaTermino"
+                    value={formData.fechaTermino}
+                    onChange={handleChange}
+                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-xs font-semibold text-slate-800 focus:border-blue-500 focus:bg-white focus:outline-none"
+                    required
+                  />
+                )}
               </div>
             </div>
 

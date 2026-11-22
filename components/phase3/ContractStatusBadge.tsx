@@ -40,7 +40,7 @@ export const ContractStatusBadge: React.FC<Props> = ({ estado, contrato }) => {
     const daysLeft = getDaysUntil(fechaTermino);
     const isSoonToExpire = daysLeft !== null && daysLeft <= 30 && daysLeft >= 0;
 
-    let subText = 'Indefinido';
+    let subText = 'Sin fecha de término';
     if (fechaTermino) {
       subText = `hasta ${formatDateShort(fechaTermino)}`;
     }

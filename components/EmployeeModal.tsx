@@ -666,7 +666,7 @@ const EmployeeModal: React.FC<EmployeeModalProps> = ({ employee, onClose }) => {
                   <div className="bg-slate-50 p-3 rounded-lg border border-slate-100">
                     <span className="text-[10px] text-slate-400 font-bold uppercase block">Fecha TÃ©rmino</span>
                     <span className="font-bold text-slate-800">
-                      {contractStatusInfo.activeContract.fechaTermino ? formatDateDDMMYYYY(contractStatusInfo.activeContract.fechaTermino) : 'Indefinido'}
+                      {contractStatusInfo.activeContract.fechaTermino ? formatDateDDMMYYYY(contractStatusInfo.activeContract.fechaTermino) : 'Sin fecha de término'}
                     </span>
                   </div>
                   <div className="bg-slate-50 p-3 rounded-lg border border-slate-100">
@@ -744,7 +744,7 @@ const EmployeeModal: React.FC<EmployeeModalProps> = ({ employee, onClose }) => {
                           </div>
 
                           <div className="text-[11px] text-slate-500 flex items-center gap-2 flex-wrap">
-                            <span>Vigencia: <strong className="text-slate-700">{formatDateDDMMYYYY(c.fechaInicio)}</strong> al <strong className="text-slate-700">{c.fechaTermino ? formatDateDDMMYYYY(c.fechaTermino) : 'Indefinido'}</strong></span>
+                            <span>Vigencia: <strong className="text-slate-700">{formatDateDDMMYYYY(c.fechaInicio)}</strong> al <strong className="text-slate-700">{c.fechaTermino ? formatDateDDMMYYYY(c.fechaTermino) : 'Sin fecha de término'}</strong></span>
                             {c.cargo && <span>â€¢ Cargo: {c.cargo}</span>}
                             <span>â€¢ Registrado: {formatDateDDMMYYYY(c.creadoEn)}</span>
                           </div>
