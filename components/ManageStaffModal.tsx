@@ -12,13 +12,8 @@ interface ManageStaffModalProps {
 }
 
 const ManageStaffModal: React.FC<ManageStaffModalProps> = ({ isOpen, onClose, currentSiteId, onSave }) => {
-    const { employees, sites } = useAppStore();
+    const { employees, sites, contratos } = useAppStore();
     const [searchTerm, setSearchTerm] = useState('');
-
-    // Initial state logic should be handled by parent or derived, but for simple selection we can do this:
-    // We want to select employees who are CURRENTLY assigned to this site.
-    // However, the parent might want to pass the current set.
-    // For now, let's derive it from the store's currentSiteId.
 
     // We maintain a local set of IDs that we want to be part of the site.
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -26,15 +21,31 @@ const ManageStaffModal: React.FC<ManageStaffModalProps> = ({ isOpen, onClose, cu
     // Sync selectedIds with current assignments whenever modal opens or site changes
     React.useEffect(() => {
         if (isOpen) {
+            const latestContractSite = new Map<string, { inicio: string; sucursalId: string }>();
+            (contratos || []).forEach(c => {
+                if (c.estado === 'anulado' || !c.sucursalId || String(c.sucursalId) === '0') return;
+                const prev = latestContractSite.get(c.colaboradorId);
+                const inicio = c.fechaInicio || '';
+                if (!prev || inicio > prev.inicio) {
+                    latestContractSite.set(c.colaboradorId, { inicio, sucursalId: String(c.sucursalId) });
+                }
+            });
+
             const initial = new Set<string>();
             employees.forEach(emp => {
+                if (emp.isActive === false || emp.estadoOperativo === 'inactivo') return;
                 if (emp.currentSiteId == currentSiteId) {
+                    initial.add(emp.id);
+                    return;
+                }
+                const hasProfileSite = emp.currentSiteId && Number(emp.currentSiteId) > 0;
+                if (!hasProfileSite && latestContractSite.get(emp.id)?.sucursalId === String(currentSiteId)) {
                     initial.add(emp.id);
                 }
             });
             setSelectedIds(initial);
         }
-    }, [isOpen, currentSiteId, employees]);
+    }, [isOpen, currentSiteId, employees, contratos]);
 
     const currentSiteName = sites.find(s => s.id == currentSiteId)?.name || 'la sucursal';
 

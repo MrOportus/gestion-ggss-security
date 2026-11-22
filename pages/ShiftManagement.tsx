@@ -30,6 +30,7 @@ import ManageStaffModal from '../components/ManageStaffModal';
 import { useShiftManagementFacade } from '../lib/phase2/useShiftManagementFacade';
 
 import { ContractStatusBadge } from '../components/phase3/ContractStatusBadge';
+import { resolveEmployeeOperationalStatus } from '../lib/phase3/contratosService';
 import { MonthContractSummary } from '../components/phase3/MonthContractSummary';
 import { ContractBindingService } from '../lib/phase3/contractBindingService';
 import { useContractShadowBatch } from '../lib/phase3/useContractShadowBatch';
@@ -630,18 +631,14 @@ const ShiftManagement: React.FC = () => {
         await persistStaffOrder();
         setConflictError(null);
 
-        // ------------------------------------------------------------------
-        // FASE D (CANARY): VALIDACIÓN DE CONTRATOS PRE-GUARDADO
-        // ------------------------------------------------------------------
+        // Mostrar alerta visual si el contrato no alcanza a cubrir turnos asignados, sin impedir la programación
         let currentContractAlerts: string[] = [];
         if (featureFlag?.mode === 'canary' && featureFlag?.enabled && !overrideConflicts) {
-            // Validar solo los "nuevos" turnos a asignar
             Object.keys(pendingChanges).forEach(key => {
                 const parts = key.split('_');
                 const empId = parts.slice(1, -1).join('_');
                 const dateKey = parts[parts.length - 1];
                 const newStatus = pendingChanges[key];
-                
                 if (newStatus && ['programado', 'noche', 'digital', 'descanso'].includes(newStatus)) {
                     const evalResult = employeeContractEvaluations[empId]?.[dateKey];
                     if (evalResult && evalResult.estado !== 'compatible') {
@@ -650,23 +647,13 @@ const ShiftManagement: React.FC = () => {
                         let reason = 'Sin contrato que cubra esta fecha';
                         if (evalResult.estado === 'otra_sucursal') reason = 'Contrato vigente pertenece a otra sucursal';
                         else if (evalResult.estado === 'multiples') reason = 'Existen múltiples contratos vigentes';
-                        
                         currentContractAlerts.push(`${empName} el día ${dateKey}: ${reason}`);
                     }
                 }
             });
-
-            if (currentContractAlerts.length > 0) {
-                // Interceptamos el guardado para mostrar las alertas contractuales
-                setSummaryModalState({
-                    isOpen: true,
-                    result: { success: 0, conflicts: [], technicalErrors: [], newTokens: {}, failedColabIds: [], conflictCheckPending: false },
-                    contractAlerts: currentContractAlerts
-                });
-                return;
-            }
         }
 
+        // La vigencia contractual es informativa (badge "Renovar contrato") y NUNCA bloquea la programación de turnos.
         const result = await facadeSaveChanges({
             pendingChanges,
             programmingMap,
@@ -845,6 +832,20 @@ const ShiftManagement: React.FC = () => {
     };
 
     // --- FILTERED LIST FOR DISPLAY ---
+    // Sucursal del último contrato (no anulado) de cada colaborador: respaldo para quienes no tienen sucursal en su perfil
+    const latestContractSiteByEmployee = useMemo(() => {
+        const latest = new Map<string, { inicio: string; sucursalId: string }>();
+        (contratos || []).forEach(c => {
+            if (c.estado === 'anulado' || !c.sucursalId || String(c.sucursalId) === '0') return;
+            const prev = latest.get(c.colaboradorId);
+            const inicio = c.fechaInicio || '';
+            if (!prev || inicio > prev.inicio) latest.set(c.colaboradorId, { inicio, sucursalId: String(c.sucursalId) });
+        });
+        const result = new Map<string, string>();
+        latest.forEach((v, k) => result.set(k, v.sucursalId));
+        return result;
+    }, [contratos]);
+
     const extraEmployeeIds = new Set<string>();
     Object.values(programmingMap).forEach(doc => {
         if (doc.siteId == selectedSiteId) {
@@ -853,7 +854,15 @@ const ShiftManagement: React.FC = () => {
     });
 
     const baseVisibleEmployees = employees.filter(emp => {
-        return (emp.currentSiteId == selectedSiteId) || extraEmployeeIds.has(emp.id);
+        // Con programación en el mes visible: siempre se muestra (no se pierde información existente)
+        if (extraEmployeeIds.has(emp.id)) return true;
+        // Colaboradores inactivos no se listan en la gestión de turnos
+        if (resolveEmployeeOperationalStatus(emp) === 'inactivo') return false;
+        // Asignación explícita desde el perfil del empleado: NO depende de la vigencia del contrato
+        if (emp.currentSiteId == selectedSiteId) return true;
+        // Respaldo: sin sucursal en el perfil → usar la sucursal de su último contrato registrado
+        const hasProfileSite = emp.currentSiteId && Number(emp.currentSiteId) > 0;
+        return !hasProfileSite && String(latestContractSiteByEmployee.get(emp.id) ?? '') === String(selectedSiteId);
     });
 
     // Orden efectivo: borrador (modo edición) > orden guardado en la sucursal > orden base.
@@ -1011,6 +1020,22 @@ const ShiftManagement: React.FC = () => {
         })[0];
     }, [contratos, selectedSiteId, days]);
 
+    // 3b. Contrato vencido más reciente (solo si NO hay contrato aplicable en el mes visible): señal de "Renovar contrato".
+    //     No limita la programación de turnos; es solo un aviso visual.
+    const getEmployeeExpiredContrato = useCallback((empId: string) => {
+        if (getEmployeeActiveContrato(empId)) return undefined;
+        const firstVisibleDay = days.length > 0 ? formatDateKey(days[0]) : '';
+        const expired = contratos
+            .filter(c =>
+                c.colaboradorId === empId &&
+                (c.estado === 'vigente' || c.estado === 'vencido') &&
+                !!c.fechaTermino &&
+                c.fechaTermino < firstVisibleDay
+            )
+            .sort((a, b) => (b.fechaTermino || '').localeCompare(a.fechaTermino || ''));
+        return expired[0];
+    }, [contratos, days, getEmployeeActiveContrato]);
+
     // 4. Obtener el peor estado contractual de un empleado en el mes visible
     const getEmployeeWorstContractState = useCallback((empId: string) => {
         const evals = employeeContractEvaluations[empId];
@@ -1029,9 +1054,13 @@ const ShiftManagement: React.FC = () => {
             }
         }
 
-        if (!lastShiftDate) return 'compatible'; // Sin turnos, todo OK.
-
         const ultimoContrato = getEmployeeActiveContrato(empId);
+
+        if (!lastShiftDate) {
+            if (ultimoContrato) return 'compatible';
+            if (hasOtraSucursal) return 'otra_sucursal';
+            return 'sin_contrato';
+        }
         
         // Regla simplificada de RRHH: Si el último contrato del mes tiene una fecha de término
         // mayor o igual a la del último turno trabajado, entonces está "Al día" (compatible)
@@ -1782,6 +1811,7 @@ const ShiftManagement: React.FC = () => {
                                                 <ContractStatusBadge
                                                     estado={getEmployeeWorstContractState(emp.id)}
                                                     contrato={getEmployeeActiveContrato(emp.id)}
+                                                    contratoVencido={getEmployeeExpiredContrato(emp.id)}
                                                 />
                                             </div>
                                         </button>
@@ -2084,6 +2114,7 @@ const ShiftManagement: React.FC = () => {
                                                 <ContractStatusBadge
                                                     estado={getEmployeeWorstContractState(emp.id)}
                                                     contrato={getEmployeeActiveContrato(emp.id)}
+                                                    contratoVencido={getEmployeeExpiredContrato(emp.id)}
                                                 />
                                             </div>
                                         </div>

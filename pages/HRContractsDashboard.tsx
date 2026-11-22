@@ -190,7 +190,7 @@ const HRContractsDashboard: React.FC = () => {
 
       if (activeContract) {
         contractType = activeContract.tipo;
-        contractDates = `${formatDateDDMMYYYY(activeContract.fechaInicio)} al ${activeContract.fechaTermino ? formatDateDDMMYYYY(activeContract.fechaTermino) : 'Sin fecha de término'}`;
+        contractDates = `${formatDateDDMMYYYY(activeContract.fechaInicio)} al ${activeContract.fechaTermino ? formatDateDDMMYYYY(activeContract.fechaTermino) : 'Sin fecha de tÃ©rmino'}`;
         const linkedDoc = activeContract.documentoId
           ? (digitalDocuments || []).find(d => d.id === activeContract.documentoId)
           : undefined;

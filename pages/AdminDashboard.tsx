@@ -224,7 +224,7 @@ const AdminDashboard: React.FC = () => {
         fechaInicio = activeContract.fechaInicio;
         fechaTermino = activeContract.fechaTermino;
         contractDates = `${formatDateDDMMYYYY(activeContract.fechaInicio)} al ${
-          activeContract.fechaTermino ? formatDateDDMMYYYY(activeContract.fechaTermino) : 'Sin fecha de término'
+          activeContract.fechaTermino ? formatDateDDMMYYYY(activeContract.fechaTermino) : 'Sin fecha de tÃ©rmino'
         }`;
 
         if (activeContract.estado === 'pendiente_firma') {

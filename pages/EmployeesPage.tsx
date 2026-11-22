@@ -10,7 +10,7 @@ import { AIEmployeeModal } from '../components/AIEmployeeModal';
 import * as XLSX from 'xlsx';
 
 const EmployeesPage: React.FC = () => {
-  const { employees, sites, toggleEmployeeStatus, bulkAddEmployees, isLoading, showNotification } = useAppStore();
+  const { employees, sites, contratos, toggleEmployeeStatus, bulkAddEmployees, isLoading, showNotification } = useAppStore();
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState<'all' | 'active' | 'inactive'>('all');
   const [filterCompany, setFilterCompany] = useState<string>(''); // Nuevo estado para filtro empresa
@@ -19,6 +19,31 @@ const EmployeesPage: React.FC = () => {
   const [showAddModal, setShowAddModal] = useState(false);
   const [showAIModal, setShowAIModal] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Respaldo de sucursal desde el último contrato activo/registrado si currentSiteId fue limpiado
+  const latestContractSiteByEmployee = React.useMemo(() => {
+    const latest = new Map<string, { inicio: string; sucursalId: string }>();
+    (contratos || []).forEach(c => {
+      if (c.estado === 'anulado' || !c.sucursalId || String(c.sucursalId) === '0') return;
+      const prev = latest.get(c.colaboradorId);
+      const inicio = c.fechaInicio || '';
+      if (!prev || inicio > prev.inicio) {
+        latest.set(c.colaboradorId, { inicio, sucursalId: String(c.sucursalId) });
+      }
+    });
+    const result = new Map<string, string>();
+    latest.forEach((v, k) => result.set(k, v.sucursalId));
+    return result;
+  }, [contratos]);
+
+  const resolveEmployeeSite = (e: typeof employees[number]) => {
+    const effectiveSiteId =
+      e.currentSiteId && Number(e.currentSiteId) > 0
+        ? String(e.currentSiteId)
+        : latestContractSiteByEmployee.get(e.id);
+    if (!effectiveSiteId) return undefined;
+    return sites.find(s => String(s.id) === String(effectiveSiteId));
+  };
 
   // Obtener lista única de empresas desde las sucursales
   const uniqueCompanies = Array.from(new Set(
@@ -38,11 +63,11 @@ const EmployeesPage: React.FC = () => {
         filterStatus === 'active' ? e.isActive :
           !e.isActive;
 
-    // 3. Filtro Empresa (Derivado de la sucursal asignada)
+    // 3. Filtro Empresa (Derivado de la sucursal asignada o contrato vigente)
     const matchesCompany = filterCompany === '' ? true : (() => {
-      if (!e.currentSiteId) return false; // Si no tiene sucursal, no pertenece a la empresa filtrada
-      const assignedSite = sites.find(s => s.id === e.currentSiteId);
-      return assignedSite?.empresa === filterCompany;
+      const assignedSite = resolveEmployeeSite(e);
+      if (!assignedSite) return false;
+      return assignedSite.empresa === filterCompany || assignedSite.name === filterCompany;
     })();
 
     // 4. Filtro Datos Faltantes / Roles
@@ -382,8 +407,8 @@ const EmployeesPage: React.FC = () => {
                 </tr>
               ) : (
                 filteredEmployees.map((emp) => {
-                  const assignedSite = sites.find(s => s.id === emp.currentSiteId);
-                  const companyName = assignedSite?.empresa || 'Sin Empresa Asignada';
+                  const assignedSite = resolveEmployeeSite(emp);
+                  const companyName = assignedSite?.empresa || assignedSite?.name || 'Sin Empresa Asignada';
 
                   return (
                     <tr key={emp.id} className="hover:bg-slate-50 transition-colors group">

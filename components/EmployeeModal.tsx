@@ -248,6 +248,11 @@ const EmployeeModal: React.FC<EmployeeModalProps> = ({ employee, onClose }) => {
       setEditData(prev => ({ ...prev, estadoOperativo: value as any, isActive: isAct }));
       return;
     }
+    if (name === 'currentSiteId') {
+      const parsedSiteId = value === '' || value === '0' ? 0 : (isNaN(Number(value)) ? (value as any) : Number(value));
+      setEditData(prev => ({ ...prev, currentSiteId: parsedSiteId }));
+      return;
+    }
     setEditData(prev => ({ ...prev, [name]: value }));
   };
 
@@ -472,7 +477,13 @@ const EmployeeModal: React.FC<EmployeeModalProps> = ({ employee, onClose }) => {
                 />
                 <DataField
                   label="Sucursal Asignada"
-                  value={editData.currentSiteId}
+                  value={
+                    editData.currentSiteId && Number(editData.currentSiteId) > 0
+                      ? editData.currentSiteId
+                      : (workerContracts[0]?.sucursalId && String(workerContracts[0].sucursalId) !== '0'
+                          ? (isNaN(Number(workerContracts[0].sucursalId)) ? workerContracts[0].sucursalId : Number(workerContracts[0].sucursalId))
+                          : editData.currentSiteId)
+                  }
                   name="currentSiteId"
                   isEditing={isEditing}
                   searchable={true}
@@ -666,7 +677,7 @@ const EmployeeModal: React.FC<EmployeeModalProps> = ({ employee, onClose }) => {
                   <div className="bg-slate-50 p-3 rounded-lg border border-slate-100">
                     <span className="text-[10px] text-slate-400 font-bold uppercase block">Fecha Término</span>
                     <span className="font-bold text-slate-800">
-                      {contractStatusInfo.activeContract.fechaTermino ? formatDateDDMMYYYY(contractStatusInfo.activeContract.fechaTermino) : 'Sin fecha de t�rmino'}
+                      {contractStatusInfo.activeContract.fechaTermino ? formatDateDDMMYYYY(contractStatusInfo.activeContract.fechaTermino) : 'Sin fecha de término'}
                     </span>
                   </div>
                   <div className="bg-slate-50 p-3 rounded-lg border border-slate-100">
@@ -744,7 +755,7 @@ const EmployeeModal: React.FC<EmployeeModalProps> = ({ employee, onClose }) => {
                           </div>
 
                           <div className="text-[11px] text-slate-500 flex items-center gap-2 flex-wrap">
-                            <span>Vigencia: <strong className="text-slate-700">{formatDateDDMMYYYY(c.fechaInicio)}</strong> al <strong className="text-slate-700">{c.fechaTermino ? formatDateDDMMYYYY(c.fechaTermino) : 'Sin fecha de t�rmino'}</strong></span>
+                            <span>Vigencia: <strong className="text-slate-700">{formatDateDDMMYYYY(c.fechaInicio)}</strong> al <strong className="text-slate-700">{c.fechaTermino ? formatDateDDMMYYYY(c.fechaTermino) : 'Sin fecha de término'}</strong></span>
                             {c.cargo && <span>• Cargo: {c.cargo}</span>}
                             <span>• Registrado: {formatDateDDMMYYYY(c.creadoEn)}</span>
                           </div>

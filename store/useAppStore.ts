@@ -1000,12 +1000,8 @@ export const useAppStore = create<AppState>()(
               }, { merge: true });
               console.log("[SYNC TURNOS] ✅ asistencia_manual creado con éxito:", manualDocId);
               
-              // Limpiar sucursal actual del colaborador
-              if (log.employeeId) {
-                await updateDoc(doc(db, 'Colaboradores', log.employeeId), {
-                  currentSiteId: 0
-                });
-              }
+              // La sucursal asignada en el perfil del colaborador se conserva al terminar el turno:
+              // no se limpia currentSiteId (antes se reseteaba a 0 y el trabajador desaparecía de Gestión de Turnos).
             } catch (syncError) {
               console.error("[SYNC TURNOS] ❌ Error en sincronización check_out:", digId, syncError);
             }
@@ -1349,9 +1345,14 @@ export const useAppStore = create<AppState>()(
           if (contrato.estado === 'vigente' || contrato.estado === 'pendiente_firma') {
             try {
               const empRef = doc(db, 'Colaboradores', contrato.colaboradorId);
+              const hasValidSite = contrato.sucursalId && String(contrato.sucursalId) !== '0';
+              const parsedSiteId = hasValidSite
+                ? (isNaN(Number(contrato.sucursalId)) ? contrato.sucursalId : Number(contrato.sucursalId))
+                : undefined;
               const updateEmpPayload: any = {
                 fechaInicioContrato: contrato.fechaInicio,
-                tipoContrato: contrato.tipo as any
+                tipoContrato: contrato.tipo as any,
+                ...(parsedSiteId !== undefined ? { currentSiteId: parsedSiteId } : {})
               };
               if (contrato.fechaTermino) {
                 updateEmpPayload.fechaTerminoContrato = contrato.fechaTermino;
@@ -1364,7 +1365,8 @@ export const useAppStore = create<AppState>()(
                   ...e, 
                   fechaInicioContrato: contrato.fechaInicio,
                   fechaTerminoContrato: contrato.fechaTermino || undefined,
-                  tipoContrato: contrato.tipo as any 
+                  tipoContrato: contrato.tipo as any,
+                  ...(parsedSiteId !== undefined ? { currentSiteId: parsedSiteId as any } : {})
                 } : e)
               }));
             } catch (syncErr) {
@@ -1405,9 +1407,14 @@ export const useAppStore = create<AppState>()(
           if (updatedContract && (updatedContract.estado === 'vigente' || updatedContract.estado === 'pendiente_firma')) {
             try {
               const empRef = doc(db, 'Colaboradores', updatedContract.colaboradorId);
+              const hasValidSite = updatedContract.sucursalId && String(updatedContract.sucursalId) !== '0';
+              const parsedSiteId = hasValidSite
+                ? (isNaN(Number(updatedContract.sucursalId)) ? updatedContract.sucursalId : Number(updatedContract.sucursalId))
+                : undefined;
               const updateEmpPayload: any = {
                 fechaInicioContrato: updatedContract.fechaInicio,
-                tipoContrato: updatedContract.tipo as any
+                tipoContrato: updatedContract.tipo as any,
+                ...(parsedSiteId !== undefined ? { currentSiteId: parsedSiteId } : {})
               };
               if (updatedContract.fechaTermino) {
                 updateEmpPayload.fechaTerminoContrato = updatedContract.fechaTermino;
@@ -1420,7 +1427,8 @@ export const useAppStore = create<AppState>()(
                   ...e, 
                   fechaInicioContrato: updatedContract.fechaInicio,
                   fechaTerminoContrato: updatedContract.fechaTermino || undefined,
-                  tipoContrato: updatedContract.tipo as any 
+                  tipoContrato: updatedContract.tipo as any,
+                  ...(parsedSiteId !== undefined ? { currentSiteId: parsedSiteId as any } : {})
                 } : e)
               }));
             } catch (syncErr) {
@@ -1467,9 +1475,14 @@ export const useAppStore = create<AppState>()(
           // 3. Sincronizar colaborador con las nuevas fechas activas
           try {
             const empRef = doc(db, 'Colaboradores', nuevoContrato.colaboradorId);
+            const hasValidSite = nuevoContrato.sucursalId && String(nuevoContrato.sucursalId) !== '0';
+            const parsedSiteId = hasValidSite
+              ? (isNaN(Number(nuevoContrato.sucursalId)) ? nuevoContrato.sucursalId : Number(nuevoContrato.sucursalId))
+              : undefined;
             const updateEmpPayload: any = {
               fechaInicioContrato: nuevoContrato.fechaInicio,
-              tipoContrato: nuevoContrato.tipo as any
+              tipoContrato: nuevoContrato.tipo as any,
+              ...(parsedSiteId !== undefined ? { currentSiteId: parsedSiteId } : {})
             };
             if (nuevoContrato.fechaTermino) {
               updateEmpPayload.fechaTerminoContrato = nuevoContrato.fechaTermino;
@@ -1482,7 +1495,8 @@ export const useAppStore = create<AppState>()(
                 ...e, 
                 fechaInicioContrato: nuevoContrato.fechaInicio,
                 fechaTerminoContrato: nuevoContrato.fechaTermino || undefined,
-                tipoContrato: nuevoContrato.tipo as any 
+                tipoContrato: nuevoContrato.tipo as any,
+                ...(parsedSiteId !== undefined ? { currentSiteId: parsedSiteId as any } : {})
               } : e)
             }));
           } catch (syncErr) {
