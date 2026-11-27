@@ -225,6 +225,38 @@ export async function captureAndCompressPhotos(options: {
     const quality = options.quality ?? 0.7;
     const maxWidth = options.maxWidth ?? 1024;
 
+    if (Capacitor.isNativePlatform() && options.source === 'gallery' && options.multiple) {
+        try {
+            const picked = await CapacitorCamera.pickImages({
+                quality: Math.min(95, Math.max(40, Math.round(quality * 100))),
+                width: maxWidth,
+                height: maxWidth,
+            });
+            const photos = picked?.photos ?? [];
+            if (photos.length === 0) return [];
+
+            const results: Blob[] = [];
+            for (const p of photos) {
+                if (!p.webPath) continue;
+                const resp = await fetch(p.webPath);
+                const rawBlob = await resp.blob();
+                const watermarkData = options.getWatermarkData ? options.getWatermarkData() : undefined;
+                const compressed = await compressImage(rawBlob, quality, maxWidth, watermarkData);
+                results.push(compressed);
+            }
+            return results;
+        } catch (err: any) {
+            if (isCameraCancelError(err)) {
+                return [];
+            }
+            const msg = String(err?.message || err || '').toLowerCase();
+            if (msg.includes('permission') || msg.includes('denied')) {
+                throw err;
+            }
+            console.warn('[captureAndCompressPhotos] Fallback a input Web tras error en pickImages:', err);
+        }
+    }
+
     if (Capacitor.isNativePlatform() && (options.source === 'camera' || !options.multiple)) {
         try {
             const photo = await CapacitorCamera.getPhoto({

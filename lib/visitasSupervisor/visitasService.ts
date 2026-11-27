@@ -125,13 +125,16 @@ export async function obtenerUbicacionVisita(timeoutMs = 12000): Promise<Ubicaci
 
 // ─── Fotos ───────────────────────────────────────────────────────────────────
 
+let fotoSeq = 0;
+
 /** Envuelve un Blob ya comprimido (Camera/Gallery) en el modelo local del borrador. */
 export async function crearFotoVisitaDesdeBlob(
   compressedBlob: Blob,
   visitId: string,
   ambito: AmbitoFoto
 ): Promise<FotoVisitaLocal> {
-  const id = `${visitId}_f${Date.now()}${Math.random().toString(36).substring(2, 5)}`;
+  fotoSeq = (fotoSeq + 1) % 100000;
+  const id = `${visitId}_f${Date.now()}_${fotoSeq}_${Math.random().toString(36).substring(2, 5)}`;
   const capturadoEn = new Date().toISOString();
   if (SyncQueueService.supportsBlobPayloads()) {
     return {
@@ -272,25 +275,35 @@ export async function sincronizarFotoVisita(
   uploadBase64: (data: string | Blob, path: string) => Promise<string>,
   fallbackUid: string
 ): Promise<void> {
-  const { visitId, fotoId, photoBase64, photoBlob, ambito, orden, capturadoEn } = item.payload;
-  const mediaData: string | Blob | null =
-    photoBlob instanceof Blob && photoBlob.size >= 50
-      ? photoBlob
-      : typeof photoBase64 === 'string' && photoBase64.length >= 100
-        ? photoBase64
-        : null;
-  if (!mediaData) {
-    console.error(`[Visitas] Foto ${fotoId} corrupta. Descartando.`);
-    return;
+  const { visitId, fotoId, photoBase64, photoBlob, ambito, orden, capturadoEn, uploadedUrl } = item.payload;
+  let url: string | undefined =
+    typeof uploadedUrl === 'string' && uploadedUrl.startsWith('https://')
+      ? uploadedUrl
+      : undefined;
+
+  if (!url) {
+    const mediaData: string | Blob | null =
+      photoBlob instanceof Blob && photoBlob.size >= 50
+        ? photoBlob
+        : typeof photoBase64 === 'string' && photoBase64.length >= 100
+          ? photoBase64
+          : null;
+    if (!mediaData) {
+      console.error(`[Visitas] Foto ${fotoId} corrupta. Descartando.`);
+      return;
+    }
+    const owner = item.userId || fallbackUid;
+    const ext =
+      mediaData instanceof Blob
+        ? (mediaData.type.includes('webp') ? 'webp' : 'jpg')
+        : (mediaData.startsWith('data:image/webp') ? 'webp' : 'jpg');
+    // Ruta bajo evidencias/{uid}/ → ya permitida por storage.rules (no requiere cambios)
+    const path = `evidencias/${owner}/visitas/${visitId}/${fotoId}.${ext}`;
+    url = await uploadBase64(mediaData, path);
+    item.payload = { ...item.payload, uploadedUrl: url };
+    await SyncQueueService.markSyncing(item);
   }
-  const owner = item.userId || fallbackUid;
-  const ext =
-    mediaData instanceof Blob
-      ? (mediaData.type.includes('webp') ? 'webp' : 'jpg')
-      : (mediaData.startsWith('data:image/webp') ? 'webp' : 'jpg');
-  // Ruta bajo evidencias/{uid}/ → ya permitida por storage.rules (no requiere cambios)
-  const path = `evidencias/${owner}/visitas/${visitId}/${fotoId}.${ext}`;
-  const url = await uploadBase64(mediaData, path);
+
   await updateDoc(doc(db, VISITAS_COLLECTION, visitId), {
     [`fotos.${fotoId}`]: { url, ambito, orden, capturadoEn },
   });

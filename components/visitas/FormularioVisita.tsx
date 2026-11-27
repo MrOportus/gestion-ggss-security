@@ -92,6 +92,59 @@ const MiniaturaFotoVisita: React.FC<{ foto: FotoVisitaLocal }> = ({ foto }) => {
   return <img src={src} alt="Miniatura de fotografía" className="w-full h-full object-cover" />;
 };
 
+const BotonFoto: React.FC<{
+  ambito: AmbitoFoto;
+  texto: string;
+  principal?: boolean;
+  procesandoFoto: boolean;
+  onCapturar: (ambito: AmbitoFoto, camara: boolean) => void;
+}> = ({ ambito, texto, principal, procesandoFoto, onCapturar }) => (
+  <div className="space-y-2">
+    <button
+      type="button"
+      onClick={() => onCapturar(ambito, true)}
+      disabled={procesandoFoto}
+      className={`w-full rounded-2xl font-black flex items-center justify-center gap-3 active:scale-95 transition-all disabled:opacity-60 ${
+        principal ? 'min-h-[76px] text-xl bg-blue-700 text-white shadow-lg' : 'min-h-[64px] text-lg bg-blue-50 border-4 border-blue-700 text-blue-900'
+      }`}
+    >
+      {procesandoFoto ? <Loader2 className="animate-spin" size={28} /> : <Camera size={30} aria-hidden />}
+      {procesandoFoto ? 'PROCESANDO…' : texto}
+    </button>
+    <button
+      type="button"
+      onClick={() => onCapturar(ambito, false)}
+      disabled={procesandoFoto}
+      className="w-full min-h-[52px] rounded-2xl border-2 border-slate-300 text-base font-bold text-slate-700 flex items-center justify-center gap-2 active:scale-95 disabled:opacity-60"
+    >
+      <ImageIcon size={20} aria-hidden /> Elegir de la galería (1 o más)
+    </button>
+  </div>
+);
+
+const Miniaturas: React.FC<{
+  fotos: FotoVisitaLocal[];
+  onQuitar: (id: string) => void;
+}> = ({ fotos, onQuitar }) =>
+  fotos.length === 0 ? null : (
+    <div className="grid grid-cols-3 gap-3">
+      {fotos.map(f => (
+        <div key={f.id} className="space-y-1">
+          <div className="aspect-square rounded-xl overflow-hidden border-2 border-slate-300 bg-slate-100">
+            <MiniaturaFotoVisita foto={f} />
+          </div>
+          <button
+            type="button"
+            onClick={() => onQuitar(f.id)}
+            className="w-full min-h-[44px] rounded-xl bg-red-50 border-2 border-red-300 text-red-800 text-sm font-black flex items-center justify-center gap-1 active:scale-95"
+          >
+            <Trash2 size={16} aria-hidden /> QUITAR
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+
 // ─── Componente principal ─────────────────────────────────────────────────────
 
 const FormularioVisita: React.FC<Props> = ({ draft, supervisorNombre, updateDraft, onSubmit, onExit }) => {
@@ -233,50 +286,6 @@ const FormularioVisita: React.FC<Props> = ({ draft, supervisorNombre, updateDraf
   const la = draft.libroAsistencia ?? { revisado: null, estado: null, observacion: '' };
   const ln = draft.libroNovedades ?? { estado: null, observacion: '', dejoConstancia: null };
 
-  const BotonFoto: React.FC<{ ambito: AmbitoFoto; texto: string; principal?: boolean }> = ({ ambito, texto, principal }) => (
-    <div className="space-y-2">
-      <button
-        type="button"
-        onClick={() => agregarFotos(ambito, true)}
-        disabled={procesandoFoto}
-        className={`w-full rounded-2xl font-black flex items-center justify-center gap-3 active:scale-95 transition-all disabled:opacity-60 ${
-          principal ? 'min-h-[76px] text-xl bg-blue-700 text-white shadow-lg' : 'min-h-[64px] text-lg bg-blue-50 border-4 border-blue-700 text-blue-900'
-        }`}
-      >
-        {procesandoFoto ? <Loader2 className="animate-spin" size={28} /> : <Camera size={30} aria-hidden />}
-        {procesandoFoto ? 'PROCESANDO…' : texto}
-      </button>
-      <button
-        type="button"
-        onClick={() => agregarFotos(ambito, false)}
-        disabled={procesandoFoto}
-        className="w-full min-h-[52px] rounded-2xl border-2 border-slate-300 text-base font-bold text-slate-700 flex items-center justify-center gap-2 active:scale-95 disabled:opacity-60"
-      >
-        <ImageIcon size={20} aria-hidden /> Elegir de la galería
-      </button>
-    </div>
-  );
-
-  const Miniaturas: React.FC<{ fotos: typeof draft.fotos }> = ({ fotos }) =>
-    fotos.length === 0 ? null : (
-      <div className="grid grid-cols-3 gap-3">
-        {fotos.map(f => (
-          <div key={f.id} className="space-y-1">
-            <div className="aspect-square rounded-xl overflow-hidden border-2 border-slate-300 bg-slate-100">
-              <MiniaturaFotoVisita foto={f} />
-            </div>
-            <button
-              type="button"
-              onClick={() => quitarFoto(f.id)}
-              className="w-full min-h-[44px] rounded-xl bg-red-50 border-2 border-red-300 text-red-800 text-sm font-black flex items-center justify-center gap-1 active:scale-95"
-            >
-              <Trash2 size={16} aria-hidden /> QUITAR
-            </button>
-          </div>
-        ))}
-      </div>
-    );
-
   return (
     <div className="min-h-full bg-slate-100 pb-40">
       <div ref={topRef} />
@@ -390,9 +399,18 @@ const FormularioVisita: React.FC<Props> = ({ draft, supervisorNombre, updateDraf
 
         {/* 2. Fotografías */}
         <Card n={2} title="Fotografías de la visita">
-          <BotonFoto ambito="visita" texto="📷 AGREGAR FOTOGRAFÍAS" principal />
+          <p className="text-sm font-semibold text-slate-600 -mt-1">
+            Puede tomar o adjuntar 1 o más fotografías de la instalación.
+          </p>
+          <BotonFoto
+            ambito="visita"
+            texto={fotosVisita.length > 0 ? '📷 AGREGAR OTRA FOTOGRAFÍA' : '📷 AGREGAR FOTOGRAFÍAS'}
+            principal
+            procesandoFoto={procesandoFoto}
+            onCapturar={agregarFotos}
+          />
           <p className="text-xl font-black text-slate-900">Fotografías: {fotosVisita.length}</p>
-          <Miniaturas fotos={fotosVisita} />
+          <Miniaturas fotos={fotosVisita} onQuitar={quitarFoto} />
         </Card>
 
         {/* 3. Cargos fijos */}
@@ -570,13 +588,18 @@ const FormularioVisita: React.FC<Props> = ({ draft, supervisorNombre, updateDraf
               <p className="text-xs font-bold text-slate-600 uppercase tracking-wide">
                 Fotografía del libro de novedades
               </p>
-              <BotonFoto ambito="libro_novedades" texto="📷 FOTOGRAFÍA DEL LIBRO" />
+              <BotonFoto
+                ambito="libro_novedades"
+                texto={fotosLibroNov.length > 0 ? '📷 AGREGAR OTRA FOTO DEL LIBRO' : '📷 FOTOGRAFÍA DEL LIBRO'}
+                procesandoFoto={procesandoFoto}
+                onCapturar={agregarFotos}
+              />
               {fotosLibroNov.length > 0 && (
                 <p className="text-sm font-black text-slate-800">
                   Fotos del libro: {fotosLibroNov.length}
                 </p>
               )}
-              <Miniaturas fotos={fotosLibroNov} />
+              <Miniaturas fotos={fotosLibroNov} onQuitar={quitarFoto} />
             </div>
           )}
 
@@ -603,7 +626,13 @@ const FormularioVisita: React.FC<Props> = ({ draft, supervisorNombre, updateDraf
                 <p className="text-xs font-medium text-amber-800">
                   Suba la fotografía legible de la constancia escrita en el libro de novedades.
                 </p>
-                <BotonFoto ambito="constancia_libro" texto="📷 FOTOGRAFÍA DE LA CONSTANCIA" principal />
+                <BotonFoto
+                  ambito="constancia_libro"
+                  texto={fotosConstancia.length > 0 ? '📷 AGREGAR OTRA FOTO DE LA CONSTANCIA' : '📷 FOTOGRAFÍA DE LA CONSTANCIA'}
+                  principal
+                  procesandoFoto={procesandoFoto}
+                  onCapturar={agregarFotos}
+                />
                 {fotosConstancia.length > 0 ? (
                   <p className="text-sm font-black text-emerald-700 flex items-center gap-1">
                     ✓ Constancia adjunta ({fotosConstancia.length} foto{fotosConstancia.length > 1 ? 's' : ''})
@@ -613,7 +642,7 @@ const FormularioVisita: React.FC<Props> = ({ draft, supervisorNombre, updateDraf
                     * Debe adjuntar la fotografía de la constancia para poder enviar el reporte.
                   </p>
                 )}
-                <Miniaturas fotos={fotosConstancia} />
+                <Miniaturas fotos={fotosConstancia} onQuitar={quitarFoto} />
               </div>
             )}
           </div>
@@ -686,9 +715,14 @@ const FormularioVisita: React.FC<Props> = ({ draft, supervisorNombre, updateDraf
                   className={inputClass}
                 />
               </Campo>
-              <BotonFoto ambito="observacion" texto="📷 Agregar fotografía" />
+              <BotonFoto
+                ambito="observacion"
+                texto={fotosObs.length > 0 ? '📷 Agregar otra fotografía' : '📷 Agregar fotografía'}
+                procesandoFoto={procesandoFoto}
+                onCapturar={agregarFotos}
+              />
               {fotosObs.length > 0 && <p className="text-lg font-black text-slate-900">Fotografías de la observación: {fotosObs.length}</p>}
-              <Miniaturas fotos={fotosObs} />
+              <Miniaturas fotos={fotosObs} onQuitar={quitarFoto} />
             </div>
           )}
         </Card>
