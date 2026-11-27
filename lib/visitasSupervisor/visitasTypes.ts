@@ -8,7 +8,13 @@
 export type EstadoCargo = 'ok' | 'observacion' | 'faltante';
 export type ResultadoVisita = 'sin_novedades' | 'con_observaciones' | 'con_novedad';
 export type PrioridadNovedad = 'informativa' | 'requiere_atencion' | 'urgente';
-export type AmbitoFoto = 'visita' | 'observacion' | 'libro_novedades' | 'constancia_libro';
+export type AmbitoFoto =
+  | 'visita'
+  | 'observacion'
+  | 'libro_novedades'
+  | 'constancia_libro'
+  | 'libro_asistencia'
+  | 'libro_asistencia_extras';
 
 // ─── Checklist (preparado para checklist por sucursal en fases futuras) ───────
 
@@ -83,7 +89,7 @@ export interface NovedadDraft {
   prioridad: PrioridadNovedad;
 }
 
-export type MotivoVisita = 'Visita No Programada' | 'Visita Programada' | 'Otro';
+export type MotivoVisita = 'Visita No Programada' | 'Visita Programada' | 'Cierre de Mes' | 'Otro';
 
 export type EstadoLibro = 'ok' | 'con_observacion';
 
@@ -91,6 +97,7 @@ export interface LibroAsistenciaDraft {
   revisado: boolean | null;
   estado: EstadoLibro | null;
   observacion: string;
+  turnosExtras?: boolean | null;
 }
 
 export interface LibroNovedadesDraft {
@@ -161,6 +168,7 @@ export interface VisitaSupervisorDoc {
     revisado: boolean;
     estado?: EstadoLibro;
     observacion?: string;
+    turnosExtras?: boolean;
   };
   libroNovedades?: {
     estado: EstadoLibro;

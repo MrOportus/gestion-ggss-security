@@ -72,7 +72,7 @@ export function crearBorrador(params: {
     motivo: '',
     guardiasDeTurno: '',
     epp: { completo: null, detalleFaltante: '' },
-    libroAsistencia: { revisado: null, estado: null, observacion: '' },
+    libroAsistencia: { revisado: null, estado: null, observacion: '', turnosExtras: null },
     libroNovedades: { estado: null, observacion: '', dejoConstancia: null },
     fotos: [],
     checklist: getChecklistParaSucursal(params.sucursalId),
@@ -153,14 +153,44 @@ export function validarBorrador(draft: VisitaDraft): ErrorValidacion[] {
   }
 
   const la = draft.libroAsistencia;
+  const esCierreMes = draft.motivo === 'Cierre de Mes';
   if (la) {
-    if (la.revisado === null) {
-      errores.push({ seccion: 'libroAsistencia', mensaje: 'Responda si se revisó el libro de asistencia.' });
-    } else if (la.revisado === true) {
+    if (esCierreMes) {
       if (la.estado === null) {
         errores.push({ seccion: 'libroAsistencia', mensaje: 'Indique el estado del libro de asistencia (OK o Con observación).' });
       } else if (la.estado === 'con_observacion' && !la.observacion.trim()) {
         errores.push({ seccion: 'libroAsistencia', mensaje: 'Escriba la observación del libro de asistencia.' });
+      }
+      const fotosLibroPrincipal = draft.fotos.filter(f => f.ambito === 'libro_asistencia');
+      if (fotosLibroPrincipal.length === 0) {
+        errores.push({
+          seccion: 'libroAsistencia',
+          mensaje: 'Debe capturar las fotografías del libro de asistencia cerrado por el supervisor.',
+        });
+      }
+      if (la.turnosExtras === null || la.turnosExtras === undefined) {
+        errores.push({
+          seccion: 'libroAsistencia',
+          mensaje: 'Responda si existe Libro de asistencia turnos Extras (Sí o No).',
+        });
+      } else if (la.turnosExtras === true) {
+        const fotosLibroExtras = draft.fotos.filter(f => f.ambito === 'libro_asistencia_extras');
+        if (fotosLibroExtras.length === 0) {
+          errores.push({
+            seccion: 'libroAsistencia',
+            mensaje: 'Debe capturar las fotografías del Libro de asistencia turnos Extras.',
+          });
+        }
+      }
+    } else {
+      if (la.revisado === null) {
+        errores.push({ seccion: 'libroAsistencia', mensaje: 'Responda si se revisó el libro de asistencia.' });
+      } else if (la.revisado === true) {
+        if (la.estado === null) {
+          errores.push({ seccion: 'libroAsistencia', mensaje: 'Indique el estado del libro de asistencia (OK o Con observación).' });
+        } else if (la.estado === 'con_observacion' && !la.observacion.trim()) {
+          errores.push({ seccion: 'libroAsistencia', mensaje: 'Escriba la observación del libro de asistencia.' });
+        }
       }
     }
   }
@@ -257,13 +287,16 @@ export function construirDocumentoVisita(
         ...(i.obligatorio !== undefined ? { obligatorio: i.obligatorio } : {}),
       })),
     },
-    ...(draft.libroAsistencia && draft.libroAsistencia.revisado !== null
+    ...(draft.libroAsistencia && (draft.libroAsistencia.revisado !== null || draft.motivo === 'Cierre de Mes')
       ? {
           libroAsistencia: {
-            revisado: draft.libroAsistencia.revisado === true,
+            revisado: draft.motivo === 'Cierre de Mes' ? true : draft.libroAsistencia.revisado === true,
             ...(draft.libroAsistencia.estado ? { estado: draft.libroAsistencia.estado } : {}),
             ...(draft.libroAsistencia.estado === 'con_observacion' && draft.libroAsistencia.observacion.trim()
               ? { observacion: draft.libroAsistencia.observacion.trim() }
+              : {}),
+            ...(draft.motivo === 'Cierre de Mes' && draft.libroAsistencia.turnosExtras !== null && draft.libroAsistencia.turnosExtras !== undefined
+              ? { turnosExtras: draft.libroAsistencia.turnosExtras === true }
               : {}),
           },
         }
@@ -444,6 +477,8 @@ export function fotosDeVisita(v: VisitaSupervisorDoc) {
     observacion: todas.filter(f => f.ambito === 'observacion'),
     libro_novedades: todas.filter(f => f.ambito === 'libro_novedades'),
     constancia_libro: todas.filter(f => f.ambito === 'constancia_libro'),
+    libro_asistencia: todas.filter(f => f.ambito === 'libro_asistencia'),
+    libro_asistencia_extras: todas.filter(f => f.ambito === 'libro_asistencia_extras'),
     total: todas.length,
   };
 }

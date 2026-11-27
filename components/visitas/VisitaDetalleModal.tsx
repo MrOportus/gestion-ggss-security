@@ -222,7 +222,7 @@ const VisitaDetalleModal: React.FC<Props> = ({ visita: v, onClose, openSeguimien
                   <span className="text-xs font-bold text-slate-500 uppercase">¿Se revisó libro Asistencia?</span>
                   <div className="mt-1"><SiNo v={v.libroAsistencia.revisado} /></div>
                 </div>
-                {v.libroAsistencia.revisado && (
+                {v.libroAsistencia.revisado && v.libroAsistencia.estado && (
                   <div>
                     <span className="text-xs font-bold text-slate-500 uppercase">Estado</span>
                     <div className="mt-1">
@@ -240,6 +240,28 @@ const VisitaDetalleModal: React.FC<Props> = ({ visita: v, onClose, openSeguimien
                 )}
                 {v.libroAsistencia.observacion && (
                   <Row label="Observación" value={v.libroAsistencia.observacion} />
+                )}
+                {fotos.libro_asistencia.length > 0 && (
+                  <div className="p-3 rounded-2xl bg-slate-50 border border-slate-200">
+                    <span className="text-xs font-black text-slate-800 uppercase">
+                      Fotografías Libro de Asistencia ({fotos.libro_asistencia.length} hoja{fotos.libro_asistencia.length === 1 ? '' : 's'})
+                    </span>
+                    <div className="mt-1.5"><Galeria items={fotos.libro_asistencia} /></div>
+                  </div>
+                )}
+                {v.libroAsistencia.turnosExtras !== undefined && (
+                  <div>
+                    <span className="text-xs font-bold text-slate-500 uppercase">Libro de asistencia turnos Extras</span>
+                    <div className="mt-1"><SiNo v={v.libroAsistencia.turnosExtras} /></div>
+                    {fotos.libro_asistencia_extras.length > 0 && (
+                      <div className="mt-2.5 p-3 rounded-2xl bg-amber-50 border border-amber-200">
+                        <span className="text-xs font-black text-amber-900 uppercase">
+                          Fotografías Libro de Asistencia Turnos Extras ({fotos.libro_asistencia_extras.length} hoja{fotos.libro_asistencia_extras.length === 1 ? '' : 's'})
+                        </span>
+                        <div className="mt-1.5"><Galeria items={fotos.libro_asistencia_extras} /></div>
+                      </div>
+                    )}
+                  </div>
                 )}
               </div>
             </Section>

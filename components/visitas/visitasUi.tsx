@@ -77,21 +77,21 @@ interface SiNoProps {
 }
 
 export const SiNoButtons: React.FC<SiNoProps> = ({ value, onChange, labelSi = 'SÍ', labelNo = 'NO', idPrefix }) => (
-  <div className="grid grid-cols-2 gap-3" role="radiogroup">
+  <div className="grid grid-cols-2 gap-2.5" role="radiogroup">
     <button
       type="button"
       id={`${idPrefix}-si`}
       role="radio"
       aria-checked={value === true}
       onClick={() => onChange(true)}
-      className={`min-h-[68px] rounded-2xl border-4 px-3 flex items-center justify-center gap-2 text-lg font-black leading-tight active:scale-95 transition-all ${
+      className={`min-h-[56px] rounded-2xl border-2 px-3 py-2.5 flex items-center justify-center gap-2 text-base font-black leading-tight active:scale-95 transition-all ${
         value === true
-          ? 'bg-emerald-600 border-emerald-800 text-white shadow-lg'
+          ? 'bg-emerald-600 border-emerald-700 text-white shadow-md'
           : 'bg-white border-slate-300 text-slate-700'
       }`}
     >
-      <Check size={28} strokeWidth={4} aria-hidden />
-      <span>{labelSi}</span>
+      <Check size={20} strokeWidth={3.5} className="shrink-0" aria-hidden />
+      <span className="text-center">{labelSi}</span>
     </button>
     <button
       type="button"
@@ -99,14 +99,14 @@ export const SiNoButtons: React.FC<SiNoProps> = ({ value, onChange, labelSi = 'S
       role="radio"
       aria-checked={value === false}
       onClick={() => onChange(false)}
-      className={`min-h-[68px] rounded-2xl border-4 px-3 flex items-center justify-center gap-2 text-lg font-black leading-tight active:scale-95 transition-all ${
+      className={`min-h-[56px] rounded-2xl border-2 px-3 py-2.5 flex items-center justify-center gap-2 text-base font-black leading-tight active:scale-95 transition-all ${
         value === false
-          ? 'bg-slate-700 border-slate-900 text-white shadow-lg'
+          ? 'bg-slate-700 border-slate-800 text-white shadow-md'
           : 'bg-white border-slate-300 text-slate-700'
       }`}
     >
-      <X size={28} strokeWidth={4} aria-hidden />
-      <span>{labelNo}</span>
+      <X size={20} strokeWidth={3.5} className="shrink-0" aria-hidden />
+      <span className="text-center">{labelNo}</span>
     </button>
   </div>
 );
@@ -119,20 +119,20 @@ interface EstadoObsProps {
 }
 
 export const EstadoObservacionButtons: React.FC<EstadoObsProps> = ({ value, onChange, idPrefix }) => (
-  <div className="grid grid-cols-2 gap-3" role="radiogroup">
+  <div className="grid grid-cols-2 gap-2.5" role="radiogroup">
     <button
       type="button"
       id={`${idPrefix}-ok`}
       role="radio"
       aria-checked={value === 'ok'}
       onClick={() => onChange('ok')}
-      className={`min-h-[68px] rounded-2xl border-4 px-3 flex items-center justify-center gap-2 text-lg font-black leading-tight active:scale-95 transition-all ${
+      className={`min-h-[56px] rounded-2xl border-2 px-3 py-2.5 flex items-center justify-center gap-2 text-base font-black leading-tight active:scale-95 transition-all ${
         value === 'ok'
-          ? 'bg-emerald-600 border-emerald-800 text-white shadow-lg'
+          ? 'bg-emerald-600 border-emerald-700 text-white shadow-md'
           : 'bg-white border-slate-300 text-slate-700'
       }`}
     >
-      <Check size={28} strokeWidth={4} aria-hidden />
+      <Check size={20} strokeWidth={3.5} className="shrink-0" aria-hidden />
       <span>OK</span>
     </button>
     <button
@@ -141,14 +141,14 @@ export const EstadoObservacionButtons: React.FC<EstadoObsProps> = ({ value, onCh
       role="radio"
       aria-checked={value === 'con_observacion'}
       onClick={() => onChange('con_observacion')}
-      className={`min-h-[68px] rounded-2xl border-4 px-3 flex items-center justify-center gap-2 text-lg font-black leading-tight active:scale-95 transition-all ${
+      className={`min-h-[56px] rounded-2xl border-2 px-2.5 py-2.5 flex items-center justify-center gap-1.5 text-sm sm:text-base font-black leading-tight active:scale-95 transition-all ${
         value === 'con_observacion'
-          ? 'bg-yellow-400 border-yellow-600 text-yellow-950 shadow-lg'
+          ? 'bg-yellow-400 border-yellow-600 text-yellow-950 shadow-md'
           : 'bg-white border-slate-300 text-slate-700'
       }`}
     >
-      <AlertTriangle size={26} aria-hidden />
-      <span>CON OBSERVACIÓN</span>
+      <AlertTriangle size={18} className="shrink-0" aria-hidden />
+      <span className="text-center">CON OBSERVACIÓN</span>
     </button>
   </div>
 );

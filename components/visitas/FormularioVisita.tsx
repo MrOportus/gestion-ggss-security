@@ -98,29 +98,40 @@ const BotonFoto: React.FC<{
   principal?: boolean;
   procesandoFoto: boolean;
   onCapturar: (ambito: AmbitoFoto, camara: boolean) => void;
-}> = ({ ambito, texto, principal, procesandoFoto, onCapturar }) => (
-  <div className="space-y-2">
-    <button
-      type="button"
-      onClick={() => onCapturar(ambito, true)}
-      disabled={procesandoFoto}
-      className={`w-full rounded-2xl font-black flex items-center justify-center gap-3 active:scale-95 transition-all disabled:opacity-60 ${
-        principal ? 'min-h-[76px] text-xl bg-blue-700 text-white shadow-lg' : 'min-h-[64px] text-lg bg-blue-50 border-4 border-blue-700 text-blue-900'
-      }`}
-    >
-      {procesandoFoto ? <Loader2 className="animate-spin" size={28} /> : <Camera size={30} aria-hidden />}
-      {procesandoFoto ? 'PROCESANDO…' : texto}
-    </button>
-    <button
-      type="button"
-      onClick={() => onCapturar(ambito, false)}
-      disabled={procesandoFoto}
-      className="w-full min-h-[52px] rounded-2xl border-2 border-slate-300 text-base font-bold text-slate-700 flex items-center justify-center gap-2 active:scale-95 disabled:opacity-60"
-    >
-      <ImageIcon size={20} aria-hidden /> Elegir de la galería (1 o más)
-    </button>
-  </div>
-);
+}> = ({ ambito, texto, principal, procesandoFoto, onCapturar }) => {
+  // Evitar doble icono de cámara si el texto incluía el emoji 📷
+  const cleanText = texto.replace(/^📷\s*/, '');
+  return (
+    <div className="space-y-2">
+      <button
+        type="button"
+        onClick={() => onCapturar(ambito, true)}
+        disabled={procesandoFoto}
+        className={`w-full rounded-2xl px-4 py-3 font-black flex items-center justify-center gap-2.5 active:scale-95 transition-all disabled:opacity-60 ${
+          principal
+            ? 'min-h-[58px] text-base sm:text-lg bg-blue-600 hover:bg-blue-700 text-white shadow-md'
+            : 'min-h-[54px] text-base bg-blue-50 border-2 border-blue-600 text-blue-900'
+        }`}
+      >
+        {procesandoFoto ? (
+          <Loader2 className="animate-spin shrink-0" size={22} />
+        ) : (
+          <Camera size={22} className="shrink-0" aria-hidden />
+        )}
+        <span className="leading-snug">{procesandoFoto ? 'PROCESANDO…' : cleanText}</span>
+      </button>
+      <button
+        type="button"
+        onClick={() => onCapturar(ambito, false)}
+        disabled={procesandoFoto}
+        className="w-full min-h-[48px] px-4 py-2.5 rounded-2xl border-2 border-slate-300 bg-white text-sm sm:text-base font-bold text-slate-700 flex items-center justify-center gap-2 active:scale-95 disabled:opacity-60"
+      >
+        <ImageIcon size={18} className="shrink-0" aria-hidden />
+        <span>Elegir de la galería</span>
+      </button>
+    </div>
+  );
+};
 
 const Miniaturas: React.FC<{
   fotos: FotoVisitaLocal[];
@@ -281,9 +292,12 @@ const FormularioVisita: React.FC<Props> = ({ draft, supervisorNombre, updateDraf
   const fotosObs = draft.fotos.filter(f => f.ambito === 'observacion');
   const fotosLibroNov = draft.fotos.filter(f => f.ambito === 'libro_novedades');
   const fotosConstancia = draft.fotos.filter(f => f.ambito === 'constancia_libro');
+  const fotosLibroAsist = draft.fotos.filter(f => f.ambito === 'libro_asistencia');
+  const fotosLibroAsistExtras = draft.fotos.filter(f => f.ambito === 'libro_asistencia_extras');
+  const esCierreMes = draft.motivo === 'Cierre de Mes';
   const errSec = (s: ErrorValidacion['seccion']) => errores.some(e => e.seccion === s);
   const e = draft.entrevista;
-  const la = draft.libroAsistencia ?? { revisado: null, estado: null, observacion: '' };
+  const la = draft.libroAsistencia ?? { revisado: null, estado: null, observacion: '', turnosExtras: null };
   const ln = draft.libroNovedades ?? { estado: null, observacion: '', dejoConstancia: null };
 
   return (
@@ -346,23 +360,28 @@ const FormularioVisita: React.FC<Props> = ({ draft, supervisorNombre, updateDraf
               <select
                 id="motivoVisita"
                 value={draft.motivo}
-                onChange={e => updateDraft(d => ({ ...d, motivo: e.target.value as any }))}
+                onChange={e => {
+                  const nuevoMotivo = e.target.value as any;
+                  updateDraft(d => ({
+                    ...d,
+                    motivo: nuevoMotivo,
+                    ...(nuevoMotivo === 'Cierre de Mes'
+                      ? {
+                          libroAsistencia: {
+                            ...(d.libroAsistencia ?? { revisado: true, estado: null, observacion: '', turnosExtras: null }),
+                            revisado: true,
+                          },
+                        }
+                      : {}),
+                  }));
+                }}
                 className="w-full min-h-[56px] px-4 rounded-xl border-4 border-slate-300 text-lg font-semibold bg-white"
               >
                 <option value="">Seleccione un motivo...</option>
                 <option value="Visita No Programada">Visita No Programada</option>
                 <option value="Visita Programada">Visita Programada</option>
-                <option value="Otro">Otro</option>
+                <option value="Cierre de Mes">Cierre de Mes</option>
               </select>
-              {draft.motivo === 'Otro' && (
-                <input
-                  type="text"
-                  placeholder="Especifique el motivo..."
-                  value={draft.motivoOtro || ''}
-                  onChange={e => updateDraft(d => ({ ...d, motivoOtro: e.target.value }))}
-                  className="w-full min-h-[56px] px-4 rounded-xl border-4 border-slate-300 text-lg font-semibold"
-                />
-              )}
             </div>
 
             <div className="space-y-2">
@@ -472,7 +491,7 @@ const FormularioVisita: React.FC<Props> = ({ draft, supervisorNombre, updateDraf
               type="text"
               value={nuevoCargo}
               onChange={e => setNuevoCargo(e.target.value)}
-              placeholder="Otro cargo (ej. Extintores)"
+              placeholder="Otro cargo (ej. Megafono)"
               className={`${inputClass} !py-2`}
               onKeyDown={e => {
                 if (e.key === 'Enter') {
@@ -494,23 +513,12 @@ const FormularioVisita: React.FC<Props> = ({ draft, supervisorNombre, updateDraf
 
         {/* 4. Libro de Asistencia */}
         <Card n={4} title="Libro de Asistencia" id="sec-libro-asistencia" error={errSec('libroAsistencia')}>
-          <Pregunta>¿Se revisó libro Asistencia?</Pregunta>
-          <SiNoButtons
-            idPrefix="libro-asist-rev"
-            value={la.revisado}
-            labelSi="SÍ, SE REVISÓ"
-            labelNo="NO SE REVISÓ"
-            onChange={v => updateDraft(d => ({
-              ...d,
-              libroAsistencia: {
-                ...(d.libroAsistencia ?? { revisado: null, estado: null, observacion: '' }),
-                revisado: v,
-                ...(v === false ? { estado: null, observacion: '' } : {})
-              }
-            }))}
-          />
-          {la.revisado === true && (
+          {esCierreMes ? (
             <div className="space-y-4 animate-in fade-in duration-200">
+              <div className="rounded-2xl bg-blue-50 border-2 border-blue-300 p-3.5 text-sm font-bold text-blue-900">
+                📋 <strong>Cierre de Mes:</strong> subir fotos correspondientes a libro de asistencia previamente cerrado.
+              </div>
+
               <Pregunta>Estado del libro de asistencia</Pregunta>
               <EstadoObservacionButtons
                 idPrefix="libro-asist-est"
@@ -518,7 +526,8 @@ const FormularioVisita: React.FC<Props> = ({ draft, supervisorNombre, updateDraf
                 onChange={v => updateDraft(d => ({
                   ...d,
                   libroAsistencia: {
-                    ...(d.libroAsistencia ?? { revisado: true, estado: null, observacion: '' }),
+                    ...(d.libroAsistencia ?? { revisado: true, estado: null, observacion: '', turnosExtras: null }),
+                    revisado: true,
                     estado: v,
                     ...(v === 'ok' ? { observacion: '' } : {})
                   }
@@ -534,7 +543,8 @@ const FormularioVisita: React.FC<Props> = ({ draft, supervisorNombre, updateDraf
                       onChange={ev => updateDraft(d => ({
                         ...d,
                         libroAsistencia: {
-                          ...(d.libroAsistencia ?? { revisado: true, estado: 'con_observacion', observacion: '' }),
+                          ...(d.libroAsistencia ?? { revisado: true, estado: 'con_observacion', observacion: '', turnosExtras: null }),
+                          revisado: true,
                           observacion: ev.target.value
                         }
                       }))}
@@ -543,7 +553,133 @@ const FormularioVisita: React.FC<Props> = ({ draft, supervisorNombre, updateDraf
                   </Campo>
                 </div>
               )}
+
+              {/* Fotografías obligatorias del Libro de Asistencia Principal */}
+              <div className="space-y-3 pt-3 border-t-2 border-slate-100">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-base font-black text-slate-900">
+                    Libro de Asistencia
+                  </span>
+                  <span className={`text-xs font-black px-2.5 py-1 rounded-full ${
+                    fotosLibroAsist.length > 0 ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600'
+                  }`}>
+                    {fotosLibroAsist.length} foto{fotosLibroAsist.length === 1 ? '' : 's'}
+                  </span>
+                </div>
+                <BotonFoto
+                  ambito="libro_asistencia"
+                  texto={fotosLibroAsist.length > 0 ? 'AGREGAR OTRA FOTO' : 'TOMAR FOTOGRAFÍA'}
+                  principal
+                  procesandoFoto={procesandoFoto}
+                  onCapturar={agregarFotos}
+                />
+                {fotosLibroAsist.length === 0 && errSec('libroAsistencia') && (
+                  <p className="text-xs font-bold text-red-600">
+                    * Debe adjuntar al menos 1 fotografía del libro de asistencia.
+                  </p>
+                )}
+                <Miniaturas fotos={fotosLibroAsist} onQuitar={quitarFoto} />
+              </div>
+
+              {/* Opción: Libro de asistencia turnos Extras (SÍ / NO) */}
+              <div className="space-y-3 pt-3 border-t-2 border-slate-100">
+                <Pregunta>Libro de asistencia turnos Extras</Pregunta>
+                <SiNoButtons
+                  idPrefix="libro-asist-extras"
+                  value={la.turnosExtras ?? null}
+                  onChange={v => updateDraft(d => ({
+                    ...d,
+                    libroAsistencia: {
+                      ...(d.libroAsistencia ?? { revisado: true, estado: null, observacion: '', turnosExtras: null }),
+                      revisado: true,
+                      turnosExtras: v
+                    }
+                  }))}
+                />
+
+                {la.turnosExtras === true && (
+                  <div className="space-y-3 pt-2 animate-in fade-in duration-200">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-base font-black text-slate-900">
+                        Fotos Turnos Extras
+                      </span>
+                      <span className={`text-xs font-black px-2.5 py-1 rounded-full ${
+                        fotosLibroAsistExtras.length > 0 ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600'
+                      }`}>
+                        {fotosLibroAsistExtras.length} foto{fotosLibroAsistExtras.length === 1 ? '' : 's'}
+                      </span>
+                    </div>
+                    <BotonFoto
+                      ambito="libro_asistencia_extras"
+                      texto={fotosLibroAsistExtras.length > 0 ? 'AGREGAR OTRA FOTO' : 'TOMAR FOTOGRAFÍA'}
+                      principal
+                      procesandoFoto={procesandoFoto}
+                      onCapturar={agregarFotos}
+                    />
+                    {fotosLibroAsistExtras.length === 0 && errSec('libroAsistencia') && (
+                      <p className="text-xs font-bold text-red-600">
+                        * Debe adjuntar las fotografías del libro de turnos extras.
+                      </p>
+                    )}
+                    <Miniaturas fotos={fotosLibroAsistExtras} onQuitar={quitarFoto} />
+                  </div>
+                )}
+              </div>
             </div>
+          ) : (
+            <>
+              <Pregunta>¿Se revisó libro Asistencia?</Pregunta>
+              <SiNoButtons
+                idPrefix="libro-asist-rev"
+                value={la.revisado}
+                labelSi="SÍ, SE REVISÓ"
+                labelNo="NO SE REVISÓ"
+                onChange={v => updateDraft(d => ({
+                  ...d,
+                  libroAsistencia: {
+                    ...(d.libroAsistencia ?? { revisado: null, estado: null, observacion: '' }),
+                    revisado: v,
+                    ...(v === false ? { estado: null, observacion: '' } : {})
+                  }
+                }))}
+              />
+              {la.revisado === true && (
+                <div className="space-y-4 animate-in fade-in duration-200">
+                  <Pregunta>Estado del libro de asistencia</Pregunta>
+                  <EstadoObservacionButtons
+                    idPrefix="libro-asist-est"
+                    value={la.estado}
+                    onChange={v => updateDraft(d => ({
+                      ...d,
+                      libroAsistencia: {
+                        ...(d.libroAsistencia ?? { revisado: true, estado: null, observacion: '' }),
+                        estado: v,
+                        ...(v === 'ok' ? { observacion: '' } : {})
+                      }
+                    }))}
+                  />
+                  {la.estado === 'con_observacion' && (
+                    <div className="space-y-2 animate-in fade-in duration-200">
+                      <Campo label="Observación del libro de asistencia">
+                        <textarea
+                          rows={3}
+                          placeholder="Escriba la observación..."
+                          value={la.observacion}
+                          onChange={ev => updateDraft(d => ({
+                            ...d,
+                            libroAsistencia: {
+                              ...(d.libroAsistencia ?? { revisado: true, estado: 'con_observacion', observacion: '' }),
+                              observacion: ev.target.value
+                            }
+                          }))}
+                          className={inputClass}
+                        />
+                      </Campo>
+                    </div>
+                  )}
+                </div>
+              )}
+            </>
           )}
         </Card>
 
@@ -826,7 +962,9 @@ const FormularioVisita: React.FC<Props> = ({ draft, supervisorNombre, updateDraf
                 ['EPP completo', draft.epp.completo ? 'Sí' : 'No'],
                 ['Fotografías', `${draft.fotos.length} fotografías`],
                 ['Cargos fijos', `${cargos.ok} OK / ${cargos.observacion} con observación / ${cargos.faltante} faltantes`],
-                ['Libro de Asistencia', la.revisado === null ? '—' : la.revisado ? (la.estado === 'con_observacion' ? `Con observación${la.observacion ? `: ${la.observacion}` : ''}` : 'Revisado (OK)') : 'No revisado'],
+                ['Libro de Asistencia', esCierreMes
+                  ? `${la.estado === 'con_observacion' ? `Con observación${la.observacion ? `: ${la.observacion}` : ''}` : 'Cerrado (OK)'} · Libro principal: ${fotosLibroAsist.length} foto(s) · Turnos extras: ${la.turnosExtras ? `Sí (${fotosLibroAsistExtras.length} foto(s))` : 'No'}`
+                  : (la.revisado === null ? '—' : la.revisado ? (la.estado === 'con_observacion' ? `Con observación${la.observacion ? `: ${la.observacion}` : ''}` : 'Revisado (OK)') : 'No revisado')],
                 ['Libro de Novedades', `${ln.estado === 'con_observacion' ? `Con observación${ln.observacion ? `: ${ln.observacion}` : ''}` : ln.estado === 'ok' ? 'OK' : '—'} · Constancia: ${ln.dejoConstancia === null ? '—' : ln.dejoConstancia ? 'Sí' : 'No'}`],
                 ['Entrevista con mandante', e.realizada ? 'Sí' : 'No'],
                 ['Observaciones', draft.observaciones.hay ? 'Sí' : 'No'],

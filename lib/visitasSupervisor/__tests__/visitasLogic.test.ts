@@ -125,5 +125,47 @@ describe('visitasLogic — Validación y Fotografías del Libro de Novedades', (
     expect(categorizadas.constancia_libro[0].id).toBe('f4');
     expect(categorizadas.total).toBe(4);
   });
+
+  it('cuando el motivo es Cierre de Mes, exige fotos del libro de asistencia y responder sobre Libro de asistencia turnos Extras', () => {
+    const draft = crearBorrador(baseParams);
+    draft.motivo = 'Cierre de Mes';
+    draft.libroAsistencia.revisado = true;
+    draft.libroAsistencia.estado = 'ok';
+    draft.libroAsistencia.turnosExtras = null;
+    draft.fotos = [];
+
+    let errores = validarBorrador(draft);
+    expect(
+      errores.some(e => e.seccion === 'libroAsistencia' && e.mensaje.includes('fotografías del libro de asistencia')),
+    ).toBe(true);
+    expect(
+      errores.some(e => e.seccion === 'libroAsistencia' && e.mensaje.includes('Libro de asistencia turnos Extras')),
+    ).toBe(true);
+
+    // Agrega foto del libro principal y responde NO a turnos extras → pasa validación de libroAsistencia
+    draft.fotos = [
+      { id: 'fa_1', dataUrl: 'data:image/jpeg;base64,123', ambito: 'libro_asistencia', capturadoEn: new Date().toISOString() },
+    ];
+    draft.libroAsistencia.turnosExtras = false;
+    errores = validarBorrador(draft);
+    expect(errores.some(e => e.seccion === 'libroAsistencia')).toBe(false);
+
+    // Si responde SÍ a turnos extras, exige foto separada en ambito libro_asistencia_extras
+    draft.libroAsistencia.turnosExtras = true;
+    errores = validarBorrador(draft);
+    expect(
+      errores.some(e => e.seccion === 'libroAsistencia' && e.mensaje.includes('Libro de asistencia turnos Extras')),
+    ).toBe(true);
+
+    // Al agregar foto de turnos extras, pasa
+    draft.fotos.push({
+      id: 'fae_1',
+      dataUrl: 'data:image/jpeg;base64,456',
+      ambito: 'libro_asistencia_extras',
+      capturadoEn: new Date().toISOString(),
+    });
+    errores = validarBorrador(draft);
+    expect(errores.some(e => e.seccion === 'libroAsistencia')).toBe(false);
+  });
 });
 

@@ -585,6 +585,11 @@ const VisitasAdminPanel: React.FC = () => {
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
                     <ResultadoBadge resultado={v.resultado} prioridadNovedad={v.novedadRelevante?.prioridad} />
+                    {v.motivo === 'Cierre de Mes' && (
+                      <span className="inline-flex items-center gap-1 text-xs font-black px-2.5 py-1 rounded-full border-2 bg-indigo-100 text-indigo-900 border-indigo-300">
+                        📅 Cierre de Mes
+                      </span>
+                    )}
                     <SiNoTag si={!!v.entrevistaMandante?.realizada} label="Mandante" />
                     <SiNoTag si={!!v.novedadRelevante?.hay} label="Novedad" />
                     {v.fotosTotal > 0 && (
