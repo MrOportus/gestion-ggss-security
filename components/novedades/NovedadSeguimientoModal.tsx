@@ -49,10 +49,10 @@ const PRIORIDAD_COLOR: Record<string, string> = {
 
 const ROL_LABEL: Record<string, string> = {
   worker:           'Guardia',
-  admin:            'Admin',
+  admin:            'Admin-Aspro',
   supervisor:       'Supervisor',
-  jefe_operaciones: 'Jefe Ops.',
-  rrhh:             'RRHH',
+  jefe_operaciones: 'Admin-Aspro',
+  rrhh:             'Admin-Aspro',
 };
 
 const formatearHoraMensaje = (fecha: any): string => {
@@ -445,11 +445,7 @@ const NovedadSeguimientoModal: React.FC<NovedadSeguimientoModalProps> = ({
             const esMio = seg.usuarioId === usuario.uid;
             const esResolucion = seg.tipo === 'resolucion';
             const isAdminMsg = ['admin', 'supervisor', 'jefe_operaciones', 'rrhh'].includes(seg.rol);
-            
-            // Si el mensaje es de un admin y el que lee NO es admin, ocultamos su nombre.
-            const displayNombre = (isAdminMsg && !isCurrentUserAdmin) 
-              ? 'Admin-Aspro' 
-              : (esMio ? 'Tú' : seg.usuarioNombre);
+            const isStrictAdminMsg = ['admin', 'jefe_operaciones', 'rrhh'].includes(seg.rol);
 
             const horaEnvio = formatearHoraMensaje(seg.fecha ?? seg.fechaStr);
 
@@ -468,9 +464,11 @@ const NovedadSeguimientoModal: React.FC<NovedadSeguimientoModalProps> = ({
                 }`}>
                   {/* Autor + rol */}
                   <div className={`flex items-center gap-2 mb-1 ${esMio && !esResolucion ? 'flex-row-reverse' : ''}`}>
-                    {isAdminMsg && !isCurrentUserAdmin ? (
-                      <span className="px-1.5 py-0.5 rounded text-[8px] font-black uppercase bg-slate-100 text-slate-500">
-                        Admin
+                    {isStrictAdminMsg ? (
+                      <span className={`px-1.5 py-0.5 rounded text-[9px] font-black tracking-wide ${
+                        esResolucion ? 'bg-emerald-200 text-emerald-800' : esMio ? 'bg-blue-500 text-blue-100' : 'bg-slate-100 text-slate-600'
+                      }`}>
+                        Admin-Aspro
                       </span>
                     ) : (
                       <>

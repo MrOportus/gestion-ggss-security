@@ -209,7 +209,11 @@ const NovedadesPendientes: React.FC<NovedadesPendientesProps> = ({
                     <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-0.5">Ultima actualizacion</p>
                     <p className="text-xs text-slate-600 font-medium line-clamp-2">"{nov.ultimoSeguimientoMsg}"</p>
                     {nov.ultimoSeguimientoPor && (
-                      <p className="text-[10px] text-slate-400 font-bold mt-0.5">- {nov.ultimoSeguimientoPor}</p>
+                      <p className="text-[10px] text-slate-400 font-bold mt-0.5">
+                        - {['admin', 'jefe_operaciones', 'rrhh'].includes(String((nov as any).ultimoSeguimientoRol || ''))
+                          ? 'Admin-Aspro'
+                          : nov.ultimoSeguimientoPor}
+                      </p>
                     )}
                   </div>
                 )}

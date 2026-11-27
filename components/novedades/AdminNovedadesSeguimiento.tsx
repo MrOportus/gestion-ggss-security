@@ -75,9 +75,11 @@ export const AdminNovedadesSeguimiento: React.FC = () => {
 
   const adminUser = useMemo(() => ({
     uid: currentUser?.uid || '',
-    nombre: adminEmployee
-      ? `${adminEmployee.firstName} ${adminEmployee.lastNamePaterno}`
-      : (isSupervisor ? 'Supervisor' : 'Administrador'),
+    nombre: !isSupervisor
+      ? 'Admin-Aspro'
+      : adminEmployee
+        ? `${adminEmployee.firstName} ${adminEmployee.lastNamePaterno}`
+        : 'Supervisor',
     rol: currentUser?.role || 'admin'
   }), [currentUser, adminEmployee, isSupervisor]);
 
@@ -299,7 +301,11 @@ export const AdminNovedadesSeguimiento: React.FC = () => {
                   {nov.ultimoSeguimientoMsg ? (
                     <>
                       <p className="text-xs text-slate-600 font-medium line-clamp-2 italic">"{nov.ultimoSeguimientoMsg}"</p>
-                      <p className="text-[10px] text-slate-400 font-bold mt-1">— {nov.ultimoSeguimientoPor || 'No registrado'}</p>
+                      <p className="text-[10px] text-slate-400 font-bold mt-1">
+                        — {['admin', 'jefe_operaciones', 'rrhh'].includes(String((nov as any).ultimoSeguimientoRol || ''))
+                          ? 'Admin-Aspro'
+                          : (nov.ultimoSeguimientoPor || 'No registrado')}
+                      </p>
                     </>
                   ) : (
                     <p className="text-xs text-slate-400 italic">Esperando gestión...</p>

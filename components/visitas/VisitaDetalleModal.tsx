@@ -48,7 +48,12 @@ const VisitaDetalleModal: React.FC<Props> = ({ visita: v, onClose, openSeguimien
   const isSupervisor = currentUser?.role === 'supervisor';
   
   const currentEmployee = currentUser ? getEmployeeByUserId(currentUser.uid) : null;
-  const currentUserName = currentEmployee ? `${currentEmployee.firstName} ${currentEmployee.lastNamePaterno}` : 'Usuario';
+  const isAdminRole = currentUser ? ['admin', 'jefe_operaciones', 'rrhh'].includes(currentUser.role) : false;
+  const currentUserName = isAdminRole
+    ? 'Admin-Aspro'
+    : currentEmployee
+    ? `${currentEmployee.firstName} ${currentEmployee.lastNamePaterno}`
+    : 'Usuario';
 
   const [fotoIndex, setFotoIndex] = useState<number | null>(null);
   const [showSeguimiento, setShowSeguimiento] = useState(openSeguimientoOnInit);

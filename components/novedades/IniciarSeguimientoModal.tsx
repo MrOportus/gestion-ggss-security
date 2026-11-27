@@ -49,9 +49,12 @@ export const IniciarSeguimientoModal: React.FC<IniciarSeguimientoModalProps> = (
     return employees.find(e => e.id === currentUser?.uid);
   }, [employees, currentUser]);
 
-  const usuarioNombre = adminEmployee 
+  const isAdminRole = ['admin', 'jefe_operaciones', 'rrhh'].includes(currentUser?.role || '');
+  const usuarioNombre = isAdminRole
+    ? 'Admin-Aspro'
+    : adminEmployee 
     ? `${adminEmployee.firstName} ${adminEmployee.lastNamePaterno || ''}`.trim()
-    : currentUser?.email?.split('@')[0] || 'Administrador';
+    : currentUser?.email?.split('@')[0] || 'Supervisor';
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

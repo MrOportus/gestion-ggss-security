@@ -432,41 +432,8 @@ const SupervisorVisitas: React.FC = () => {
         )}
 
         <section className="space-y-2">
-          {totalMensajesNoLeidos > 0 && (
-            <div className="bg-red-50 border-2 border-red-300 rounded-2xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm">
-              <div className="flex items-start sm:items-center gap-2.5 min-w-0">
-                <span className="relative flex h-3.5 w-3.5 shrink-0 mt-1 sm:mt-0">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
-                  <span className="relative inline-flex rounded-full h-3.5 w-3.5 bg-red-600" />
-                </span>
-                <div className="min-w-0">
-                  <p className="text-sm font-black text-red-900 leading-tight">
-                    Tienes {totalMensajesNoLeidos} {totalMensajesNoLeidos === 1 ? 'mensaje pendiente de lectura' : 'mensajes pendientes de lectura'}
-                  </p>
-                  <p className="text-xs font-semibold text-red-700 truncate">
-                    {visitasConNoLeidos.map(v => v.sucursalNombre).join(', ')}
-                  </p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setDetalle({ visita: visitasConNoLeidos[0], openSeguimiento: true })}
-                className="px-3.5 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-black uppercase tracking-wider flex items-center justify-center gap-1.5 shadow-sm active:scale-95 transition-all shrink-0"
-              >
-                <MessageSquareText size={14} />
-                Leer mensaje
-              </button>
-            </div>
-          )}
-
           <h2 className="text-sm font-black uppercase tracking-widest text-slate-500 flex items-center gap-2">
             Mis visitas recientes {cargandoRecientes && <Loader2 className="animate-spin" size={14} />}
-            {totalMensajesNoLeidos > 0 && (
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-red-600 text-white text-[10px] font-black">
-                <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
-                {totalMensajesNoLeidos} sin leer
-              </span>
-            )}
           </h2>
           {recientes.length === 0 && !cargandoRecientes && (
             <p className="text-base font-semibold text-slate-500 bg-white rounded-2xl border-2 border-slate-200 p-4">

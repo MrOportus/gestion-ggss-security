@@ -592,14 +592,14 @@ function deriveFromNovedad(
         destinatarioUid: ctx.uid,
         tipo: 'consulta_admin',
         titulo: `📣 Consulta de Jefatura · ${siteName}`,
-        mensaje: `${c.adminNombre || 'Administración'}: ${c.mensaje}`,
+        mensaje: `Admin-Aspro: ${c.mensaje}`,
         siteId,
         siteName,
         origenTipo: 'novedad',
         origenId: novId,
         vista: 'dashboard',
         creadaPorUid: String(c.adminUid || ''),
-        creadaPorNombre: String(c.adminNombre || 'Administración'),
+        creadaPorNombre: 'Admin-Aspro',
         leida: !c.pendienteRespuesta || readSet.has(id) || readSet.has(canonKey),
         creadoEnISO: cMs ? new Date(cMs).toISOString() : '',
         creadoEnMs: cMs,
@@ -662,6 +662,8 @@ function deriveFromNovedad(
           : segRol === 'worker' && typeof raw.unreadAdminCount === 'number'
           ? Number(raw.unreadAdminCount) > 0
           : true;
+        const isFromAdmin = ['admin', 'jefe_operaciones', 'rrhh'].includes(segRol);
+        const displayPor = isFromAdmin ? 'Admin-Aspro' : segPor;
         const remitenteLabel =
           segRol === 'worker' ? 'Mensaje de Guardia' : 'Seguimiento de Novedad';
         result.push({
@@ -669,14 +671,14 @@ function deriveFromNovedad(
           destinatarioUid: ctx.uid,
           tipo: 'seguimiento_novedad',
           titulo: `💬 ${remitenteLabel} · ${siteName}`,
-          mensaje: `${segPor}: ${raw.ultimoSeguimientoMsg}`,
+          mensaje: `${displayPor}: ${raw.ultimoSeguimientoMsg}`,
           siteId,
           siteName,
           origenTipo: 'novedad',
           origenId: novId,
           vista: esUrgente ? 'dashboard' : 'libro_novedades',
           creadaPorUid: '',
-          creadaPorNombre: segPor,
+          creadaPorNombre: displayPor,
           leida: !unreadForSup || readSet.has(id),
           creadoEnISO: segMs ? new Date(segMs).toISOString() : '',
           creadoEnMs: segMs,
@@ -778,14 +780,14 @@ function deriveFromRound(
         destinatarioUid: ctx.uid,
         tipo: 'consulta_admin',
         titulo: `📣 Consulta de Jefatura (Ronda) · ${siteName}`,
-        mensaje: `${c.adminNombre || 'Administración'}: ${c.mensaje}`,
+        mensaje: `Admin-Aspro: ${c.mensaje}`,
         siteId,
         siteName,
         origenTipo: 'ronda',
         origenId: roundId,
         vista: 'dashboard',
         creadaPorUid: String(c.adminUid || ''),
-        creadaPorNombre: String(c.adminNombre || 'Administración'),
+        creadaPorNombre: 'Admin-Aspro',
         leida: !c.pendienteRespuesta || readSet.has(id) || readSet.has(canonKey),
         creadoEnISO: cMs ? new Date(cMs).toISOString() : '',
         creadoEnMs: cMs,
@@ -881,14 +883,14 @@ function deriveFromVisita(
       destinatarioUid: ctx.uid,
       tipo: 'visita_seguimiento',
       titulo: `📋 Seguimiento de Visita · ${siteName}`,
-      mensaje: `${segPor}: ${raw.ultimoSeguimientoMsg || 'Nuevo mensaje en seguimiento de visita'}`,
+      mensaje: `Admin-Aspro: ${raw.ultimoSeguimientoMsg || 'Nuevo mensaje en seguimiento de visita'}`,
       siteId: normalizeSiteId(raw.sucursalId),
       siteName,
       origenTipo: 'visita',
       origenId: visitaId,
       vista: 'visitas_supervisor',
       creadaPorUid: '',
-      creadaPorNombre: segPor,
+      creadaPorNombre: 'Admin-Aspro',
       leida: !unreadSup || readSet.has(id),
       creadoEnISO: segMs ? new Date(segMs).toISOString() : '',
       creadoEnMs: segMs,
@@ -1006,6 +1008,26 @@ export function subscribeNotificacionesSupervisor(
 
     // Agregar todas las directas (fuente de verdad oficial)
     directNotifsMap.forEach((n) => {
+      if (!isAdmin && n.tipo === 'seguimiento_novedad' && n.origenId) {
+        const parentNov = mergedNov.get(String(n.origenId));
+        const segRol = String(parentNov?.ultimoSeguimientoRol || '');
+        const isFromAdmin =
+          ['admin', 'jefe_operaciones', 'rrhh'].includes(segRol) ||
+          (parentNov && n.creadaPorUid && String(parentNov.autorUid || '') !== n.creadaPorUid);
+        if (isFromAdmin) {
+          const oldName = n.creadaPorNombre || '';
+          const msg =
+            oldName && n.mensaje.startsWith(`${oldName}:`)
+              ? `Admin-Aspro:${n.mensaje.slice(oldName.length + 1)}`
+              : n.mensaje;
+          combined.push({
+            ...n,
+            creadaPorNombre: 'Admin-Aspro',
+            mensaje: msg,
+          });
+          return;
+        }
+      }
       combined.push(n);
     });
 
@@ -1202,19 +1224,31 @@ export function subscribeNotificacionesSupervisor(
             origenTipo: data.origenTipo || undefined,
             vista: data.vista,
           });
+          const rawAutor = String(data.creadaPorNombre || '');
+          const rawMensaje = String(data.mensaje || '');
+          // Normalizar remitente de administración a 'Admin-Aspro' en notificaciones al supervisor
+          const isFromAdmin =
+            tipo === 'consulta_admin' ||
+            (!isAdmin && tipo === 'visita_seguimiento');
+          const normalizedAutor = isFromAdmin ? 'Admin-Aspro' : rawAutor;
+          const normalizedMensaje =
+            isFromAdmin && rawAutor && rawMensaje.startsWith(`${rawAutor}:`)
+              ? `Admin-Aspro:${rawMensaje.slice(rawAutor.length + 1)}`
+              : rawMensaje;
+
           directNotifsMap.set(d.id, {
             id: d.id,
             destinatarioUid: String(data.destinatarioUid || ''),
             tipo,
             titulo: String(data.titulo || 'Notificación'),
-            mensaje: String(data.mensaje || ''),
+            mensaje: normalizedMensaje,
             siteId: data.siteId ? String(data.siteId) : undefined,
             siteName: data.siteName || undefined,
             origenTipo,
             origenId: data.origenId || undefined,
             vista: (data.vista || 'dashboard') as NotificacionSupervisor['vista'],
             creadaPorUid: String(data.creadaPorUid || ''),
-            creadaPorNombre: String(data.creadaPorNombre || ''),
+            creadaPorNombre: normalizedAutor,
             leida: Boolean(data.leida),
             creadoEnISO: ms ? new Date(ms).toISOString() : '',
             creadoEnMs: ms,

@@ -92,13 +92,15 @@ export async function addSeguimiento(
   );
 
   const isAdmin = ['admin', 'supervisor', 'jefe_operaciones', 'rrhh'].includes(rol);
+  const isAdminRole = ['admin', 'jefe_operaciones', 'rrhh'].includes(rol);
+  const effectiveUsuarioNombre = isAdminRole ? 'Admin-Aspro' : usuarioNombre;
 
   // ── Documento del seguimiento ─────────────────────────────────────────────
   const seguimientoDoc: Record<string, unknown> = {
     id: seguimientoId,
     novedadId,
     usuarioId,
-    usuarioNombre,
+    usuarioNombre: effectiveUsuarioNombre,
     rol,
     mensaje,
     tipo,
@@ -112,7 +114,7 @@ export async function addSeguimiento(
       // Si lo envía el guardia, nace conocido por el guardia
       leidoPorGuardia: true,
       leidoEn: serverTimestamp(),
-      leidoPorNombre: usuarioNombre,
+      leidoPorNombre: effectiveUsuarioNombre,
       leidoPorUid: usuarioId,
     }),
   };
@@ -123,7 +125,7 @@ export async function addSeguimiento(
   const metadatosBase: Record<string, unknown> = {
     ultimoSeguimientoEn: serverTimestamp(),
     ultimoSeguimientoMsg: snippet,
-    ultimoSeguimientoPor: usuarioNombre,
+    ultimoSeguimientoPor: effectiveUsuarioNombre,
     ultimoSeguimientoRol: rol,
     cantidadSeguimientos: increment(1),
     actualizadoEn: serverTimestamp(),
@@ -135,13 +137,13 @@ export async function addSeguimiento(
     metadatosBase.unreadAdminCount = increment(1);
     metadatosBase.unreadSupervisorCount = 0;
     metadatosBase.readBySupervisorEn = serverTimestamp();
-    metadatosBase.readBySupervisorPor = usuarioNombre;
+    metadatosBase.readBySupervisorPor = effectiveUsuarioNombre;
   } else if (isAdmin) {
     // Admin / Jefe Operaciones / RRHH
     metadatosBase.unreadWorkerCount = increment(1);
     metadatosBase.unreadSupervisorCount = increment(1);
     metadatosBase.readByAdminEn = serverTimestamp();
-    metadatosBase.readByAdminPor = usuarioNombre;
+    metadatosBase.readByAdminPor = 'Admin-Aspro';
     metadatosBase.unreadAdminCount = 0; // Se asume leído por admin al escribir
   } else {
     // Guardia (worker)
@@ -149,7 +151,7 @@ export async function addSeguimiento(
     metadatosBase.unreadSupervisorCount = increment(1);
     metadatosBase.unreadWorkerCount = 0; // Se asume leído por worker al escribir
     metadatosBase.readByWorkerEn = serverTimestamp();
-    metadatosBase.readByWorkerPor = usuarioNombre;
+    metadatosBase.readByWorkerPor = effectiveUsuarioNombre;
   }
 
   // ── Metadatos de estado según tipo ────────────────────────────────────────
@@ -160,7 +162,7 @@ export async function addSeguimiento(
       estado: 'resuelta',
       requiereSeguimiento: false,
       fechaResolucion: ahoraISO,
-      resueltoPorNombre: usuarioNombre,
+      resueltoPorNombre: effectiveUsuarioNombre,
       notaResolucion: snippet,
     };
   } else {

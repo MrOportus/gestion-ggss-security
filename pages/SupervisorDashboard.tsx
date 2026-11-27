@@ -1368,12 +1368,6 @@ const SupervisorDashboard: React.FC = () => {
               {isAdminOrJefe
                 ? 'Alertas Operacionales y Actividad de Supervisores'
                 : 'B. Alertas Operacionales y Gestión del Supervisor'}
-              {unreadOperationalNotifs.length > 0 && (
-                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-red-600 text-white text-[10px] font-black shadow-sm">
-                  <span className="w-2 h-2 rounded-full bg-white animate-pulse" />
-                  {unreadOperationalNotifs.length} sin leer
-                </span>
-              )}
             </h2>
             <p className="text-xs text-slate-500 font-medium">
               Rondas con novedad, rondas con sospecha, novedades críticas y de prioridad alta ({filteredAlertas.length} registros)
@@ -1393,83 +1387,6 @@ const SupervisorDashboard: React.FC = () => {
             Requiere Jefatura ({stats.escaladasJefatura})
           </button>
         </div>
-
-        {/* Bandeja de mensajes sin leer en Dashboard Operacional */}
-        {isSupervisor && unreadOperationalNotifs.length > 0 && (
-          <div className="px-4 sm:px-6 py-3 bg-red-50 border-b border-red-200 flex flex-col gap-2">
-            <div className="flex items-center gap-2">
-              <span className="relative flex h-3 w-3 shrink-0">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
-                <span className="relative inline-flex rounded-full h-3 w-3 bg-red-600" />
-              </span>
-              <span className="text-xs font-black text-red-900 uppercase tracking-wider">
-                Mensajes pendientes de lectura ({unreadOperationalNotifs.length})
-              </span>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {unreadOperationalNotifs.slice(0, 6).map((n) => {
-                const ot = resolveOrigenTipo(n);
-                const key = `${ot}_${n.origenId}`;
-                return (
-                  <button
-                    key={n.id}
-                    type="button"
-                    onClick={() => {
-                      if (currentUser?.uid) {
-                        void marcarNotificacionLeida(n.id, currentUser.uid);
-                        if ((ot === 'novedad' || ot === 'ronda') && n.origenId) {
-                          marcarAlertaComoLeida(currentUser.uid, ot, String(n.origenId), unreadNotifs);
-                          if (ot === 'novedad') {
-                            void markNovedadSeguimientoAsRead(
-                              String(n.origenId),
-                              currentUser.role || 'supervisor',
-                              currentActorName,
-                              currentUser.uid,
-                            );
-                          }
-                        }
-                      }
-                      const foundAlerta = alertas.find((a) => a.uidKey === key);
-                      if (foundAlerta) {
-                        if (n.tipo === 'seguimiento_novedad') {
-                          handleOpenOriginalRecord(foundAlerta);
-                        } else {
-                          setSelectedAlertaForGestion(foundAlerta);
-                        }
-                      } else if (ot === 'novedad' && n.origenId) {
-                        const storeNov = useAppStore
-                          .getState()
-                          .novedades.find((nov: any) => String(nov.id) === String(n.origenId));
-                        setSelectedOriginalNovedad(
-                          (storeNov as any) || {
-                            id: String(n.origenId),
-                            sucursalId: n.siteId || '',
-                            sucursalNombre: n.siteName || 'Instalación',
-                            descripcion: n.mensaje,
-                            prioridad: 'alta',
-                            estado: 'en_revision',
-                            tipoRegistro: 'incidencia',
-                            requiereSeguimiento: true,
-                          },
-                        );
-                      }
-                    }}
-                    className="text-left px-3 py-2 rounded-xl bg-white hover:bg-red-100/60 border border-red-300 shadow-xs transition-all flex items-center gap-2 max-w-full sm:max-w-md"
-                  >
-                    <span className="w-2 h-2 rounded-full bg-red-600 shrink-0 animate-pulse" />
-                    <div className="min-w-0 flex-1">
-                      <p className="text-[11px] font-black text-slate-900 truncate">{n.titulo}</p>
-                      <p className="text-[11px] font-medium text-slate-600 truncate">{n.mensaje}</p>
-                    </div>
-                    <span className="text-[10px] font-black text-red-700 uppercase shrink-0 underline">
-                      Leer
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        )}
 
         {/* Barra de Filtros */}
         <div className="p-4 sm:px-6 bg-slate-50 border-b border-slate-200/80 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-2.5">
@@ -1731,7 +1648,7 @@ const SupervisorDashboard: React.FC = () => {
                     >
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <span className="font-black text-amber-950">
-                          📣 Consulta de Jefatura / Administración: {g.consultaAdmin.adminNombre}
+                          📣 Consulta de Jefatura / Administración: Admin-Aspro
                         </span>
                         <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-white border border-amber-200 text-amber-800">
                           {g.consultaAdmin.pendienteRespuesta

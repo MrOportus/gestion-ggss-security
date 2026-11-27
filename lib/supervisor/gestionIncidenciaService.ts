@@ -720,7 +720,7 @@ export async function enviarConsultaASupervisor(
   const consultaAdminObj: ConsultaAdminResumen = {
     mensaje: mensajeLimpio,
     adminUid: params.adminUid,
-    adminNombre: params.adminNombre || 'Administración',
+    adminNombre: 'Admin-Aspro',
     fechaISO: nowISO,
     pendienteRespuesta: true,
   };
@@ -738,7 +738,7 @@ export async function enviarConsultaASupervisor(
     motivoNoSolucionado: '',
     requiereIntervencionJefatura: false,
     supervisorUid: params.adminUid,
-    supervisorNombre: params.adminNombre || 'Administración',
+    supervisorNombre: 'Admin-Aspro',
     fechaGestion: officialTimestamp,
   };
 
@@ -832,7 +832,7 @@ export async function enviarConsultaASupervisor(
     fueSolucionado: 'pendiente',
     medidasTomadas: mensajeLimpio,
     supervisorUid: params.adminUid,
-    supervisorNombre: params.adminNombre || 'Administración',
+    supervisorNombre: 'Admin-Aspro',
     fechaGestion: nowISO,
     fechaGestionISO: nowISO,
   };

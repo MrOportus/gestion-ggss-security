@@ -69,10 +69,13 @@ const AdminLibroNovedadesPage: React.FC = () => {
         const emp = employees.find(
             e => e.id === currentUser?.uid || (currentUser?.email && e.email?.toLowerCase() === currentUser.email.toLowerCase())
         );
-        const fallbackName = isSupervisor ? 'Supervisor' : 'Administrador';
         return {
             uid: currentUser?.uid || '',
-            nombre: emp ? `${emp.firstName} ${emp.lastNamePaterno}` : fallbackName,
+            nombre: !isSupervisor
+                ? 'Admin-Aspro'
+                : emp
+                ? `${emp.firstName} ${emp.lastNamePaterno}`
+                : 'Supervisor',
             rol: currentUser?.role || 'admin'
         };
     }, [currentUser, employees, isSupervisor]);

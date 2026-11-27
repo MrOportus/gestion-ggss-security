@@ -27,10 +27,10 @@ import type { VisitaSupervisorDoc, SeguimientoVisita } from '../../lib/visitasSu
 
 const ROL_LABEL: Record<string, string> = {
   worker:           'Guardia',
-  admin:            'Admin',
+  admin:            'Admin-Aspro',
   supervisor:       'Supervisor',
-  jefe_operaciones: 'Jefe Ops.',
-  rrhh:             'RRHH',
+  jefe_operaciones: 'Admin-Aspro',
+  rrhh:             'Admin-Aspro',
 };
 
 interface VisitaSeguimientoModalProps {
@@ -297,9 +297,11 @@ const VisitaSeguimientoModal: React.FC<VisitaSeguimientoModalProps> = ({ visita,
                       : 'bg-white border border-slate-100'
                 }`}>
                   <div className={`flex items-center gap-2 mb-1 ${esMio && !esResolucion ? 'flex-row-reverse' : ''}`}>
-                    {esMsgDeAdmin && !esAdmin ? (
-                      <span className="px-1.5 py-0.5 rounded text-[8px] font-black uppercase bg-slate-100 text-slate-500">
-                        Admin
+                    {esMsgDeAdmin ? (
+                      <span className={`px-1.5 py-0.5 rounded text-[9px] font-black tracking-wide ${
+                        esResolucion ? 'bg-emerald-200 text-emerald-800' : esMio ? 'bg-blue-500 text-blue-100' : 'bg-slate-100 text-slate-600'
+                      }`}>
+                        Admin-Aspro
                       </span>
                     ) : (
                       <>

@@ -515,8 +515,7 @@ export const GestionSupervisorModal: React.FC<GestionSupervisorModalProps> = ({
                   }`}
                 >
                   <MessageSquarePlus className="w-4 h-4 shrink-0" />
-                  Consulta de Administración / Jefatura (
-                  {alerta.gestionSupervisor.consultaAdmin.adminNombre})
+                  Consulta de Administración / Jefatura (Admin-Aspro)
                 </span>
                 <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase bg-white/80 border border-amber-200 text-amber-800">
                   {alerta.gestionSupervisor.consultaAdmin.pendienteRespuesta
@@ -885,7 +884,7 @@ export const GestionSupervisorModal: React.FC<GestionSupervisorModalProps> = ({
                             )
                           )}
                           <span className="text-xs font-black text-slate-800">
-                            {item.supervisorNombre}
+                            {isConsultaAdmin ? 'Admin-Aspro' : item.supervisorNombre}
                           </span>
                         </div>
                         <span className="text-[11px] font-bold text-slate-400">

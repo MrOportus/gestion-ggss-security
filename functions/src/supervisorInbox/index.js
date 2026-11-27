@@ -201,17 +201,19 @@ exports.notificarSeguimientoNovedadSupervisor = onDocumentCreated(
             const siteName = nov.sucursalNombre || nov.siteName || 'Instalación';
             const urgente = ['critica', 'alta'].includes(String(nov.prioridad || '').toLowerCase());
             const etiqueta = seg.tipo === 'resolucion' ? 'Novedad resuelta' : 'Seguimiento de novedad';
+            const isAdminRole = ['admin', 'jefe_operaciones', 'rrhh'].includes(String(seg.rol || ''));
+            const senderName = isAdminRole ? 'Admin-Aspro' : (seg.usuarioNombre || 'Usuario');
             const payload = {
                 tipo: 'seguimiento_novedad',
                 titulo: `${etiqueta} · ${siteName}`,
-                mensaje: `${seg.usuarioNombre || 'Usuario'}: ${clip(seg.mensaje)}`,
+                mensaje: `${senderName}: ${clip(seg.mensaje)}`,
                 siteId,
                 siteName,
                 origenTipo: 'novedad',
                 origenId: event.params.novedadId,
                 vista: urgente ? 'dashboard' : 'libro_novedades',
                 creadaPorUid: seg.usuarioId || '',
-                creadaPorNombre: seg.usuarioNombre || '',
+                creadaPorNombre: senderName,
             };
             await deliver({
                 eventId: `sn_${event.params.seguimientoId}`,
@@ -256,14 +258,14 @@ async function handleHistorialGestion(event, parentCollection) {
                 payload: {
                     tipo: 'consulta_admin',
                     titulo: `Consulta de Jefatura · ${siteName}`,
-                    mensaje: `${entry.supervisorNombre || 'Administración'}: ${clip(entry.medidasTomadas)}`,
+                    mensaje: `Admin-Aspro: ${clip(entry.medidasTomadas)}`,
                     siteId,
                     siteName,
                     origenTipo,
                     origenId: parentId,
                     vista: 'dashboard',
                     creadaPorUid: entry.supervisorUid || '',
-                    creadaPorNombre: entry.supervisorNombre || 'Administración',
+                    creadaPorNombre: 'Admin-Aspro',
                 },
             });
             return;
@@ -332,19 +334,21 @@ exports.registrarSeguimientoVisitaInbox = onDocumentCreated(
             const autorEsSupervisor = seg.autorUid === visita.supervisorUid;
             const texto = clip((seg.mensaje || '').trim() || (seg.fotoUrl ? '📷 Envió una fotografía' : 'Nuevo mensaje'));
 
+            const isAdminRole = ['admin', 'jefe_operaciones', 'rrhh'].includes(String(seg.autorRol || ''));
+            const senderName = (!autorEsSupervisor || isAdminRole) ? 'Admin-Aspro' : (seg.autorNombre || 'Supervisor');
             const payload = {
                 tipo: 'visita_seguimiento',
                 titulo: autorEsSupervisor
                     ? `Respuesta en visita · ${siteName}`
                     : `Seguimiento de Visita · ${siteName}`,
-                mensaje: `${seg.autorNombre || 'Usuario'}: ${texto}`,
+                mensaje: `${senderName}: ${texto}`,
                 siteId: visita.sucursalId || '',
                 siteName,
                 origenTipo: 'visita',
                 origenId: event.params.visitaId,
                 vista: 'visitas_supervisor',
                 creadaPorUid: seg.autorUid || '',
-                creadaPorNombre: seg.autorNombre || '',
+                creadaPorNombre: senderName,
             };
 
             const recipients = autorEsSupervisor

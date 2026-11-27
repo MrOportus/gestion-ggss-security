@@ -43,11 +43,12 @@ export async function addSeguimiento(params: SeguimientoBaseParams): Promise<Seg
   const nuevoSeguimientoRef = doc(seguimientosRef);
 
   const isAdminOrSuper = ['admin', 'jefe_operaciones', 'rrhh'].includes(rol);
+  const effectiveAutorNombre = isAdminOrSuper ? 'Admin-Aspro' : usuarioNombre;
 
   const seguimientoDoc: any = {
     id: nuevoSeguimientoRef.id,
     autorUid: usuarioId,
-    autorNombre: usuarioNombre,
+    autorNombre: effectiveAutorNombre,
     autorRol: rol,
     fechaHora: serverTimestamp(),
     mensaje: mensaje.trim(),
@@ -76,8 +77,8 @@ export async function addSeguimiento(params: SeguimientoBaseParams): Promise<Seg
     requiereSeguimiento: true,
     ultimoSeguimientoEn: serverTimestamp(),
     ultimoSeguimientoMsg: fotoUrl && !mensaje.trim() ? '📷 [Fotografía adjunta]' : snippet,
-    ultimoSeguimientoAutor: isAdminOrSuper ? 'Admin' : usuarioNombre,
-    ultimoSeguimientoPor: usuarioNombre,
+    ultimoSeguimientoAutor: effectiveAutorNombre,
+    ultimoSeguimientoPor: effectiveAutorNombre,
     ultimoSeguimientoRol: rol,
   };
 
@@ -102,11 +103,12 @@ export async function resolverVisita(visitaId: string, autorUid: string, autorNo
   const nuevoSeguimientoRef = doc(seguimientosRef);
 
   const isAdminOrSuper = ['admin', 'jefe_operaciones', 'rrhh'].includes(autorRol);
+  const effectiveAutorNombre = isAdminOrSuper ? 'Admin-Aspro' : autorNombre;
 
   const seguimientoDoc: any = {
     id: nuevoSeguimientoRef.id,
     autorUid,
-    autorNombre,
+    autorNombre: effectiveAutorNombre,
     autorRol,
     fechaHora: serverTimestamp(),
     mensaje: 'Visita resuelta',
@@ -121,7 +123,9 @@ export async function resolverVisita(visitaId: string, autorUid: string, autorNo
     requiereSeguimiento: false,
     ultimoSeguimientoEn: serverTimestamp(),
     ultimoSeguimientoMsg: 'Visita marcada como resuelta.',
-    ultimoSeguimientoAutor: isAdminOrSuper ? 'Admin' : autorNombre,
+    ultimoSeguimientoAutor: effectiveAutorNombre,
+    ultimoSeguimientoPor: effectiveAutorNombre,
+    ultimoSeguimientoRol: autorRol,
   });
 
   await batch.commit();
