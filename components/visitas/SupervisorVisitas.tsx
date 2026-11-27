@@ -155,6 +155,33 @@ const SupervisorVisitas: React.FC = () => {
     return { ...detalle, visita: viva ?? detalle.visita };
   }, [detalle, recientes]);
 
+  // Visitas con mensajes sin leer del administrador
+  const visitasConNoLeidos = useMemo(
+    () => recientes.filter(v => (v.noLeidosSupervisor ?? 0) > 0),
+    [recientes],
+  );
+  const totalMensajesNoLeidos = useMemo(
+    () => visitasConNoLeidos.reduce((acc, v) => acc + (v.noLeidosSupervisor ?? 0), 0),
+    [visitasConNoLeidos],
+  );
+
+  // Apertura directa desde el Centro de Notificaciones
+  useEffect(() => {
+    const tryOpenPendingVisita = () => {
+      const pendingId = sessionStorage.getItem('aspro_open_visita');
+      if (!pendingId) return;
+      const found = recientes.find(v => String(v.id) === String(pendingId));
+      if (found) {
+        sessionStorage.removeItem('aspro_open_visita');
+        setModo('inicio');
+        setDetalle({ visita: found, openSeguimiento: true });
+      }
+    };
+    tryOpenPendingVisita();
+    window.addEventListener('aspro:abrir-visita', tryOpenPendingVisita);
+    return () => window.removeEventListener('aspro:abrir-visita', tryOpenPendingVisita);
+  }, [recientes]);
+
   // ── Borrador: autoguardado local (debounce) ─────────────────────────────
   const updateDraft = useCallback((fn: (d: VisitaDraft) => VisitaDraft) => {
     setDraft(prev => {
@@ -405,64 +432,119 @@ const SupervisorVisitas: React.FC = () => {
         )}
 
         <section className="space-y-2">
+          {totalMensajesNoLeidos > 0 && (
+            <div className="bg-red-50 border-2 border-red-300 rounded-2xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm">
+              <div className="flex items-start sm:items-center gap-2.5 min-w-0">
+                <span className="relative flex h-3.5 w-3.5 shrink-0 mt-1 sm:mt-0">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
+                  <span className="relative inline-flex rounded-full h-3.5 w-3.5 bg-red-600" />
+                </span>
+                <div className="min-w-0">
+                  <p className="text-sm font-black text-red-900 leading-tight">
+                    Tienes {totalMensajesNoLeidos} {totalMensajesNoLeidos === 1 ? 'mensaje pendiente de lectura' : 'mensajes pendientes de lectura'}
+                  </p>
+                  <p className="text-xs font-semibold text-red-700 truncate">
+                    {visitasConNoLeidos.map(v => v.sucursalNombre).join(', ')}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDetalle({ visita: visitasConNoLeidos[0], openSeguimiento: true })}
+                className="px-3.5 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-black uppercase tracking-wider flex items-center justify-center gap-1.5 shadow-sm active:scale-95 transition-all shrink-0"
+              >
+                <MessageSquareText size={14} />
+                Leer mensaje
+              </button>
+            </div>
+          )}
+
           <h2 className="text-sm font-black uppercase tracking-widest text-slate-500 flex items-center gap-2">
             Mis visitas recientes {cargandoRecientes && <Loader2 className="animate-spin" size={14} />}
+            {totalMensajesNoLeidos > 0 && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-red-600 text-white text-[10px] font-black">
+                <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+                {totalMensajesNoLeidos} sin leer
+              </span>
+            )}
           </h2>
           {recientes.length === 0 && !cargandoRecientes && (
             <p className="text-base font-semibold text-slate-500 bg-white rounded-2xl border-2 border-slate-200 p-4">
               {connected ? 'Aún no hay visitas registradas.' : 'Conéctese para ver sus visitas anteriores.'}
             </p>
           )}
-          {recientes.map(v => (
-            <div
-              key={v.id}
-              className={`w-full bg-white border-4 rounded-2xl flex relative overflow-hidden transition-all ${v.fijadaPorAdmin ? 'border-amber-400 bg-amber-50/30' : 'border-slate-200 shadow-sm hover:border-blue-400'}`}
-            >
-              {v.fijadaPorAdmin && (
-                <div className="absolute top-0 left-0 w-8 h-8 rounded-br-xl flex items-center justify-center bg-amber-100 text-amber-600 z-20 pointer-events-none" title="Fijada por administrador">
-                  <Pin size={16} className="fill-amber-600" />
-                </div>
-              )}
-
-              {/* Botón central (abre detalles de la visita) */}
-              <button
-                type="button"
-                onClick={() => setDetalle({ visita: v, openSeguimiento: false })}
-                className="flex-1 flex items-center gap-3 p-4 text-left active:scale-[0.98] outline-none w-full"
+          {recientes.map(v => {
+            const tieneNoLeidos = (v.noLeidosSupervisor ?? 0) > 0;
+            return (
+              <div
+                key={v.id}
+                className={`w-full bg-white border-4 rounded-2xl flex relative overflow-hidden transition-all ${
+                  tieneNoLeidos
+                    ? 'border-red-400 ring-2 ring-red-200/80 bg-red-50/20 shadow-md'
+                    : v.fijadaPorAdmin
+                    ? 'border-amber-400 bg-amber-50/30'
+                    : 'border-slate-200 shadow-sm hover:border-blue-400'
+                }`}
               >
-                <div className="min-w-0 flex-1 pt-3">
-                  <p className="text-lg font-black text-slate-900 truncate">{v.sucursalNombre}</p>
-                  <p className="text-sm font-semibold text-slate-600">{formatearFecha(v.inicioEn)} · {formatearHora(v.inicioEn)}</p>
-                  <div className="mt-1 flex flex-wrap items-center gap-2">
-                    <ResultadoBadge resultado={v.resultado} prioridadNovedad={v.novedadRelevante?.prioridad} />
-                    {v.noLeidosSupervisor ? (
-                      <span className="inline-flex items-center gap-1 text-xs font-black px-2.5 py-1 rounded-full border-2 bg-red-100 text-red-700 border-red-300">
-                        <MessageSquareText size={12} aria-hidden /> {v.noLeidosSupervisor} mensaje(s)
-                      </span>
-                    ) : null}
+                {v.fijadaPorAdmin && (
+                  <div className="absolute top-0 left-0 w-8 h-8 rounded-br-xl flex items-center justify-center bg-amber-100 text-amber-600 z-20 pointer-events-none" title="Fijada por administrador">
+                    <Pin size={16} className="fill-amber-600" />
                   </div>
-                </div>
-                <ChevronRight className="text-slate-400 shrink-0" size={24} aria-hidden />
-              </button>
+                )}
 
-              {v.estado === 'resuelta' && (
-                <div className="absolute top-2 right-2 flex items-center gap-1 text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200 shadow-sm z-20 pointer-events-none">
-                  <CheckCircle2 size={14} />
-                  <span className="text-[10px] font-black uppercase tracking-wider">Resuelta</span>
-                </div>
-              )}
+                {tieneNoLeidos && (
+                  <span
+                    className="absolute top-3 right-3 flex h-3.5 w-3.5 z-20 pointer-events-none"
+                    title="Mensaje pendiente de lectura"
+                  >
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
+                    <span className="relative inline-flex rounded-full h-3.5 w-3.5 bg-red-600 border-2 border-white" />
+                  </span>
+                )}
 
-              {v.requiereSeguimiento && v.estado !== 'resuelta' && !v.noLeidosSupervisor && (
+                {/* Botón central: si tiene mensajes sin leer, abre directo el seguimiento para marcarlos como leídos */}
                 <button
                   type="button"
-                  onClick={() => setDetalle({ visita: v, openSeguimiento: true })}
-                  className="absolute top-2 right-2 flex items-center gap-1 text-blue-700 bg-blue-50 hover:bg-blue-100 px-2.5 py-1 rounded-full border border-blue-200 shadow-sm z-20 transition-colors active:scale-95 cursor-pointer"
+                  onClick={() => setDetalle({ visita: v, openSeguimiento: tieneNoLeidos })}
+                  className="flex-1 flex items-center gap-3 p-4 text-left active:scale-[0.98] outline-none w-full"
                 >
-                  <span className="text-[10px] font-black uppercase tracking-wider underline">Ver Seguimiento</span>
+                  <div className="min-w-0 flex-1 pt-3">
+                    <p className="text-lg font-black text-slate-900 truncate flex items-center gap-2">
+                      {v.sucursalNombre}
+                    </p>
+                    <p className="text-sm font-semibold text-slate-600">{formatearFecha(v.inicioEn)} · {formatearHora(v.inicioEn)}</p>
+                    <div className="mt-1 flex flex-wrap items-center gap-2">
+                      <ResultadoBadge resultado={v.resultado} prioridadNovedad={v.novedadRelevante?.prioridad} />
+                      {tieneNoLeidos ? (
+                        <span className="inline-flex items-center gap-1.5 text-xs font-black px-2.5 py-1 rounded-full bg-red-600 text-white shadow-sm animate-pulse">
+                          <span className="w-2 h-2 rounded-full bg-white" />
+                          <MessageSquareText size={12} aria-hidden /> {v.noLeidosSupervisor} mensaje(s) sin leer
+                        </span>
+                      ) : null}
+                    </div>
+                  </div>
+                  <ChevronRight className="text-slate-400 shrink-0" size={24} aria-hidden />
                 </button>
-              )}
-            </div>
-          ))}
+
+                {v.estado === 'resuelta' && !tieneNoLeidos && (
+                  <div className="absolute top-2 right-2 flex items-center gap-1 text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200 shadow-sm z-20 pointer-events-none">
+                    <CheckCircle2 size={14} />
+                    <span className="text-[10px] font-black uppercase tracking-wider">Resuelta</span>
+                  </div>
+                )}
+
+                {v.requiereSeguimiento && v.estado !== 'resuelta' && !tieneNoLeidos && (
+                  <button
+                    type="button"
+                    onClick={() => setDetalle({ visita: v, openSeguimiento: true })}
+                    className="absolute top-2 right-2 flex items-center gap-1 text-blue-700 bg-blue-50 hover:bg-blue-100 px-2.5 py-1 rounded-full border border-blue-200 shadow-sm z-20 transition-colors active:scale-95 cursor-pointer"
+                  >
+                    <span className="text-[10px] font-black uppercase tracking-wider underline">Ver Seguimiento</span>
+                  </button>
+                )}
+              </div>
+            );
+          })}
         </section>
 
         <div className="pt-6 pb-2 text-center text-[9px] font-black text-slate-400 uppercase tracking-widest">

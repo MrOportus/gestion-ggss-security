@@ -43,6 +43,7 @@ import {
 
 export const NOTIFICACIONES_SUPERVISOR_COL = 'notificaciones_supervisor';
 const READ_STORAGE_PREFIX = 'aspro_notif_read_v1_';
+const THREAD_WATERMARK_STORAGE_PREFIX = 'aspro_notif_wm_v1_';
 const INITIALIZED_STORAGE_PREFIX = 'aspro_notif_init_v1_';
 export const NOTIFS_UPDATED_EVENT = 'aspro:notifs-updated';
 
@@ -193,6 +194,8 @@ export function getNotificationCanonicalKey(item: NotificacionSupervisor): strin
 
 /**
  * Extrae todas las claves canónicas y alias asociados a un ID (ej. para lectura unificada).
+ * Nota: Para hilos multi-mensaje (visita_seguimiento, seguimiento_novedad, consulta_admin, respuesta_supervisor)
+ * solo se devuelve el propio ID versionado del mensaje para no silenciar futuros mensajes en el mismo hilo.
  */
 export function extractCanonicalKeysFromId(id: string): string[] {
   const keys: string[] = [id];
@@ -217,41 +220,41 @@ export function extractCanonicalKeysFromId(id: string): string[] {
     const rndId = matchDrvRnd[1];
     keys.push(`ronda:${rndId}:novedad_urgente`);
   }
-  // drv_cons_nov_${novId}_...
-  const matchDrvConsNov = id.match(/^drv_cons_nov_(.+)_[^_]+$/);
-  if (matchDrvConsNov) {
-    keys.push(`novedad:${matchDrvConsNov[1]}:consulta_admin`);
-  }
-  // drv_cons_rnd_${roundId}_...
-  const matchDrvConsRnd = id.match(/^drv_cons_rnd_(.+)_[^_]+$/);
-  if (matchDrvConsRnd) {
-    keys.push(`ronda:${matchDrvConsRnd[1]}:consulta_admin`);
-  }
-  // drv_resp_nov_${novId}_...
-  const matchDrvRespNov = id.match(/^drv_resp_nov_(.+)_[^_]+$/);
-  if (matchDrvRespNov) {
-    keys.push(`novedad:${matchDrvRespNov[1]}:respuesta_supervisor`);
-  }
-  // drv_resp_rnd_${roundId}_...
-  const matchDrvRespRnd = id.match(/^drv_resp_rnd_(.+)_[^_]+$/);
-  if (matchDrvRespRnd) {
-    keys.push(`ronda:${matchDrvRespRnd[1]}:respuesta_supervisor`);
-  }
-  // drv_seg_nov_${novId}_...
-  const matchDrvSegNov = id.match(/^drv_seg_nov_(.+)_[^_]+$/);
-  if (matchDrvSegNov) {
-    keys.push(`novedad:${matchDrvSegNov[1]}:seguimiento_novedad`);
-  }
-  // drv_vis_${visitaId}_...
-  const matchDrvVis = id.match(/^drv_vis_(.+)_[^_]+$/);
-  if (matchDrvVis) {
-    keys.push(`visita:${matchDrvVis[1]}:visita_seguimiento`);
-  }
 
   return keys;
 }
 
 // ─── Persistencia local instantánea + sincronización de estado leído ─────────
+
+export function getThreadReadWatermarks(uid: string): Record<string, number> {
+  if (typeof window === 'undefined' || !uid) return {};
+  try {
+    const raw = localStorage.getItem(`${THREAD_WATERMARK_STORAGE_PREFIX}${uid}`);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveThreadReadWatermark(
+  uid: string,
+  origenTipo: 'ronda' | 'novedad' | 'visita',
+  origenId: string,
+  timestampMs: number = Date.now(),
+): void {
+  if (typeof window === 'undefined' || !uid || !origenId) return;
+  try {
+    const map = getThreadReadWatermarks(uid);
+    const key = `${origenTipo}:${origenId}`;
+    map[key] = Math.max(map[key] || 0, timestampMs);
+    localStorage.setItem(`${THREAD_WATERMARK_STORAGE_PREFIX}${uid}`, JSON.stringify(map));
+    window.dispatchEvent(new CustomEvent(NOTIFS_UPDATED_EVENT));
+  } catch {
+    /* ignore */
+  }
+}
 
 export function getReadNotifIds(uid: string): Set<string> {
   if (typeof window === 'undefined' || !uid) return new Set();
@@ -299,15 +302,20 @@ export function isNotifRead(
     firestoreLeidaOrReadSet instanceof Set ? firestoreLeidaOrReadSet : getReadNotifIds(uid);
   if (readSet.has(item.id)) return true;
 
-  const canonKey = getNotificationCanonicalKey(item);
-  if (readSet.has(canonKey)) return true;
+  if (item.tipo === 'novedad_urgente') {
+    const canonKey = getNotificationCanonicalKey(item);
+    if (readSet.has(canonKey)) return true;
+  }
 
   const related = extractCanonicalKeysFromId(item.id);
   if (related.some((k) => readSet.has(k))) return true;
 
-  if (item.origenId && item.tipo) {
-    const eventKey = `${resolveOrigenTipo(item)}:${item.origenId}:${item.tipo}`;
-    if (readSet.has(eventKey)) return true;
+  if (item.origenId) {
+    const ot = resolveOrigenTipo(item);
+    const wm = getThreadReadWatermarks(uid)[`${ot}:${item.origenId}`];
+    if (wm && item.creadoEnMs > 0 && item.creadoEnMs <= wm) {
+      return true;
+    }
   }
   return false;
 }
@@ -396,36 +404,39 @@ export async function marcarTodasLeidas(ids: string[], uid?: string): Promise<vo
 }
 
 /**
- * Marca como leídas todas las notificaciones asociadas a una alerta específica
- * (ej. cuando el Admin o Supervisor abre el modal de esa novedad o ronda).
+ * Marca como leídas todas las notificaciones asociadas a una alerta o visita específica
+ * (ej. cuando el Admin o Supervisor abre el modal de esa novedad, ronda o visita).
  */
 export function marcarAlertaComoLeida(
   uid: string,
   origenTipo: 'ronda' | 'novedad' | 'visita',
   origenId: string,
-  currentItems: NotificacionSupervisor[],
+  currentItems: NotificacionSupervisor[] = [],
 ): void {
   if (!uid || !origenId) return;
-  const matchingIds = currentItems
-    .filter(
-      (n) =>
-        resolveOrigenTipo(n) === origenTipo &&
-        String(n.origenId) === String(origenId) &&
-        !n.leida,
-    )
-    .map((n) => n.id);
+  const matching = currentItems.filter(
+    (n) =>
+      resolveOrigenTipo(n) === origenTipo &&
+      String(n.origenId) === String(origenId) &&
+      !n.leida,
+  );
+  const matchingIds = matching.map((n) => n.id);
+  const maxItemMs = matching.reduce((max, n) => Math.max(max, n.creadoEnMs || 0), 0);
 
   const set = getReadNotifIds(uid);
   set.add(`${origenTipo}:${origenId}:novedad_urgente`);
-  set.add(`${origenTipo}:${origenId}:consulta_admin`);
-  set.add(`${origenTipo}:${origenId}:respuesta_supervisor`);
-  set.add(`${origenTipo}:${origenId}:seguimiento_novedad`);
   if (origenTipo === 'ronda') {
     set.add(`drv_rnd_urg_${origenId}`);
   } else if (origenTipo === 'novedad') {
     set.add(`drv_nov_urg_${origenId}`);
   }
+  matchingIds.forEach((id) => set.add(id));
   saveReadNotifIds(uid, set);
+
+  // Guardar marca de agua temporal para este hilo (con +2s de tolerancia de reloj)
+  // de modo que los mensajes actuales pasen a leídos de inmediato pero cualquier
+  // mensaje nuevo futuro vuelva a activar el punto rojo.
+  saveThreadReadWatermark(uid, origenTipo, String(origenId), Math.max(Date.now() + 2000, maxItemMs));
 
   if (matchingIds.length > 0) {
     void marcarTodasLeidas(matchingIds, uid);
@@ -635,7 +646,7 @@ function deriveFromNovedad(
     }
   }
 
-  // 4) Seguimiento en hilo del Libro de Novedades -> notifica al Supervisor (o Admin si responde guardia/sup)
+  // 4) Seguimiento en hilo del Libro de Novedades -> notifica al Supervisor (si escribe guardia o admin) o al Admin (si escribe guardia o sup)
   if (raw.ultimoSeguimientoMsg && raw.ultimoSeguimientoEn) {
     const canonKey = `novedad:${novId}:seguimiento_novedad`;
     if (!coveredDirectKeys?.has(canonKey)) {
@@ -644,12 +655,20 @@ function deriveFromNovedad(
       const segPor = String(raw.ultimoSeguimientoPor || 'Usuario');
       const id = `drv_seg_nov_${novId}_${segMs || raw.cantidadSeguimientos || 1}`;
 
-      if (isSupervisor && ['admin', 'jefe_operaciones', 'rrhh'].includes(segRol)) {
+      if (isSupervisor && segRol !== 'supervisor') {
+        const hasSupCounter = typeof raw.unreadSupervisorCount === 'number';
+        const unreadForSup = hasSupCounter
+          ? Number(raw.unreadSupervisorCount) > 0
+          : segRol === 'worker' && typeof raw.unreadAdminCount === 'number'
+          ? Number(raw.unreadAdminCount) > 0
+          : true;
+        const remitenteLabel =
+          segRol === 'worker' ? 'Mensaje de Guardia' : 'Seguimiento de Novedad';
         result.push({
           id,
           destinatarioUid: ctx.uid,
           tipo: 'seguimiento_novedad',
-          titulo: `💬 Seguimiento de Novedad · ${siteName}`,
+          titulo: `💬 ${remitenteLabel} · ${siteName}`,
           mensaje: `${segPor}: ${raw.ultimoSeguimientoMsg}`,
           siteId,
           siteName,
@@ -658,7 +677,7 @@ function deriveFromNovedad(
           vista: esUrgente ? 'dashboard' : 'libro_novedades',
           creadaPorUid: '',
           creadaPorNombre: segPor,
-          leida: readSet.has(id) || readSet.has(canonKey),
+          leida: !unreadForSup || readSet.has(id),
           creadoEnISO: segMs ? new Date(segMs).toISOString() : '',
           creadoEnMs: segMs,
         });
@@ -678,8 +697,7 @@ function deriveFromNovedad(
           creadaPorNombre: segPor,
           leida:
             Number(raw.unreadAdminCount || 0) === 0 ||
-            readSet.has(id) ||
-            readSet.has(canonKey),
+            readSet.has(id),
           creadoEnISO: segMs ? new Date(segMs).toISOString() : '',
           creadoEnMs: segMs,
         });
@@ -823,10 +841,15 @@ function deriveFromVisita(
   coveredDirectKeys?: Set<string>,
 ): NotificacionSupervisor[] {
   const result: NotificacionSupervisor[] = [];
-  if (!raw.ultimoSeguimientoMsg || !raw.ultimoSeguimientoEn) return result;
-
   const isSupervisor = ctx.role === 'supervisor';
   const isAdmin = ctx.role === 'admin' || ctx.role === 'jefe_operaciones';
+  const unreadSupCount = Number(raw.noLeidosSupervisor ?? raw.unreadSupervisorCount ?? 0);
+  const unreadAdmCount = Number(raw.noLeidosAdmin ?? raw.unreadAdminCount ?? 0);
+
+  if (!raw.ultimoSeguimientoMsg && unreadSupCount <= 0 && unreadAdmCount <= 0) {
+    return result;
+  }
+
   const visitaId = String(raw.id);
   const canonKey = `visita:${visitaId}:visita_seguimiento`;
   if (coveredDirectKeys?.has(canonKey)) {
@@ -836,21 +859,29 @@ function deriveFromVisita(
   const siteName = String(raw.sucursalNombre || 'Sucursal');
   const segMs =
     toMs(raw.ultimoSeguimientoEn) ||
+    toMs(raw.terminoEn) ||
+    toMs(raw.inicioEn) ||
     toMs(raw.creadoEn) ||
     toMs(raw.fechaVisita) ||
-    0;
-  const segPor = String(raw.ultimoSeguimientoPor || 'Administración');
+    Date.now();
+  const segPor = String(
+    raw.ultimoSeguimientoPor || raw.ultimoSeguimientoAutor || 'Administración',
+  );
   const segRol = String(raw.ultimoSeguimientoRol || '');
   const id = `drv_vis_${visitaId}_${segMs || raw.cantidadSeguimientos || 1}`;
 
-  if (isSupervisor && raw.supervisorUid === ctx.uid && segRol !== 'supervisor') {
-    const unreadSup = Number(raw.unreadSupervisorCount || 0) > 0;
+  const isFromAdminToSup = segRol
+    ? segRol !== 'supervisor'
+    : raw.ultimoSeguimientoAutor === 'Admin' || unreadSupCount > 0;
+
+  if (isSupervisor && raw.supervisorUid === ctx.uid && isFromAdminToSup) {
+    const unreadSup = unreadSupCount > 0;
     result.push({
       id,
       destinatarioUid: ctx.uid,
       tipo: 'visita_seguimiento',
       titulo: `📋 Seguimiento de Visita · ${siteName}`,
-      mensaje: `${segPor}: ${raw.ultimoSeguimientoMsg}`,
+      mensaje: `${segPor}: ${raw.ultimoSeguimientoMsg || 'Nuevo mensaje en seguimiento de visita'}`,
       siteId: normalizeSiteId(raw.sucursalId),
       siteName,
       origenTipo: 'visita',
@@ -858,18 +889,23 @@ function deriveFromVisita(
       vista: 'visitas_supervisor',
       creadaPorUid: '',
       creadaPorNombre: segPor,
-      leida: !unreadSup || readSet.has(id) || readSet.has(canonKey),
+      leida: !unreadSup || readSet.has(id),
       creadoEnISO: segMs ? new Date(segMs).toISOString() : '',
       creadoEnMs: segMs,
     });
-  } else if (isAdmin && segRol === 'supervisor') {
-    const unreadAdm = Number(raw.unreadAdminCount || 0) > 0;
+  } else if (
+    isAdmin &&
+    (segRol === 'supervisor' ||
+      (raw.ultimoSeguimientoAutor && raw.ultimoSeguimientoAutor !== 'Admin') ||
+      unreadAdmCount > 0)
+  ) {
+    const unreadAdm = unreadAdmCount > 0;
     result.push({
       id,
       destinatarioUid: ctx.uid,
       tipo: 'visita_seguimiento',
       titulo: `📋 Respuesta en Visita (${segPor}) · ${siteName}`,
-      mensaje: `${segPor}: ${raw.ultimoSeguimientoMsg}`,
+      mensaje: `${segPor}: ${raw.ultimoSeguimientoMsg || 'Nuevo mensaje en seguimiento de visita'}`,
       siteId: normalizeSiteId(raw.sucursalId),
       siteName,
       origenTipo: 'visita',
@@ -877,7 +913,7 @@ function deriveFromVisita(
       vista: 'visitas_supervisor',
       creadaPorUid: String(raw.supervisorUid || ''),
       creadaPorNombre: segPor,
-      leida: !unreadAdm || readSet.has(id) || readSet.has(canonKey),
+      leida: !unreadAdm || readSet.has(id),
       creadoEnISO: segMs ? new Date(segMs).toISOString() : '',
       creadoEnMs: segMs,
     });

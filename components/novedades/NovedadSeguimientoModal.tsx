@@ -33,6 +33,7 @@ import {
   marcarSeguimientosLeidosPorGuardia,
   subscribeSeguimientos,
 } from '../../lib/novedades/seguimientoService';
+import { marcarAlertaComoLeida } from '../../lib/supervisor/notificacionesSupervisorService';
 import { useAppStore } from '../../store/useAppStore';
 import { captureAndCompressPhoto } from '../../lib/imageUtils';
 import type { RegistroNovedad, SeguimientoNovedad, SeguimientoTipo } from '../../types';
@@ -173,6 +174,14 @@ const NovedadSeguimientoModal: React.FC<NovedadSeguimientoModalProps> = ({
               console.error('[SeguimientoModal] Error marcando leídos en tiempo real:', err);
             });
           }
+        } else if (isCurrentUserAdmin) {
+          marcarAlertaComoLeida(usuario.uid, 'novedad', novedad.id);
+          const hayAjenos = mensajes.some(m => m.usuarioId !== usuario.uid);
+          if (hayAjenos) {
+            markSeguimientoAsRead(novedad.id, usuario.rol, usuario.nombre, usuario.uid).catch(err => {
+              console.error('[SeguimientoModal] Error marcando leído admin/supervisor en tiempo real:', err);
+            });
+          }
         }
       },
       (err) => {
@@ -183,7 +192,8 @@ const NovedadSeguimientoModal: React.FC<NovedadSeguimientoModalProps> = ({
 
     // Al montar: marcar como leído según corresponda
     if (isCurrentUserAdmin) {
-      markSeguimientoAsRead(novedad.id, usuario.rol, usuario.nombre).catch(e => {
+      marcarAlertaComoLeida(usuario.uid, 'novedad', novedad.id);
+      markSeguimientoAsRead(novedad.id, usuario.rol, usuario.nombre, usuario.uid).catch(e => {
         console.error('[SeguimientoModal] Error al marcar como leído admin:', e);
       });
     } else if (isWorker) {

@@ -129,14 +129,24 @@ export async function addSeguimiento(
     actualizadoEn: serverTimestamp(),
   };
 
-  // Contadores de lectura
-  if (isAdmin) {
+  // Contadores de lectura independientes por rol (Guardia, Supervisor, Admin)
+  if (rol === 'supervisor') {
     metadatosBase.unreadWorkerCount = increment(1);
+    metadatosBase.unreadAdminCount = increment(1);
+    metadatosBase.unreadSupervisorCount = 0;
+    metadatosBase.readBySupervisorEn = serverTimestamp();
+    metadatosBase.readBySupervisorPor = usuarioNombre;
+  } else if (isAdmin) {
+    // Admin / Jefe Operaciones / RRHH
+    metadatosBase.unreadWorkerCount = increment(1);
+    metadatosBase.unreadSupervisorCount = increment(1);
     metadatosBase.readByAdminEn = serverTimestamp();
     metadatosBase.readByAdminPor = usuarioNombre;
     metadatosBase.unreadAdminCount = 0; // Se asume leído por admin al escribir
   } else {
+    // Guardia (worker)
     metadatosBase.unreadAdminCount = increment(1);
+    metadatosBase.unreadSupervisorCount = increment(1);
     metadatosBase.unreadWorkerCount = 0; // Se asume leído por worker al escribir
     metadatosBase.readByWorkerEn = serverTimestamp();
     metadatosBase.readByWorkerPor = usuarioNombre;
@@ -313,7 +323,15 @@ export async function markSeguimientoAsRead(
   const isAdmin = ['admin', 'supervisor', 'jefe_operaciones', 'rrhh'].includes(rol);
 
   try {
-    if (isAdmin) {
+    if (rol === 'supervisor') {
+      const batch = writeBatch(db);
+      batch.update(novedadRef, {
+        unreadSupervisorCount: 0,
+        readBySupervisorEn: serverTimestamp(),
+        readBySupervisorPor: usuarioNombre,
+      });
+      await batch.commit();
+    } else if (isAdmin) {
       const batch = writeBatch(db);
       batch.update(novedadRef, {
         unreadAdminCount: 0,

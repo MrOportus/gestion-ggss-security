@@ -20,6 +20,7 @@ import {
   resolverVisita,
   SeguimientoBaseParams,
 } from '../../lib/visitasSupervisor/seguimientoVisitasService';
+import { marcarAlertaComoLeida } from '../../lib/supervisor/notificacionesSupervisorService';
 import { useAppStore } from '../../store/useAppStore';
 import { captureAndCompressPhoto } from '../../lib/imageUtils';
 import type { VisitaSupervisorDoc, SeguimientoVisita } from '../../lib/visitasSupervisor/visitasTypes';
@@ -105,6 +106,7 @@ const VisitaSeguimientoModal: React.FC<VisitaSeguimientoModalProps> = ({ visita,
 
         // Si quien abre el hilo es el supervisor, marcar mensajes de admin como leídos
         if (esSupervisor) {
+          marcarAlertaComoLeida(usuario.uid, 'visita', visita.id);
           const hayNoLeidos = mensajes.some(m => m.autorUid !== usuario.uid && !m.leidoPorSupervisor);
           if (hayNoLeidos) {
             marcarSeguimientosLeidosPorSupervisor(visita.id, usuario.uid, usuario.nombre).catch(err => {
@@ -115,6 +117,7 @@ const VisitaSeguimientoModal: React.FC<VisitaSeguimientoModalProps> = ({ visita,
 
         // Si quien tiene abierto el hilo es el admin, limpiar el contador cuando llegue un mensaje ajeno
         if (esAdmin) {
+          marcarAlertaComoLeida(usuario.uid, 'visita', visita.id);
           const ajenos = mensajes.filter(m => m.autorUid !== usuario.uid);
           const ultimoAjeno = ajenos.length > 0 ? ajenos[ajenos.length - 1].id : null;
           if (ultimoAjeno && ultimoAjeno !== ultimoAjenoMarcadoRef.current) {
@@ -132,6 +135,7 @@ const VisitaSeguimientoModal: React.FC<VisitaSeguimientoModalProps> = ({ visita,
     );
 
     // Al montar: marcar como leído según corresponda
+    marcarAlertaComoLeida(usuario.uid, 'visita', visita.id);
     if (esAdmin) {
       markSeguimientoAsRead(visita.id, usuario.rol).catch(e => {
         console.error('[SeguimientoVisitaModal] Error al marcar como leído admin:', e);

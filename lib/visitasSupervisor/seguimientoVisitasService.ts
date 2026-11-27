@@ -77,12 +77,16 @@ export async function addSeguimiento(params: SeguimientoBaseParams): Promise<Seg
     ultimoSeguimientoEn: serverTimestamp(),
     ultimoSeguimientoMsg: fotoUrl && !mensaje.trim() ? '📷 [Fotografía adjunta]' : snippet,
     ultimoSeguimientoAutor: isAdminOrSuper ? 'Admin' : usuarioNombre,
+    ultimoSeguimientoPor: usuarioNombre,
+    ultimoSeguimientoRol: rol,
   };
 
   if (isAdminOrSuper) {
     updatePayload.noLeidosSupervisor = increment(1);
+    updatePayload.noLeidosAdmin = 0;
   } else {
     updatePayload.noLeidosAdmin = increment(1);
+    updatePayload.noLeidosSupervisor = 0;
   }
 
   batch.update(visitaRef, updatePayload);

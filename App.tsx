@@ -61,6 +61,12 @@ import DocumentsPage from './pages/DocumentsPage';
 import AdminLibroNovedadesPage from './pages/AdminLibroNovedadesPage';
 import SupervisorDashboard from './pages/SupervisorDashboard';
 import NotificacionesSupervisorCenter from './components/supervisor/NotificacionesSupervisorCenter';
+import {
+  type NotificacionSupervisor,
+  resolveOrigenTipo,
+  subscribeNotificacionesSupervisor,
+} from './lib/supervisor/notificacionesSupervisorService';
+import { normalizeSiteId } from './lib/supervisor/gestionIncidenciaService';
 import { StickyNote, Navigation, CalendarDays, Receipt, ShieldCheck, Zap, Info, User, BookOpen, ClipboardCheck, Plus, PenTool, ShieldAlert } from 'lucide-react';
 import VisitasSupervisorPage from './pages/VisitasSupervisorPage';
 import SignatureModal from './components/SignatureModal';
@@ -88,7 +94,7 @@ const App: React.FC = () => {
     return <ValidacionPage initialValidationId={validationId} />;
   }
 
-  const { currentUser, logout, fetchInitialData, isLoading, initializeAuthListener, registerFCMToken, showNotification, processSyncQueue, authInitialized, showConfirmation, employees, updateEmployee, digitalDocuments } = useAppStore();
+  const { currentUser, logout, fetchInitialData, isLoading, initializeAuthListener, registerFCMToken, showNotification, processSyncQueue, authInitialized, showConfirmation, employees, sites, updateEmployee, digitalDocuments } = useAppStore();
   const [currentView, setCurrentView] = useState<'dashboard' | 'supervisor_dashboard' | 'employees' | 'tasks' | 'sites' | 'payments' | 'supervisor_mgmt' | 'mandante_mgmt' | 'notes' | 'attendance' | 'rounds' | 'shift_management' | 'loans' | 'documents' | 'solicitudes_turnos_extra' | 'hr_contracts' | 'attendance_shadow_qa' | 'libro_novedades' | 'visitas_supervisor'>(() => {
     return 'dashboard';
   });
@@ -120,6 +126,46 @@ const App: React.FC = () => {
 
   const supervisorEmp = employees.find(e => e.id === currentUser?.uid);
   const pendingDocsCount = digitalDocuments.filter(d => d.assignedTo === currentUser?.uid && d.status === 'pending').length;
+
+  // ── Insignias de mensajes sin leer para el Supervisor (Visitas vs Dashboard Operacional) ──
+  const [supervisorUnreadNotifs, setSupervisorUnreadNotifs] = useState<NotificacionSupervisor[]>([]);
+  const supervisorAssignedSitesKey = JSON.stringify(
+    (supervisorEmp?.assignedSites || []).map(String).sort(),
+  );
+
+  useEffect(() => {
+    if (!currentUser?.uid || currentUser.role !== 'supervisor') {
+      setSupervisorUnreadNotifs([]);
+      return;
+    }
+    const unsub = subscribeNotificacionesSupervisor(
+      {
+        uid: currentUser.uid,
+        role: 'supervisor',
+        assignedSites: supervisorEmp?.assignedSites || [],
+        siteNameLookup: (siteId: string) => {
+          const found = sites.find((s) => normalizeSiteId(s.id) === normalizeSiteId(siteId));
+          return found?.name || '';
+        },
+      },
+      (all) => {
+        setSupervisorUnreadNotifs(all.filter((n) => !n.leida));
+      },
+      () => setSupervisorUnreadNotifs([]),
+    );
+    return () => unsub();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUser?.uid, currentUser?.role, supervisorAssignedSitesKey, sites]);
+
+  const unreadVisitasCount = supervisorUnreadNotifs.filter(
+    (n) => resolveOrigenTipo(n) === 'visita' || n.vista === 'visitas_supervisor',
+  ).length;
+  const unreadDashboardCount = supervisorUnreadNotifs.filter(
+    (n) => resolveOrigenTipo(n) !== 'visita' && n.vista !== 'visitas_supervisor',
+  ).length;
+  const hasUnreadVisitas = currentUser?.role === 'supervisor' && unreadVisitasCount > 0;
+  const hasUnreadDashboard = currentUser?.role === 'supervisor' && unreadDashboardCount > 0;
+  const hasAnySupervisorUnread = hasUnreadVisitas || hasUnreadDashboard;
   
   const { connected } = useNetworkStatus();
 
@@ -614,16 +660,48 @@ const App: React.FC = () => {
 
         <nav className="flex-1 px-4 py-6 space-y-2 overflow-y-auto">
           <button onClick={() => setCurrentView('dashboard')} className={navItemClass('dashboard')}>
-            <LayoutDashboard size={20} />
-            <span className="font-medium">
+            <div className="relative shrink-0">
+              <LayoutDashboard size={20} />
+              {hasUnreadDashboard && (
+                <span className="absolute -top-1 -right-1 flex h-2.5 w-2.5">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
+                  <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-600" />
+                </span>
+              )}
+            </div>
+            <span className="font-medium flex-1 text-left">
               {currentUser.role === 'supervisor' ? 'Dashboard Operacional' : 'Dashboard'}
             </span>
+            {hasUnreadDashboard && (
+              <span
+                className="inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full bg-red-600 text-white text-[10px] font-black shadow-xs"
+                title={`${unreadDashboardCount} mensaje(s) sin leer`}
+              >
+                {unreadDashboardCount}
+              </span>
+            )}
           </button>
 
           {currentUser.role === 'supervisor' && (
             <button onClick={() => setCurrentView('visitas_supervisor')} className={navItemClass('visitas_supervisor')}>
-              <ClipboardCheck size={20} className="text-emerald-600" />
-              <span className="font-medium">Visitas de Supervisor</span>
+              <div className="relative shrink-0">
+                <ClipboardCheck size={20} className="text-emerald-600" />
+                {hasUnreadVisitas && (
+                  <span className="absolute -top-1 -right-1 flex h-2.5 w-2.5">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
+                    <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-600" />
+                  </span>
+                )}
+              </div>
+              <span className="font-medium flex-1 text-left">Visitas de Supervisor</span>
+              {hasUnreadVisitas && (
+                <span
+                  className="inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full bg-red-600 text-white text-[10px] font-black shadow-xs"
+                  title={`${unreadVisitasCount} mensaje(s) sin leer`}
+                >
+                  {unreadVisitasCount}
+                </span>
+              )}
             </button>
           )}
 
@@ -859,9 +937,18 @@ const App: React.FC = () => {
           <div className="flex items-center gap-2">
             <button
               onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-              className="p-2 text-slate-600 bg-slate-50 rounded-lg hover:bg-slate-100 active:bg-slate-200 transition shrink-0"
+              className="relative p-2 text-slate-600 bg-slate-50 rounded-lg hover:bg-slate-100 active:bg-slate-200 transition shrink-0"
             >
               {isMobileMenuOpen ? <X size={24} /> : <Menu size={24} />}
+              {hasAnySupervisorUnread && !isMobileMenuOpen && (
+                <span
+                  className="absolute top-1 right-1 flex h-3 w-3"
+                  title="Tienes mensajes pendientes de lectura"
+                >
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
+                  <span className="relative inline-flex rounded-full h-3 w-3 bg-red-600 border-2 border-white" />
+                </span>
+              )}
             </button>
           </div>
         </header>
@@ -874,15 +961,50 @@ const App: React.FC = () => {
             <nav className="flex-1 overflow-y-auto pt-4 pb-28">
               <button onClick={() => handleNavChange('dashboard')} className={mobileNavItemClass('dashboard')}>
                 <div className="flex items-center gap-3">
-                  <LayoutDashboard size={20} className={currentUser.role === 'supervisor' ? 'text-indigo-600' : ''} />
-                  {currentUser.role === 'supervisor' ? 'Dashboard Operacional' : 'Dashboard'}
+                  <div className="relative">
+                    <LayoutDashboard size={20} className={currentUser.role === 'supervisor' ? 'text-indigo-600' : ''} />
+                    {hasUnreadDashboard && (
+                      <span className="absolute -top-1 -right-1 flex h-2.5 w-2.5">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
+                        <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-600" />
+                      </span>
+                    )}
+                  </div>
+                  <span>{currentUser.role === 'supervisor' ? 'Dashboard Operacional' : 'Dashboard'}</span>
                 </div>
-                <ChevronRight size={16} className="text-slate-300" />
+                <div className="flex items-center gap-2">
+                  {hasUnreadDashboard && (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-red-600 text-white text-[10px] font-black">
+                      <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+                      {unreadDashboardCount}
+                    </span>
+                  )}
+                  <ChevronRight size={16} className="text-slate-300" />
+                </div>
               </button>
               {currentUser.role === 'supervisor' && (
                 <button onClick={() => handleNavChange('visitas_supervisor')} className={mobileNavItemClass('visitas_supervisor')}>
-                  <div className="flex items-center gap-3"><ClipboardCheck size={20} className="text-emerald-600" /> Visitas de Supervisor</div>
-                  <ChevronRight size={16} className="text-slate-300" />
+                  <div className="flex items-center gap-3">
+                    <div className="relative">
+                      <ClipboardCheck size={20} className="text-emerald-600" />
+                      {hasUnreadVisitas && (
+                        <span className="absolute -top-1 -right-1 flex h-2.5 w-2.5">
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
+                          <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-600" />
+                        </span>
+                      )}
+                    </div>
+                    <span>Visitas de Supervisor</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {hasUnreadVisitas && (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-red-600 text-white text-[10px] font-black">
+                        <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+                        {unreadVisitasCount}
+                      </span>
+                    )}
+                    <ChevronRight size={16} className="text-slate-300" />
+                  </div>
                 </button>
               )}
               {currentUser.role === 'admin' && (
@@ -1097,13 +1219,24 @@ const App: React.FC = () => {
               {/* 1. DASHBOARD OPERACIONAL */}
               <button
                 onClick={() => handleNavChange('dashboard')}
-                className={`flex flex-col items-center justify-center flex-1 py-1 transition-all active:scale-95 ${
+                className={`relative flex flex-col items-center justify-center flex-1 py-1 transition-all active:scale-95 ${
                   currentView === 'dashboard' || currentView === 'supervisor_dashboard'
                     ? 'text-blue-600 font-black'
                     : 'text-slate-400 hover:text-slate-600 font-bold'
                 }`}
               >
-                <LayoutDashboard size={22} className={currentView === 'dashboard' || currentView === 'supervisor_dashboard' ? 'stroke-[2.5]' : ''} />
+                <div className="relative">
+                  <LayoutDashboard size={22} className={currentView === 'dashboard' || currentView === 'supervisor_dashboard' ? 'stroke-[2.5]' : ''} />
+                  {hasUnreadDashboard && (
+                    <span
+                      className="absolute -top-1.5 -right-2.5 flex h-3.5 w-3.5"
+                      title={`${unreadDashboardCount} mensaje(s) pendiente(s) en Dashboard Operacional`}
+                    >
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
+                      <span className="relative inline-flex rounded-full h-3.5 w-3.5 bg-red-600 border-2 border-white" />
+                    </span>
+                  )}
+                </div>
                 <span className="text-[10px] tracking-tight mt-1">Panel</span>
               </button>
 
@@ -1125,13 +1258,22 @@ const App: React.FC = () => {
                   className="flex flex-col items-center group active:scale-95 transition-transform"
                 >
                   <div
-                    className={`w-14 h-14 rounded-full flex items-center justify-center shadow-xl transition-all duration-200 border-4 border-white ${
+                    className={`relative w-14 h-14 rounded-full flex items-center justify-center shadow-xl transition-all duration-200 border-4 border-white ${
                       currentView === 'visitas_supervisor'
                         ? 'bg-emerald-600 text-white shadow-emerald-600/40 ring-4 ring-emerald-500/20 scale-105'
                         : 'bg-emerald-500 text-white shadow-emerald-500/30 hover:bg-emerald-600'
                     }`}
                   >
                     <ClipboardCheck size={28} className="stroke-[2.5]" />
+                    {hasUnreadVisitas && (
+                      <span
+                        className="absolute -top-1 -right-1 flex h-4 w-4"
+                        title={`${unreadVisitasCount} mensaje(s) pendiente(s) en Visitas`}
+                      >
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
+                        <span className="relative inline-flex rounded-full h-4 w-4 bg-red-600 border-2 border-white" />
+                      </span>
+                    )}
                   </div>
                   <span
                     className={`text-[10px] tracking-tight mt-1 transition-colors ${

@@ -13,11 +13,14 @@ import { useAppStore } from '../../store/useAppStore';
 import { normalizeSiteId } from '../../lib/supervisor/gestionIncidenciaService';
 import {
   type NotificacionSupervisor,
+  marcarAlertaComoLeida,
   marcarNotificacionLeida,
   marcarTodasLeidas,
   resolveOrigenTipo,
   subscribeNotificacionesSupervisor,
 } from '../../lib/supervisor/notificacionesSupervisorService';
+import { markSeguimientoAsRead as markVisitaSeguimientoAsRead } from '../../lib/visitasSupervisor/seguimientoVisitasService';
+import { markSeguimientoAsRead as markNovedadSeguimientoAsRead } from '../../lib/novedades/seguimientoService';
 
 interface Props {
   /** Navegación de la app (handleNavChange) */
@@ -179,13 +182,40 @@ export const NotificacionesSupervisorCenter: React.FC<Props> = ({
 
   if (!enabled || !uid) return null;
 
+  const currentActorName = useMemo(() => {
+    if (!uid) return 'Supervisor';
+    const emp = employees.find((e) => e.id === uid);
+    if (emp) return `${emp.firstName || ''} ${emp.lastNamePaterno || ''}`.trim() || 'Supervisor';
+    return currentUser?.email || 'Supervisor';
+  }, [uid, employees, currentUser?.email]);
+
   const handleOpenItem = (n: NotificacionSupervisor) => {
+    const origenTipo = resolveOrigenTipo(n);
     if (!n.leida) {
       void marcarNotificacionLeida(n.id, uid);
     }
+    if (origenTipo && n.origenId) {
+      marcarAlertaComoLeida(uid, origenTipo, String(n.origenId), items);
+      if (origenTipo === 'visita') {
+        void markVisitaSeguimientoAsRead(String(n.origenId), role || 'supervisor', {
+          uid,
+          nombre: currentActorName,
+        });
+      } else if (origenTipo === 'novedad' && n.tipo === 'seguimiento_novedad') {
+        void markNovedadSeguimientoAsRead(
+          String(n.origenId),
+          role || 'supervisor',
+          currentActorName,
+          uid,
+        );
+      }
+    }
     setOpen(false);
-    const origenTipo = resolveOrigenTipo(n);
-    if (n.vista === 'dashboard' && origenTipo && n.origenId) {
+    if (origenTipo === 'visita' && n.origenId) {
+      sessionStorage.setItem('aspro_open_visita', String(n.origenId));
+      onNavigate('visitas_supervisor');
+      window.setTimeout(() => window.dispatchEvent(new Event('aspro:abrir-visita')), 150);
+    } else if (n.vista === 'dashboard' && origenTipo && n.origenId) {
       sessionStorage.setItem('aspro_open_alerta', `${origenTipo}_${n.origenId}`);
       onNavigate(role === 'supervisor' ? 'dashboard' : 'supervisor_dashboard');
       window.setTimeout(() => window.dispatchEvent(new Event('aspro:abrir-alerta')), 150);
@@ -282,12 +312,31 @@ export const NotificacionesSupervisorCenter: React.FC<Props> = ({
               {unread.length > 0 && (
                 <button
                   type="button"
-                  onClick={() =>
+                  onClick={() => {
                     void marcarTodasLeidas(
                       unread.map((n) => n.id),
                       uid,
-                    )
-                  }
+                    );
+                    unread.forEach((n) => {
+                      const ot = resolveOrigenTipo(n);
+                      if (ot && n.origenId) {
+                        marcarAlertaComoLeida(uid, ot, String(n.origenId), items);
+                        if (ot === 'visita') {
+                          void markVisitaSeguimientoAsRead(String(n.origenId), role || 'supervisor', {
+                            uid,
+                            nombre: currentActorName,
+                          });
+                        } else if (ot === 'novedad' && n.tipo === 'seguimiento_novedad') {
+                          void markNovedadSeguimientoAsRead(
+                            String(n.origenId),
+                            role || 'supervisor',
+                            currentActorName,
+                            uid,
+                          );
+                        }
+                      }
+                    });
+                  }}
                   className="text-[11px] font-black text-indigo-600 flex items-center gap-1 hover:underline"
                 >
                   <CheckCheck className="w-3.5 h-3.5" /> Marcar todas
